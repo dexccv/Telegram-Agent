@@ -25,7 +25,16 @@ from penerjemah_idk import aktifkan_hook_idk
 aktifkan_hook_idk()
 
 import telegram.error
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    BotCommand,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
+    BotCommandScopeDefault,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    MenuButtonCommands,
+    Update,
+)
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -237,6 +246,7 @@ class TelegramAgentGateway:
 
         print(f"[*] Menginisialisasi Terminal Agent [Provider: {self.provider.upper()}, Model: {self.model_name}]...")
         self.agent = agen.AgenGemini(api_key=self.api_key, model_name=self.model_name)
+        self.file_picker_state: dict[int, dict] = {}
         print(f"[OK] Agen siap. Whitelist Telegram User ID: {self.allowed_user_id or 'Semua User (Hati-hati!)'}")
 
     def is_authorized(self, update: Update) -> bool:
@@ -536,6 +546,114 @@ class TelegramAgentGateway:
                     )
                 except Exception:
                     pass
+        elif data.startswith("open_app:"):
+            target_key = data.split(":", 1)[1]
+            mapping = {
+                "chrome": "chrome",
+                "youtube": "https://www.youtube.com",
+                "yt_hindia": "buka chrome lalu buka youtube dan cari lagu hindia",
+                "spotify": "spotify",
+                "notepad": "notepad",
+                "calc": "calc",
+                "vscode": "code",
+                "explorer": "explorer",
+                "terminal": "terminal",
+                "edge": "msedge",
+            }
+            target_query = mapping.get(target_key, target_key)
+            await query.answer(f"Membuka {target_key}...")
+            import perkakas
+            fn_open = getattr(perkakas, "open_application", None)
+            if fn_open:
+                res = await asyncio.to_thread(fn_open, target_query)
+                if query.message:
+                    await query.message.reply_text(f"🖥️ {res}")
+        elif data.startswith("fb_"):
+            parts = data.split(":", 1)
+            action = parts[0]
+            val = parts[1] if len(parts) > 1 else ""
+            user_id = update.effective_user.id if update.effective_user else 0
+            state = getattr(self, "file_picker_state", {}).get(user_id, {})
+            cur_dir = state.get("dir", Path.cwd())
+
+            if action == "fb_loc":
+                await query.answer("Memuat direktori...")
+                if val == "ws":
+                    target_dir = Path.cwd()
+                elif val == "dl":
+                    target_dir = Path.home() / "Downloads"
+                elif val == "docs":
+                    target_dir = Path.home() / "Documents"
+                elif val == "dt":
+                    target_dir = (
+                        Path.home() / "OneDrive" / "Desktop"
+                        if (Path.home() / "OneDrive" / "Desktop").exists()
+                        else Path.home() / "Desktop"
+                    )
+                else:
+                    target_dir = Path.cwd()
+                text, markup = self._build_file_browser(user_id, target_dir, page=0)
+                try:
+                    await query.edit_message_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    pass
+
+            elif action == "fb_nav" and val == "up":
+                await query.answer("Ke folder atas...")
+                parent_dir = cur_dir.parent
+                text, markup = self._build_file_browser(user_id, parent_dir, page=0)
+                try:
+                    await query.edit_message_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    pass
+
+            elif action == "fb_p":
+                await query.answer()
+                target_page = int(val)
+                text, markup = self._build_file_browser(user_id, cur_dir, page=target_page)
+                try:
+                    await query.edit_message_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    pass
+
+            elif action == "fb_d":
+                await query.answer("Membuka folder...")
+                item_idx = int(val)
+                items = state.get("items", [])
+                if 0 <= item_idx < len(items):
+                    next_dir = items[item_idx]
+                    text, markup = self._build_file_browser(user_id, next_dir, page=0)
+                    try:
+                        await query.edit_message_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                    except Exception:
+                        pass
+
+            elif action == "fb_f":
+                item_idx = int(val)
+                items = state.get("items", [])
+                if 0 <= item_idx < len(items):
+                    file_to_send = items[item_idx]
+                    if file_to_send.exists() and file_to_send.is_file():
+                        file_sz = file_to_send.stat().st_size
+                        if file_sz > 50 * 1024 * 1024:
+                            await query.message.reply_text("❌ Ukuran berkas melebihi batas 50 MB Telegram Bot.")
+                            return
+                        await query.answer("Mengirim berkas...")
+                        status_msg = await query.message.reply_text(f"📤 Mengunggah berkas `{file_to_send.name}`...")
+                        try:
+                            with open(file_to_send, "rb") as f:
+                                await query.message.reply_document(
+                                    document=f, caption=f"📥 Berkas dari laptop:\n`{file_to_send}`"
+                                )
+                            try:
+                                await status_msg.delete()
+                            except Exception:
+                                pass
+                        except Exception as exc:
+                            await query.message.reply_text(f"❌ Gagal mengirim berkas: {exc}")
+
+            elif action == "fb_noop":
+                await query.answer()
 
     async def speed_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Menguji kecepatan pengiriman bot Telegram dan kecepatan respon model AI."""
@@ -687,6 +805,33 @@ class TelegramAgentGateway:
         else:
             await update.message.reply_text("❌ Fungsi close_application tidak tersedia.")
 
+    def _build_open_app_markup(self) -> InlineKeyboardMarkup:
+        """Membuat tombol pilihan aplikasi desktop & pencarian untuk dibuka di laptop."""
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🌐 Google Chrome", callback_data="open_app:chrome"),
+                    InlineKeyboardButton("🎬 YouTube", callback_data="open_app:youtube"),
+                ],
+                [
+                    InlineKeyboardButton("🎵 YT: Lagu Hindia", callback_data="open_app:yt_hindia"),
+                    InlineKeyboardButton("🎧 Spotify", callback_data="open_app:spotify"),
+                ],
+                [
+                    InlineKeyboardButton("📝 Notepad", callback_data="open_app:notepad"),
+                    InlineKeyboardButton("🧮 Kalkulator", callback_data="open_app:calc"),
+                ],
+                [
+                    InlineKeyboardButton("💻 VS Code", callback_data="open_app:vscode"),
+                    InlineKeyboardButton("📁 File Explorer", callback_data="open_app:explorer"),
+                ],
+                [
+                    InlineKeyboardButton("⚡ Terminal / CMD", callback_data="open_app:terminal"),
+                    InlineKeyboardButton("🌐 Microsoft Edge", callback_data="open_app:edge"),
+                ],
+            ]
+        )
+
     async def open_app_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Membuka aplikasi desktop, link URL, atau mencari di YouTube / Google."""
         if not self.is_authorized(update):
@@ -694,12 +839,16 @@ class TelegramAgentGateway:
             return
 
         if not context.args:
+            msg = (
+                "📱 **PELUNCUR APLIKASI LAPTOP (APP LAUNCHER)**\n\n"
+                "Pilih aplikasi atau pintasan cepat di bawah untuk langsung dibuka di laptop:\n"
+                "• Atau ketik langsung: `/buka <nama>` (contoh: `/buka spotify`)\n"
+                "• Atau cari di YouTube: `/buka youtube lagu hindia`"
+            )
             await update.message.reply_text(
-                "⚠️ Masukkan nama aplikasi, link, atau pencarian YouTube. Contoh:\n"
-                "• `/buka chrome`\n"
-                "• `/buka youtube lagu hindia`\n"
-                "• `/buka spotify`\n"
-                "• `/buka https://google.com`"
+                msg,
+                reply_markup=self._build_open_app_markup(),
+                parse_mode=ParseMode.MARKDOWN,
             )
             return
 
@@ -811,31 +960,146 @@ class TelegramAgentGateway:
         else:
             await update.message.reply_text("❌ Fungsi read_file tidak tersedia.")
 
+    def _build_file_browser(
+        self, user_id: int, target_dir: Path | None = None, page: int = 0
+    ) -> tuple[str, InlineKeyboardMarkup]:
+        """Membangun penjelajah berkas interaktif laptop dengan navigasi folder & pagination."""
+        if not hasattr(self, "file_picker_state"):
+            self.file_picker_state = {}
+
+        state = self.file_picker_state.get(user_id, {})
+        cur_dir = target_dir or state.get("dir") or Path.cwd()
+        try:
+            cur_dir = Path(cur_dir).resolve()
+            if not cur_dir.exists() or not cur_dir.is_dir():
+                cur_dir = Path.cwd()
+        except Exception:
+            cur_dir = Path.cwd()
+
+        dirs = []
+        files = []
+        try:
+            for item in sorted(cur_dir.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+                if item.name.startswith("."):
+                    continue
+                if item.is_dir():
+                    dirs.append(item)
+                elif item.is_file():
+                    files.append(item)
+        except Exception:
+            pass
+
+        all_items = dirs + files
+        page_size = 6
+        total_items = len(all_items)
+        total_pages = max(1, (total_items + page_size - 1) // page_size)
+        page = max(0, min(page, total_pages - 1))
+
+        self.file_picker_state[user_id] = {
+            "dir": cur_dir,
+            "page": page,
+            "items": all_items,
+        }
+
+        start_idx = page * page_size
+        page_items = all_items[start_idx : start_idx + page_size]
+
+        keyboard = []
+
+        # Shortcut folder cepat
+        keyboard.append([
+            InlineKeyboardButton("📂 Project", callback_data="fb_loc:ws"),
+            InlineKeyboardButton("📥 Downloads", callback_data="fb_loc:dl"),
+            InlineKeyboardButton("📄 Docs", callback_data="fb_loc:docs"),
+            InlineKeyboardButton("🖥️ Desktop", callback_data="fb_loc:dt"),
+        ])
+
+        # Tombol folder atas jika ada parent
+        if cur_dir.parent != cur_dir:
+            parent_name = cur_dir.parent.name or str(cur_dir.parent)
+            keyboard.append([
+                InlineKeyboardButton(f"⬆️ Ke Folder Atas ({parent_name})", callback_data="fb_nav:up")
+            ])
+
+        # Daftar item folder & berkas
+        for idx_in_page, item in enumerate(page_items):
+            global_idx = start_idx + idx_in_page
+            if item.is_dir():
+                btn_text = f"📁 {item.name[:28]}"
+                keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"fb_d:{global_idx}")])
+            else:
+                try:
+                    sz = item.stat().st_size
+                except Exception:
+                    sz = 0
+                sz_str = f"{sz} B" if sz < 1024 else (f"{sz/1024:.1f} KB" if sz < 1024*1024 else f"{sz/(1024*1024):.1f} MB")
+                btn_text = f"📥 {item.name[:22]} ({sz_str})"
+                keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"fb_f:{global_idx}")])
+
+        # Baris navigasi pagination
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"fb_p:{page - 1}"))
+        nav_row.append(InlineKeyboardButton(f"📄 Hal {page + 1}/{total_pages}", callback_data="fb_noop"))
+        if page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"fb_p:{page + 1}"))
+        if len(nav_row) > 1:
+            keyboard.append(nav_row)
+
+        text = (
+            "📂 **PENJELAJAH BERKAS LAPTOP (FILE PICKER)**\n\n"
+            f"📍 **Direktori**: `{cur_dir}`\n"
+            f"📊 **Isi**: {len(dirs)} folder, {len(files)} berkas\n\n"
+            "• Klik **📁 Folder** untuk masuk ke subdirektori.\n"
+            "• Klik **📥 Berkas** untuk mengunduhnya langsung ke HP Anda.\n"
+            "• Atau ketik: `/get <path_lengkap>` (bisa file mana saja di laptop)."
+        )
+        return text, InlineKeyboardMarkup(keyboard)
+
     async def get_file_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Mengirim berkas dari laptop ke HP pengguna via Telegram document."""
         if not self.is_authorized(update):
             await self.unauthorized_handler(update)
             return
 
+        user_id = update.effective_user.id if update.effective_user else 0
+
         if not context.args:
-            await update.message.reply_text("⚠️ Masukkan nama berkas. Contoh: `/get README.md`")
+            text, markup = self._build_file_browser(user_id, Path.cwd(), page=0)
+            await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
             return
 
         target_name = " ".join(context.args).strip()
-        target_path = Path(target_name).resolve()
+        target_path = Path(target_name).expanduser().resolve()
 
         if not target_path.exists() or not target_path.is_file():
-            await update.message.reply_text(f"❌ Berkas `{target_name}` tidak ditemukan di laptop.")
-            return
+            alt_path = (Path.cwd() / target_name).resolve()
+            if alt_path.exists() and alt_path.is_file():
+                target_path = alt_path
+            else:
+                await update.message.reply_text(
+                    f"❌ Berkas `{target_name}` tidak ditemukan di laptop.\n"
+                    "Gunakan `/get` tanpa argumen untuk membuka Penjelajah Berkas interaktif."
+                )
+                return
 
         file_size = target_path.stat().st_size
         if file_size > 50 * 1024 * 1024:
             await update.message.reply_text("❌ Ukuran berkas melebihi batas 50 MB Telegram Bot.")
             return
 
-        await update.message.reply_text(f"📤 Mengunggah berkas `{target_path.name}` ({file_size} byte)...")
-        with open(target_path, "rb") as f:
-            await update.message.reply_document(document=f, caption=f"Berkas dari laptop: `{target_path.name}`")
+        status_msg = await update.message.reply_text(f"📤 Mengunggah berkas `{target_path.name}` ({file_size:,} byte)...")
+        try:
+            with open(target_path, "rb") as f:
+                await update.message.reply_document(
+                    document=f, caption=f"📥 Berkas dari laptop:\n`{target_path}`"
+                )
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+        except Exception as exc:
+            await update.message.reply_text(f"❌ Gagal mengirim berkas: {exc}")
 
     async def new_session_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self.is_authorized(update):
@@ -1143,7 +1407,16 @@ class TelegramAgentGateway:
             BotCommand("provider", "Ganti provider (gemini/ollama)"),
         ]
         try:
-            await application.bot.set_my_commands(commands)
+            await application.bot.set_my_commands(commands, scope=BotCommandScopeDefault())
+            await application.bot.set_my_commands(commands, scope=BotCommandScopeAllPrivateChats())
+            if self.allowed_user_id and str(self.allowed_user_id).isdigit():
+                await application.bot.set_my_commands(
+                    commands, scope=BotCommandScopeChat(chat_id=int(self.allowed_user_id))
+                )
+                await application.bot.set_chat_menu_button(
+                    chat_id=int(self.allowed_user_id), menu_button=MenuButtonCommands()
+                )
+            await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
         except Exception:
             pass
 

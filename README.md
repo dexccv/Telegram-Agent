@@ -1,259 +1,187 @@
-# gemini-terminal-agent
+# Gemini Terminal Agent
 
-AI Agent terminal modern, berwarna, dan beranimasi yang dibangun di atas Python, Textual TUI, dan SDK resmi `google-genai`.
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![Indonesiaku--Lang](https://img.shields.io/badge/Language-Indonesiaku--Lang-FF0000?style=flat-square)](https://github.com/teguh02/Indonesiaku-Lang)
+[![Telegram Gateway](https://img.shields.io/badge/Telegram-Remote%20Control-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://telegram.org)
+[![Google GenAI](https://img.shields.io/badge/Google-GenAI%20SDK-4285F4?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
----
-
-## ⌬ Gambaran Umum
-
-`gemini-terminal-agent` menyediakan pengalaman interaksi agen AI langsung di terminal dengan antarmuka visual gelap, performa tinggi, dan eksekusi function calling otomatis untuk berinteraksi dengan berkas lokal dan shell sistem.
-
-### Fitur Utama:
-- **UI Terminal Beranimasi**: Dibangun dengan Textual dan Rich tanpa menggunakan emoji. Efek mengetik (typing effect 15ms/karakter), indikator spinner saat agen memproses, dan highlight saat transisi model.
-- **Tombol & Pintasan Interupsi (Interrupt)**: Hentikan pemrosesan agen, pemanggilan tool loop, atau animasi respon secara instan menggunakan tombol **Hentikan ⏹**, tombol keyboard `Ctrl + X` / `Escape`, atau perintah slash `/stop`.
-- **Manajemen Sesi & Pemulihan Percakapan**: Riwayat multi-turn dan eksekusi tool disimpan secara persisten di `~/.gemini-agent/sessions/`. Pengguna dapat beralih antar sesi, memulihkan sesi sebelumnya, atau membuat sesi baru (`Ctrl + S` atau `/session`).
-- **Memori Jangka Panjang Persisten**: Menyimpan preferensi, instruksi, dan fakta pengguna di `~/.gemini-agent/memory.json` yang diinjeksi ke sistem instruksi model secara otomatis di setiap sesi (`/memory`).
-- **Auto-Detect Model API**: Daftar model tidak di-hardcode, melainkan dipindai secara dinamis langsung dari Gemini API dengan filter kapabilitas `generateContent` dan tool calling.
-- **First-Run Terpandu**: Alur modal interaktif untuk konfigurasi API key (disembunyikan) dan pemilihan model otomatis saat pertama kali diluncurkan.
-- **Tool Calling Dinamis**: Agen dapat membuat folder, mendaftar file, membaca file, menulis file, menjalankan perintah shell, dan menyimpan/mengingat informasi ke memori jangka panjang.
-- **Filter Keamanan Shell (Blacklist)**: Mencegah eksekusi perintah destruktif seperti penghapusan root direktori, pemformatan partisi disk, atau shutdown paksa.
-- **Sistem Logging Terstruktur**: Rotasi harian di `~/.gemini-agent/logs/agent-YYYY-MM-DD.log` dengan diagnosa kesalahan mendalam (kategori, kode API, saran mitigasi, dan ringkasan traceback).
+Terminal AI Agent modern, interaktif, dan beranimasi yang dibangun di atas Python dan **Indonesiaku-Lang** (`.idk`). Dilengkapi dengan antarmuka **Textual TUI**, integrasi model AI ganda (*Google Gemini*, *Local Ollama*, dan *Omniroute*), eksekusi perkakas otonom (*tool calling*), serta **Telegram Mobile Gateway** untuk memantau dan mengendalikan laptop secara real-time langsung dari handphone.
 
 ---
 
-## ⌬ Bahasa Pemrograman: Indonesiaku-Lang
+## 🌟 Fitur Utama
 
-Basis kode aplikasi ini ditulis menggunakan bahasa pemrograman **Indonesiaku-Lang** (`.idk`) yang terinspirasi dari [teguh02/Indonesiaku-Lang](https://github.com/teguh02/Indonesiaku-Lang). Seluruh logika inti program (agen, antarmuka TUI Textual, modul memori, pengelola sesi, perkakas eksekusi, dan konfigurasi) ditulis dalam sintaks berbahasa Indonesia dengan kurung kurawal `{ }` dan kata kunci khas:
-- `fungsi` (def), `kembalikan` (return)
-- `kelas` (class), `diri` (self), `init` (__init__)
-- `jika` (if), `jika_lain` (elif), `selain` (else)
-- `untuk` (for), `dalam` (in), `selagi` (while)
-- `coba` (try), `kecuali` (except), `akhirnya` (finally)
-- `benar` (True), `salah` (False), `kosong` (None)
+### 🖥️ Antarmuka Terminal (TUI) Modern
+- **Tampilan Dark Mode Berkelas**: Desain visual elegan berbasis [Textual](https://textual.textualize.io/) dan [Rich](https://rich.readthedocs.io/) dengan animasi *typing effect*, *loading spinner*, dan palet tema dinamis (`default`, `emerald`, `crimson`, `amber`, `purple`).
+- **Interupsi Instan (Interrupt)**: Hentikan pemrosesan agen atau loop pemanggilan alat seketika dengan `Ctrl + X`, `Escape`, atau tombol **Hentikan ⏹**.
+- **Penyuntingan Konteks Cepat**: Sisipkan isi berkas ke prompt secara langsung menggunakan sintaks `@nama_berkas` (misal: `@app.py`).
 
-Runtime dieksekusi secara native via `penerjemah_idk.py` yang menyediakan Import Hook `sys.meta_path` dan translasi ast/bytecode langsung di memori tanpa jeda kompilasi manual.
+### 📱 Telegram Mobile Gateway (Remote Laptop Control)
+Kendalikan dan pantau laptop Anda kapan pun dan di mana pun melalui aplikasi Telegram dengan perlindungan keamanan *whitelist*:
+- **Dashboard Real-Time (`/status`)**: Pantau status daya baterai, pengisian charger, nama SSID & kekuatan sinyal Wi-Fi, jendela aktif di layar, beban CPU, penggunaan RAM, dan penyimpanan disk.
+- **Peluncur Aplikasi Interaktif (`/buka`)**: Menu tombol inline untuk membuka aplikasi desktop seperti Google Chrome, YouTube, Spotify, VS Code, Notepad, Kalkulator, File Explorer, atau Terminal.
+- **Pencarian YouTube & Browser Otomatis**: Perintah seperti `buka chrome lalu buka youtube dan cari lagu hindia` secara cerdas mengurai kata kunci dan memutar pencarian di browser.
+- **Penjelajah Berkas & Pengunduh Berkas (`/get`)**: File picker interaktif dengan navigasi folder (Project, Downloads, Documents, Desktop, Drive C/D) untuk mengunduh berkas apa saja dari laptop ke Telegram ponsel dalam 1 ketukan.
+- **Pengatur Suara Master (`/volume`, `/mute`, `/unmute`)**: Panel tombol inline untuk mengatur volume laptop (0–100%, +10%, -10%, Mute/Unmute) secara instan via Windows Core Audio.
+- **Webcam Snapshot (`/kamera`)**: Ambil foto langsung dari kamera webcam laptop dan kirimkan secara aman ke Telegram.
+- **Manajemen Proses (`/tutup`)**: Tutup aplikasi yang sedang berjalan dari jarak jauh (misal: `/tutup chrome`).
+- **Benchmark Latensi & Kecepatan (`/speed`)**: Uji kecepatan roundtrip server Telegram dan kecepatan token/detik pemrosesan AI.
+
+### 🧠 Multi-Turn Sesi & Memori Jangka Panjang
+- **Sesi Persisten**: Riwayat percakapan disimpan dalam format JSON di `~/.gemini-agent/sessions/`. Anda dapat berpindah sesi, memulihkan sesi lama, atau mengekspor percakapan ke Markdown (`/session`, `/export`).
+- **Memori Persisten**: Preferensi dan fakta penting disimpan di `~/.gemini-agent/memory.json` dan otomatis diinjeksi ke instruksi sistem di setiap sesi (`/memory`).
+
+### 🤖 Multi-Provider AI
+- **Google Gemini**: Integrasi SDK resmi `google-genai` dengan model seperti `gemini-2.5-flash`, `gemini-2.5-pro`, dan kapabilitas multimodal.
+- **Local Ollama**: Dukungan eksekusi model lokal offline (seperti `qwen2.5-coder:7b`, `llama3.1`, `deepseek-r1`) dengan penyimpanan model yang dapat disesuaikan.
+- **Omniroute / OpenAI-Compatible**: Dukungan gateway proksi AI dengan endpoint OpenAI-compatible.
 
 ---
 
-## ⌬ Struktur Proyek
+## 🇮🇩 Bahasa Pemrograman: Indonesiaku-Lang (.idk)
+
+Seluruh arsitektur inti logika agen, modul memori, pengelola sesi, perkakas eksekusi, antarmuka TUI, dan konfigurasi ditulis menggunakan bahasa pemrograman **Indonesiaku-Lang** (`.idk`) yang terinspirasi dari [teguh02/Indonesiaku-Lang](https://github.com/teguh02/Indonesiaku-Lang).
+
+```idk
+fungsi open_application(app_or_query: str) -> str {
+    jika "youtube" dalam app_or_query.lower() {
+        # Buka Chrome dan putar pencarian YouTube
+        kembalikan "[SUKSES] Berhasil membuka YouTube di Chrome."
+    }
+}
+```
+
+Modul `.idk` dikompilasi dan dimuat secara dinamis saat runtime oleh engine `penerjemah_idk.py` melalui `sys.meta_path` import hook sehingga beroperasi sepenuhnya native tanpa jeda translasi manual.
+
+---
+
+## 📁 Struktur Repositori
 
 ```text
 gemini-terminal-agent/
+├── app.py                 # Pintu masuk utama aplikasi & peluncur background gateway
+├── utama.py               # Launcher alternatif runtime Indonesiaku-Lang
+├── bot_telegram.py        # Gateway Remote Control Telegram (Real-Time Monitor & Commands)
 │
-├── bot_telegram.py     # Gateway Telegram Remote Control (kendalikan laptop dari HP kapan pun)
-├── run_bot.bat         # Launcher 1-klik untuk menyalakan Gateway Telegram di Windows
-├── run_bot.sh          # Launcher Gateway Telegram di Linux/macOS
+├── aplikasi.idk           # Antarmuka visual TUI Textual & modal dialog (.idk)
+├── agen.idk               # Mesin agen AI, orchestration multi-turn, & function calls (.idk)
+├── perkakas.idk           # Kumpulan alat eksekusi file, shell, volume, & launcher (.idk)
+├── konfigurasi.idk        # Pengelola konfigurasi lingkungan & berkas .env (.idk)
+├── pengelola_sesi.idk     # Pengelola riwayat sesi percakapan persisten (.idk)
+├── memori.idk             # Pengelola memori jangka panjang pengguna (.idk)
+├── penerjemah_idk.py      # Runtime loader & compiler AST Indonesiaku-Lang
 │
-├── penerjemah_idk.py   # Engine penerjemah & import hook loader Indonesiaku-Lang (.idk)
-├── utama.py            # Peluncur utama berbasis Indonesiaku-Lang (menjalankan aplikasi.idk)
-│
-├── aplikasi.idk        # Kode sumber utama TUI Textual, layar modal, dan reactive watcher (Indonesiaku-Lang)
-├── agen.idk            # Logika Agent Gemini, chat loop, dan function call handler (Indonesiaku-Lang)
-├── pengelola_sesi.idk  # Pengelola sesi persisten, multi-turn, dan riwayat obrolan (Indonesiaku-Lang)
-├── memori.idk          # Pengelola memori jangka panjang pengguna (Indonesiaku-Lang)
-├── perkakas.idk        # 16 Tool sistem file, shell command runner, dan memori (Indonesiaku-Lang)
-├── konfigurasi.idk     # Pengelola direktori ~/.gemini-agent dan .env (Indonesiaku-Lang)
-│
-├── app.py              # Pintu masuk kompatibilitas (meneruskan ke aplikasi.idk)
-├── logger.py           # Logger rotasi harian dan formatter diagnosa error detail
-├── requirements.txt    # Dependensi library Python (textual, google-genai, python-telegram-bot, dll.)
-├── run.bat             # Script peluncur TUI Windows (venv otomatis + install deps)
-├── run.sh              # Script peluncur TUI Linux/macOS
-└── README.md           # Dokumentasi teknis proyek
+├── logger.py              # Sistem logging terstruktur rotasi harian
+├── requirements.txt       # Daftar dependensi library Python
+├── run.bat / run.sh       # Script launcher 1-klik (Windows / Linux)
+├── run_bot.bat / .sh      # Script launcher dedicated bot Telegram
+└── README.md              # Dokumentasi teknis proyek
 ```
 
 ---
 
-## ⌬ Persyaratan Sistem
+## 🚀 Panduan Instalasi & Menjalankan
 
+### Persyaratan Sistem
 - Python 3.10 atau versi yang lebih tinggi
-- Koneksi internet untuk mengakses Gemini API
-- Kunci API Google Gemini (dapat diperoleh melalui [Google AI Studio](https://aistudio.google.com/))
+- Akses internet untuk Gemini API / Telegram Bot, atau Ollama untuk mode lokal offline
+- OS: Windows 10/11 (dukungan penuh kontrol audio & webcam), Linux, atau macOS
 
----
-
-## ⌬ Instalasi dan Menjalankan
-
-### Cara Cepat (Rekomendasi)
-
-#### Pengguna Windows:
-Cukup klik ganda atau jalankan file batch:
-```cmd
-run.bat
-```
-
-#### Pengguna Linux / macOS:
-Berikan izin eksekusi lalu jalankan:
+### 1. Kloning Repositori
 ```bash
-chmod +x run.sh
-./run.sh
+git clone https://github.com/dexccv/gemini-cli.git
+cd gemini-cli
 ```
 
-Script launcher di atas secara otomatis akan:
-1. Memverifikasi keberadaan Python di sistem.
-2. Membuat virtual environment `.venv` jika belum ada.
-3. Memasang dependensi dari `requirements.txt`.
-4. Menjalankan aplikasi `app.py`.
-5. Memberikan jeda di akhir eksekusi sebelum terminal ditutup.
+### 2. Cara Cepat (Rekomendasi)
+* **Pengguna Windows**:
+  ```cmd
+  run.bat
+  ```
+* **Pengguna Linux / macOS**:
+  ```bash
+  chmod +x run.sh
+  ./run.sh
+  ```
+*Script launcher akan otomatis membuat virtual environment `.venv`, memasang dependensi, dan menyalakan aplikasi.*
+
+### 3. Cara Manual
+```bash
+# Buat dan aktifkan virtual environment
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+# Linux/macOS
+source .venv/bin/activate
+
+# Pasang dependensi
+pip install -r requirements.txt
+
+# Jalankan Terminal Agent TUI
+python app.py
+```
 
 ---
 
-### Cara Manual
+## 📲 Panduan Telegram Mobile Gateway
 
-1. Buat dan aktifkan virtual environment:
-   ```bash
-   # Windows
-   python -m venv .venv
-   .venv\Scripts\activate
+Gateway Telegram memungkinkan Anda memantau dan memberikan perintah ke laptop dari smartphone kapan saja.
 
-   # Linux / macOS
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
+### Konfigurasi Awal
+Tambahkan token bot dan ID Telegram Anda ke `~/.gemini-agent/.env`:
+```env
+TELEGRAM_BOT_TOKEN=token_bot_anda_dari_botfather
+TELEGRAM_ALLOWED_USER_ID=user_id_angka_anda
+```
 
-2. Pasang dependensi:
-   ```bash
-   pip install -r requirements.txt
-   ```
+> **Keamanan Whitelist**: Bot dilindungi dengan whitelist ID Telegram. Setiap pesan dari akun yang tidak terdaftar akan otomatis ditolak.
 
-3. Jalankan aplikasi:
-   ```bash
-   python utama.py
-   # atau
-   python app.py
-   ```
-
----
-
-## ⌬ Remote Control dari HP via Telegram Bot
-
-Anda dapat mengendalikan AI Agent di laptop secara penuh dari handphone kapan pun dan di mana pun melalui Telegram Bot, asalkan laptop dalam keadaan menyala dan terhubung ke internet:
-
-### Cara Menjalankan:
-1. Klik ganda berkas **`run_bot.bat`** (Windows) atau jalankan `./run_bot.sh` (Linux/macOS).
-2. Buka aplikasi Telegram di handphone Anda, cari bot Anda (`@rexc_091`), lalu ketik `/start`.
-3. Anda dapat langsung mengirim instruksi dari HP, misalnya:
-   - *"Buatkan script Python kalkulator di laptop dan tes jalankan"*
-   - *"Cari berkas laporan di folder ini dan baca isinya"*
-   - `/status` : Memeriksa sisa baterai laptop, RAM, dan status sistem
-   - `/get <nama_file>` : Mengunduh berkas dari laptop langsung ke Telegram HP Anda
-   - Mengirim berkas/dokumen dari HP ke bot untuk disimpan otomatis di laptop.
-
-> **Keamanan Whitelist Terjamin**: Bot dikunci secara otomatis hanya untuk User ID Telegram Anda (`5467304452`). Siapa pun di luar Anda yang mencoba menghubungi bot akan langsung ditolak aksesnya. Token Telegram disimpan di file konfigurasi lokal `~/.gemini-agent/.env` dan tidak pernah dipublikasikan ke GitHub.
-
----
-
-## ⌬ Alur First-Run
-
-Saat aplikasi pertama kali dijalankan dan belum menemukan konfigurasi:
-1. **Layar 1 — Input API Key**:
-   - Meminta input `GEMINI_API_KEY` (karakter disembunyikan).
-   - Disimpan secara otomatis ke `~/.gemini-agent/.env`.
-2. **Layar 2 — Deteksi Model**:
-   - Menghubungi API Gemini untuk memindai seluruh model resmi yang tersedia.
-   - Menampilkan daftar interaktif berisi nama model, nama teknis, dan batas token.
-   - Pilihan disimpan sebagai `GEMINI_MODEL` di file `.env`.
-   - Tersedia input manual jika koneksi terbatas atau ingin menggunakan nama spesifik.
-3. **Layar 3 — Antarmuka Chat Utama**:
-   - Menampilkan chat box, live clock di header, dan status bar di bagian bawah.
-
----
-
-## ⌬ Perintah Slash dan Pintasan Keyboard
-
-### Perintah Slash (Ketik di kotak input chat):
-| Perintah / Format | Deskripsi |
+### Perintah Utama Telegram Bot
+| Perintah | Deskripsi |
 | :--- | :--- |
-| `@nama_berkas` | Menyertakan isi berkas langsung ke dalam konteks prompt (misal `@app.py`) |
-| `/export [nama.md]` | Mengekspor percakapan aktif ke format dokumen Markdown yang rapi |
-| `/restart` | Memulai ulang aplikasi terminal agent secara bersih (alias: `/reload`, `/reboot`) |
-| `/stop` | Menghentikan pemrosesan respon agen seketika (alias: `/batal`, `/cancel`) |
-| `/session` | Membuka jendela modal manajemen & pemulihan sesi |
-| `/session list` | Menampilkan seluruh daftar sesi yang tersimpan di disk |
-| `/session load <id/no>` | Memulihkan percakapan dan konteks dari sesi tertentu |
-| `/session new [judul]` | Memulai sesi percakapan baru yang segar |
-| `/session rename <judul>` | Mengubah judul sesi aktif saat ini |
-| `/session delete <id/no>` | Menghapus file sesi dari disk |
-| `/session info` | Menampilkan rincian statistik sesi aktif (turns, pesan, waktu) |
-| `/memory` | Menampilkan seluruh catatan memori jangka panjang agent |
-| `/memory set <key> <val>` | Menyimpan instruksi/preferensi/fakta baru ke memori persisten |
-| `/memory delete <key>` | Menghapus kunci memori tertentu |
-| `/memory clear` | Mengosongkan seluruh memori jangka panjang |
-| `/theme <nama>` | Mengganti tema warna UI (`default`, `emerald`, `crimson`, `amber`, `purple`) |
-| `/model` | Membuka layar deteksi model untuk mengganti model aktif |
-| `/model <nama>` | Mengganti model aktif secara instan |
-| `/clear` | Memulai sesi baru dan membersihkan tampilan layar chat |
-| `/help` | Menampilkan ringkasan panduan perintah slash dan tombol pintasan |
-| `/quit` | Menutup dan keluar dari aplikasi terminal |
-
-### Pintasan Keyboard:
-- `Enter` : Kirim pesan prompt ke agen
-- `Ctrl + R` : Memulai ulang aplikasi (Restart)
-- `Ctrl + X` : Menghentikan respon agen (Interrupt / Stop)
-- `Ctrl + S` : Membuka Layar Manajemen & Pemulihan Sesi
-- `Ctrl + M` : Membuka Layar Pemilihan Model
-- `Ctrl + T` : Beralih tema warna UI secara berurutan
-- `Ctrl + L` : Membersihkan area pesan chat & mulai sesi baru
-- `Ctrl + C` : Keluar dari aplikasi
+| `/status` | Menampilkan dashboard monitoring laptop real-time (baterai, Wi-Fi, jendela aktif, hardware). |
+| `/buka` | Membuka panel tombol aplikasi laptop (Chrome, YouTube, Spotify, VS Code, Notepad, dll). |
+| `/buka <target>` | Buka aplikasi, tautan URL, atau cari YouTube langsung (misal: `/buka youtube lagu hindia`). |
+| `/get` | Membuka Penjelajah Berkas (File Picker) interaktif untuk mengunduh file laptop ke ponsel. |
+| `/get <path>` | Mengunduh file tertentu dari laptop (mendukung path di dalam maupun di luar workspace). |
+| `/volume` | Membuka panel tombol kontrol volume laptop (0–100%, +10%, -10%, Mute/Unmute). |
+| `/mute` / `/unmute` | Mematikan atau menghidupkan kembali suara speaker laptop secara instan. |
+| `/kamera` | Mengambil foto langsung dari webcam laptop dan mengirimkannya ke chat. |
+| `/tutup <nama>` | Menutup aplikasi desktop tertentu yang sedang berjalan di laptop. |
+| `/speed` | Menguji latensi respons model AI dan kecepatan kirim jaringan Telegram. |
+| `/baca <file>` | Membaca isi berkas teks lokal laptop langsung di Telegram. |
+| `/provider` | Melihat atau mengganti provider AI aktif (`gemini`, `ollama`, `omniroute`). |
+| `/models` / `/model` | Memindai dan mengganti model AI yang aktif digunakan. |
+| `/new` / `/sessions` | Memulai sesi percakapan baru atau beralih sesi percakapan lama. |
 
 ---
 
-## ⌬ Tool Calling dan Proteksi Keamanan
+## ⌨️ Pintasan Keyboard Terminal TUI
 
-Agen dibekali tool native Python yang dieksekusi secara otonom ketika dibutuhkan:
-1. `create_folder(path)`: Membuat folder baru bersarang di dalam proyek.
-2. `list_files(path=".")`: Mendaftar isi file dan sub-folder beserta ukuran byte.
-3. `read_file(path)`: Membaca isi file teks di dalam proyek (batas maksimum 1MB).
-4. `write_file(path, content)`: Menulis konten teks ke file secara aman dan atomik.
-5. `edit_file(path, target_text, replacement_text)`: Menyunting potongan teks tertentu secara presisi (diff replace).
-6. `run_command(command)`: Menjalankan perintah terminal lokal.
-7. `save_memory(key, value)`: Menyimpan fakta/preferensi ke memori jangka panjang agent.
-8. `recall_memory(key)`: Mencari dan membaca informasi dari memori jangka panjang.
-9. `list_memories()`: Menampilkan semua informasi di memori jangka panjang.
-
-### Proteksi Keamanan (Sandbox Jail):
-Operasi berkas dibatasi secara ketat (*workspace sandbox*):
-- Operasi baca/tulis/sunting di luar direktori kerja proyek otomatis diblokir.
-- Mencegah *path traversal* (`../`) dan akses ke berkas sensitif sistem operasi.
-- Penulisan berkas sesi dan memori menggunakan mekanisme penulisan atomik (*tempfile + atomic rename*).
-
-### Blacklist Perintah Shell:
-Perintah berbahaya berikut otomatis diblokir oleh sistem:
-- `rm -rf /`
-- `format c:`
-- `mkfs`
-- `shutdown`
-- `del /f /s /q c:\`
-- Pola disk wipe, fork bomb, dan manipulasi partisi berbasis regex.
+| Tombol Pintasan | Fungsi |
+| :--- | :--- |
+| `Enter` | Mengirim pesan prompt ke agen |
+| `Ctrl + X` / `Escape` | Menghentikan respon agen seketika (*Interrupt*) |
+| `Ctrl + S` | Membuka jendela dialog manajemen dan pemulihan sesi |
+| `Ctrl + M` | Membuka jendela dialog pemilihan model AI |
+| `Ctrl + T` | Beralih tema warna antarmuka secara berurutan |
+| `Ctrl + R` | Memulai ulang aplikasi terminal (*Restart*) |
+| `Ctrl + L` | Membersihkan riwayat tampilan layar chat |
+| `Ctrl + C` | Keluar dari aplikasi terminal |
 
 ---
 
-## ⌬ Sistem Diagnosa Kesalahan dan Mode Debug
+## 🛡️ Keamanan & Perlindungan Sistem
 
-Semua aktivitas dicatat ke:
-```text
-~/.gemini-agent/logs/agent-YYYY-MM-DD.log
-```
+Agen dilengkapi dengan perlindungan keamanan terintegrasi:
+- **Sandbox Workspace**: Pembatasan akses baca dan tulis file untuk mencegah modifikasi tidak disengaja di luar folder kerja, kecuali diminta secara eksplisit melalui perintah bot terotentikasi.
+- **Filter Perintah Shell**: Memblokir perintah berbahaya seperti format partisi, penghapusan root direktori paksa (`rm -rf /`), atau shutdown tak terduga.
+- **Aturan Autentikasi Tunggal**: Gateway Telegram hanya merespons perintah dari ID pemilik sah yang tertera pada konfigurasi lokal.
 
-Setiap kesalahan ditampilkan dalam format terstruktur:
-- **Simbol**: `[X]` (Error), `[!]` (Peringatan), `!!` (Rate limit), `◆` (Tool issue)
-- **Kategori**: API Key, Rate Limit, Model Not Found, Network Timeout, Tool Error, Parse Error.
-- **Status API**: Kode status HTTP dan kode error SDK (jika ada).
-- **Saran Aksi**: Solusi teknis yang dapat diambil pengguna.
-- **Traceback**: 3 baris ringkas teratas secara default.
+---
 
-### Mengaktifkan Full Traceback:
-Untuk melihat full traceback saat debugging:
-```bash
-# Windows (CMD)
-set GEMINI_AGENT_DEBUG=1
-python app.py
+## 📄 Lisensi
 
-# Windows (PowerShell)
-$env:GEMINI_AGENT_DEBUG="1"
-python app.py
-
-# Linux / macOS
-export GEMINI_AGENT_DEBUG=1
-python3 app.py
-```
+Proyek ini dilisensikan di bawah lisensi [MIT](LICENSE).

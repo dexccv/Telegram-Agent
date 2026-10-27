@@ -33,3 +33,13 @@ Thumbs.db
 scratch/
 test_*.md
 ekspor_*.md
+*.jpg
+*.jpeg
+*.png
+*.log
+
+# Internal notes & drafts
+AUDIT_*.md
+*AUDIT*.md
+*PLAN*.md
+IMPLEMENTATION_PLAN.md
