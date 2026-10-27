@@ -18,6 +18,7 @@ from penerjemah_idk import aktifkan_hook_idk
 
 aktifkan_hook_idk()
 
+import telegram.error
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -383,7 +384,14 @@ class TelegramAgentGateway:
         app.add_handler(MessageHandler(filters.Document.ALL, self.handle_document))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_user_message))
 
-        app.run_polling()
+        async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+            agent_logger.log_error("telegram_error_handler", str(context.error))
+            if isinstance(context.error, telegram.error.Conflict):
+                print("\n[PERINGATAN] Terdeteksi bot instance lain yang sedang aktif dengan token yang sama.")
+                print("[SOLUSI] Pastikan hanya satu terminal / proses bot_telegram.py yang berjalan.")
+
+        app.add_error_handler(error_handler)
+        app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
