@@ -1,5 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
+set "OLLAMA_MODELS=D:\.ollama\models"
+set "OLLAMA_HOST=127.0.0.1:11434"
 
 echo ========================================================
 echo   GEMINI TERMINAL AGENT (Indonesiaku-Lang Engine)

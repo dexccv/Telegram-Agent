@@ -1,6 +1,8 @@
 @echo off
 title Gemini Agent - Telegram Mobile Gateway
 cd /d "%~dp0"
+set "OLLAMA_MODELS=D:\.ollama\models"
+set "OLLAMA_HOST=127.0.0.1:11434"
 
 echo ========================================================
 echo   GEMINI AGENT - TELEGRAM MOBILE GATEWAY LAUNCHER

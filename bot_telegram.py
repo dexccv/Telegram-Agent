@@ -1736,13 +1736,17 @@ class TelegramAgentGateway:
             await update.message.reply_text("⚠️ Pilihan provider: `gemini`, `omniroute`, atau `ollama`.")
             return
 
+        if target == "ollama":
+            os.environ["OLLAMA_MODELS"] = r"D:\.ollama\models"
+            os.environ["OLLAMA_HOST"] = "127.0.0.1:11434"
+
         self.config.simpan_provider(target)
         self.provider = target
         self.api_key = self.config.ambil_api_key()
         self.model_name = self.config.ambil_model()
         self.agent = agen.AgenGemini(api_key=self.api_key, model_name=self.model_name)
         await update.message.reply_text(
-            f"✅ Provider AI berhasil dialihkan ke **{target.upper()}** (Model: `{self.model_name}`)",
+            f"✅ Provider AI berhasil dialihkan ke **{target.upper()}** (Model: `{self.model_name}`)\n📁 Models: `{r'D:\.ollama\models' if target == 'ollama' else 'Cloud API'}`",
             parse_mode=ParseMode.MARKDOWN,
         )
 

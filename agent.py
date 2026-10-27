@@ -602,7 +602,53 @@ class GeminiAgent:
             self.session.ui_messages.append(SessionMessage(msg_type="agent", text=accumulated_text))
             session_manager.save_session(self.session)
 
-        return accumulated_text
+def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: float = 6.0) -> bool:
+    """Memeriksa apakah server Ollama aktif; jika belum, otomatis menyalakan server Ollama di latar belakang."""
+    check_url = base_url.replace("/v1", "").rstrip("/") + "/api/tags"
+    try:
+        req = urllib.request.Request(check_url, headers={"User-Agent": "Terminal-Agent/HealthCheck"})
+        with urllib.request.urlopen(req, timeout=1.0) as _:
+            return True
+    except Exception:
+        pass
+
+    try:
+        models_path = getattr(config_manager, "get_ollama_models_path", lambda: r"D:\.ollama\models")() or r"D:\.ollama\models"
+        env = os.environ.copy()
+        env["OLLAMA_MODELS"] = str(models_path)
+        env["OLLAMA_HOST"] = "127.0.0.1:11434"
+
+        ollama_bin = "ollama"
+        custom_bin = r"C:\Users\HP\AppData\Local\Programs\Ollama\ollama.exe"
+        if os.path.exists(custom_bin):
+            ollama_bin = custom_bin
+
+        flags = 0
+        if os.name == "nt":
+            flags = 0x00000008 | 0x00000200 | 0x08000000
+        subprocess.Popen(
+            [ollama_bin, "serve"],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            creationflags=flags,
+            close_fds=True,
+        )
+
+        t_start = time.time()
+        while time.time() - t_start < timeout:
+            try:
+                req = urllib.request.Request(check_url, headers={"User-Agent": "Terminal-Agent/HealthCheck"})
+                with urllib.request.urlopen(req, timeout=1.0) as _:
+                    agent_logger.log_info("agent.ollama", f"Server Ollama berhasil dinyalakan otomatis ({round(time.time() - t_start, 2)}s).")
+                    return True
+            except Exception:
+                time.sleep(0.5)
+    except Exception as exc:
+        agent_logger.log_error("agent.ollama", f"Gagal menjalankan server Ollama otomatis: {exc}")
+    return False
+
 
     def _send_message_ollama(
         self,
@@ -616,6 +662,9 @@ class GeminiAgent:
         )
 
         base_url = config_manager.get_ollama_base_url().rstrip("/")
+        # Pastikan server Ollama aktif (auto-start di latar belakang jika belum jalan)
+        ensure_ollama_running(base_url)
+
         target_url = (base_url if base_url.endswith("/v1") else f"{base_url}/v1") + "/chat/completions"
 
         persistent_memory = memory_manager.format_for_system_instruction()
