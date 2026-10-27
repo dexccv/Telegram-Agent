@@ -7,11 +7,17 @@ kapan pun dan di mana pun melalui aplikasi Telegram dengan perlindungan keamanan
 from __future__ import annotations
 
 import asyncio
+import ctypes
+import datetime
 import os
 import platform
+import socket
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
+
+import psutil
 
 # Aktifkan runtime loader Indonesiaku-Lang
 from penerjemah_idk import aktifkan_hook_idk
@@ -19,10 +25,11 @@ from penerjemah_idk import aktifkan_hook_idk
 aktifkan_hook_idk()
 
 import telegram.error
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -35,6 +42,151 @@ import konfigurasi  # type: ignore[import-not-found]
 import memori  # type: ignore[import-not-found]
 import pengelola_sesi  # type: ignore[import-not-found]
 from logger import agent_logger
+
+GUI_PROCESSES: dict[str, str] = {
+    "code.exe": "Visual Studio Code",
+    "chrome.exe": "Google Chrome",
+    "msedge.exe": "Microsoft Edge",
+    "firefox.exe": "Mozilla Firefox",
+    "brave.exe": "Brave Browser",
+    "notepad.exe": "Notepad",
+    "notepad++.exe": "Notepad++",
+    "telegram.exe": "Telegram Desktop",
+    "discord.exe": "Discord",
+    "spotify.exe": "Spotify",
+    "explorer.exe": "File Explorer",
+    "cmd.exe": "Command Prompt",
+    "powershell.exe": "PowerShell",
+    "windowsterminal.exe": "Windows Terminal",
+    "antigravity ide.exe": "Antigravity IDE",
+    "cursor.exe": "Cursor IDE",
+    "ollama.exe": "Ollama Service",
+    "slack.exe": "Slack",
+}
+
+
+def ambil_metrik_realtime() -> dict[str, Any]:
+    """Mengambil status real-time laptop: baterai, Wi-Fi, jendela aktif, CPU, RAM, Uptime."""
+    # 1. Baterai
+    battery = psutil.sensors_battery()
+    bat_percent = 100
+    bat_status = "Tidak ada baterai"
+    bat_str = "Tidak terdeteksi"
+    if battery:
+        bat_percent = battery.percent
+        if battery.power_plugged:
+            bat_status = "⚡ Sedang Mengisi Daya (Colok Charger AC)"
+        else:
+            bat_status = "🔋 Menggunakan Daya Baterai"
+        bat_str = f"{battery.percent}% ({bat_status})"
+
+    # 2. Wi-Fi
+    wifi_ssid = "Tidak terhubung / Kabel LAN"
+    wifi_signal = ""
+    wifi_state = "Disconnected"
+    try:
+        out = subprocess.check_output(
+            ["netsh", "wlan", "show", "interfaces"], text=True, errors="ignore", timeout=3
+        )
+        for line in out.splitlines():
+            line = line.strip()
+            if line.startswith("SSID") and not line.startswith("BSSID"):
+                parts = line.split(":", 1)
+                if len(parts) > 1 and parts[1].strip():
+                    wifi_ssid = parts[1].strip()
+            elif line.startswith("State") or line.startswith("Status"):
+                parts = line.split(":", 1)
+                if len(parts) > 1:
+                    wifi_state = parts[1].strip()
+            elif line.startswith("Signal") or line.startswith("Sinyal"):
+                parts = line.split(":", 1)
+                if len(parts) > 1:
+                    wifi_signal = parts[1].strip()
+    except Exception:
+        pass
+
+    wifi_full = f"{wifi_ssid}" + (f" (Sinyal: {wifi_signal} 📶)" if wifi_signal else "")
+
+    # 3. Uptime
+    try:
+        boot_time = datetime.datetime.fromtimestamp(psutil.boot_time())
+        uptime = datetime.datetime.now() - boot_time
+        hours, remainder = divmod(int(uptime.total_seconds()), 3600)
+        minutes, _ = divmod(remainder, 60)
+        uptime_str = f"{hours} jam {minutes} menit"
+    except Exception:
+        uptime_str = "-"
+
+    # 4. CPU, RAM & Disk
+    try:
+        cpu = psutil.cpu_percent(interval=0.1)
+    except Exception:
+        cpu = 0.0
+
+    try:
+        mem = psutil.virtual_memory()
+        ram_str = f"{mem.percent}% ({mem.used // (1024**2):,} MB / {mem.total // (1024**2):,} MB)"
+    except Exception:
+        ram_str = "-"
+
+    disk_str = "Tersedia"
+    try:
+        disk_d = psutil.disk_usage("D:\\")
+        disk_str = f"Drive D: {disk_d.free // (1024**3):,} GB bebas / {disk_d.total // (1024**3):,} GB"
+    except Exception:
+        try:
+            disk_c = psutil.disk_usage("C:\\")
+            disk_str = f"Drive C: {disk_c.free // (1024**3):,} GB bebas / {disk_c.total // (1024**3):,} GB"
+        except Exception:
+            pass
+
+    # 5. IP Address
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        ip = "127.0.0.1"
+
+    # 6. Jendela Fokus & Aplikasi Terbuka
+    active_win = ""
+    try:
+        user32 = ctypes.windll.user32
+        hwnd = user32.GetForegroundWindow()
+        if hwnd:
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buff = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buff, length + 1)
+                active_win = buff.value.strip()
+    except Exception:
+        pass
+
+    running_apps = set()
+    for p in psutil.process_iter(["name"]):
+        try:
+            n = (p.info["name"] or "").lower()
+            if n in GUI_PROCESSES:
+                running_apps.add(GUI_PROCESSES[n])
+        except Exception:
+            pass
+
+    return {
+        "status": "ONLINE 🟢",
+        "ip": ip,
+        "uptime": uptime_str,
+        "wifi_ssid": wifi_ssid,
+        "wifi_signal": wifi_signal or "-",
+        "wifi_state": wifi_state,
+        "wifi_full": wifi_full,
+        "battery_str": bat_str,
+        "battery_percent": bat_percent,
+        "battery_status": bat_status,
+        "active_window": active_win or "Desktop / Layar Siaga",
+        "running_apps": sorted(list(running_apps)),
+        "cpu": f"{cpu}%",
+        "ram": ram_str,
+        "disk": disk_str,
+        "timestamp": datetime.datetime.now().strftime("%H:%M:%S WIB"),
+    }
 
 
 def split_message(text: str, max_length: int = 4000) -> list[str]:
@@ -112,18 +264,21 @@ class TelegramAgentGateway:
 
         user_name = update.effective_user.first_name if update.effective_user else "Pengguna"
         prov = self.config.ambil_provider().upper()
+        m = ambil_metrik_realtime()
         msg = (
             f"Halo **{user_name}**! 👋\n\n"
             f"⌬ **Terminal Laptop Agent Siap Melayani**\n"
-            f"• **Status Laptop**: ONLINE\n"
-            f"• **Provider AI**: `{prov}`\n"
-            f"• **Model AI**: `{self.agent.model_name}`\n"
-            f"• **Sesi Aktif**: `{self.agent.session.title}`\n"
-            f"• **Direktori Kerja**: `{Path.cwd().name}`\n\n"
-            "Ketik instruksi apa saja (misal: *'buatkan file script.py dan jalankan'*), "
-            "atau ketik `/help` untuk daftar perintah lengkap."
+            f"• **Status Laptop**: ONLINE 🟢\n"
+            f"• **Jaringan Wi-Fi**: `{m['wifi_full']}`\n"
+            f"• **Daya Baterai**: `{m['battery_str']}`\n"
+            f"• **Jendela Aktif**: `{m['active_window']}`\n"
+            f"• **Provider AI**: `{prov}` (Model: `{self.agent.model_name}`)\n"
+            f"• **Sesi Aktif**: `{self.agent.session.title}`\n\n"
+            "Ketik instruksi apa saja (misal: *'buatkan script otomatisasi'*), "
+            "ketik `/status` untuk memantau laptop secara lengkap, atau ketik `/help` untuk panduan."
         )
-        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        if update.message:
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
     async def help_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self.is_authorized(update):
@@ -131,57 +286,194 @@ class TelegramAgentGateway:
             return
 
         help_text = (
-            "📋 **Panduan Perintah Telegram Gateway**\n\n"
-            "• **Kirim Pesan Biasa**: Instruksi langsung ke AI Agent untuk manipulasi berkas, shell, atau komputasi di laptop.\n"
-            "• `/provider [gemini/omniroute]` : Cek atau ganti provider AI aktif.\n"
+            "📋 **Panduan Perintah Telegram Gateway (Real-Time Monitor)**\n\n"
+            "• **Kirim Pesan Biasa**: Instruksi langsung ke AI Agent untuk eksekusi perintah di laptop.\n"
+            "• `/status` : Dashboard real-time laptop (baterai, wifi, jendela aktif, CPU, RAM).\n"
+            "• `/wifi` : Pantau SSID dan kekuatan sinyal Wi-Fi laptop secara instan.\n"
+            "• `/baterai` : Pantau persentase baterai & status pengisian charger.\n"
+            "• `/jendela` : Pantau jendela yang sedang dibuka di layar & daftar aplikasi aktif.\n"
+            "• `/provider [gemini/omniroute/ollama]` : Cek atau ganti provider AI aktif.\n"
             "• `/models` : Pindai & tampilkan daftar model AI yang tersedia.\n"
-            "• `/model <nama_model>` : Ganti model aktif (misal: `/model auto` atau `/model auto/best-fast`).\n"
-            "• `/status` : Informasi hardware laptop (baterai, OS, memori, token).\n"
+            "• `/model <nama>` : Ganti model aktif (misal: `/model qwen2.5-coder:7b`).\n"
             "• `/get <nama_berkas>` : Unduh berkas dari laptop langsung ke Telegram HP Anda.\n"
             "• `/new [judul]` : Mulai sesi percakapan baru yang bersih.\n"
             "• `/sessions` : Lihat daftar sesi yang tersimpan di laptop.\n"
             "• `/load <no/id>` : Beralih ke sesi percakapan lama.\n"
             "• `/memory` : Lihat fakta memori jangka panjang agent.\n"
             "• `/stop` : Batalkan respon agen yang sedang berjalan.\n"
-            "• **Kirim File/Foto**: Kirim berkas dari HP ke Telegram bot, dan agen akan langsung menyimpannya ke laptop."
+            "• **Kirim File/Foto**: Kirim berkas dari HP ke Telegram bot untuk disimpan di laptop."
         )
-        await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+        if update.message:
+            await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+
+    def _build_status_dashboard(self) -> tuple[str, InlineKeyboardMarkup]:
+        """Menghasilkan teks dashboard status real-time laptop beserta tombol navigasi inline."""
+        metrics = ambil_metrik_realtime()
+        tokens = (
+            self.agent.last_usage_metadata.get("total_tokens", 0)
+            if hasattr(self.agent, "last_usage_metadata")
+            else 0
+        )
+        app_list_str = (
+            ", ".join([f"`{a}`" for a in metrics["running_apps"]])
+            if metrics["running_apps"]
+            else "Tidak ada aplikasi khusus terdeteksi"
+        )
+
+        text = (
+            "📊 **MONITORING LAPTOP REAL-TIME**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"🟢 **Status Laptop**: `{metrics['status']}`\n"
+            f"🌐 **IP Jaringan**: `{metrics['ip']}`\n"
+            f"⏱ **Laptop Menyala**: `{metrics['uptime']}`\n\n"
+            f"📶 **Koneksi Wi-Fi**:\n"
+            f"• SSID: `{metrics['wifi_ssid']}`\n"
+            f"• Sinyal: `{metrics['wifi_signal']}` (Status: {metrics['wifi_state']})\n\n"
+            f"🔋 **Baterai Laptop**:\n"
+            f"• Daya: `{metrics['battery_percent']}%`\n"
+            f"• Kondisi: {metrics['battery_status']}\n\n"
+            f"🪟 **Jendela & Aplikasi Aktif**:\n"
+            f"• Jendela Fokus: `{metrics['active_window']}`\n"
+            f"• Aplikasi Terbuka: {app_list_str}\n\n"
+            f"⚡ **Performa Hardware**:\n"
+            f"• Beban CPU: `{metrics['cpu']}`\n"
+            f"• Memori RAM: `{metrics['ram']}`\n"
+            f"• Penyimpanan: `{metrics['disk']}`\n\n"
+            f"🤖 **Terminal AI Agent**:\n"
+            f"• Provider: `{self.provider.upper()}`\n"
+            f"• Model AI: `{self.agent.model_name}`\n"
+            f"• Sesi Aktif: `{self.agent.session.title}`\n"
+            f"• Token Sesi: `{tokens:,} tokens`\n"
+            f"• Lokasi: `{Path.cwd().name}`\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"_Diperbarui pada: {metrics['timestamp']}_"
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🔄 Segarkan Status", callback_data="refresh_status"),
+                    InlineKeyboardButton("🔋 Cek Baterai", callback_data="btn_battery"),
+                ],
+                [
+                    InlineKeyboardButton("📶 Info Wi-Fi", callback_data="btn_wifi"),
+                    InlineKeyboardButton("🪟 Jendela & Apps", callback_data="btn_window"),
+                ],
+            ]
+        )
+        return text, keyboard
 
     async def status_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self.is_authorized(update):
             await self.unauthorized_handler(update)
             return
 
-        os_name = platform.system()
-        node_name = platform.node()
-        tokens = self.agent.last_usage_metadata.get("total_tokens", 0)
+        text, markup = self._build_status_dashboard()
+        if update.message:
+            await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
 
-        # Cek baterai jika ada
-        battery_info = "Tidak terdeteksi"
-        try:
-            if os_name == "Windows":
-                out = subprocess.check_output(
-                    "powershell -Command \"Get-WmiObject -Class Win32_Battery | Select-Object -ExpandProperty EstimatedChargeRemaining\"",
-                    shell=True,
-                    text=True,
-                    timeout=5,
-                ).strip()
-                if out:
-                    battery_info = f"{out}%"
-        except Exception:
-            pass
+    async def wifi_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
 
-        info_text = (
-            f"💻 **Status Sistem Laptop**\n"
-            f"• **Nama Device**: `{node_name}`\n"
-            f"• **Sistem Operasi**: {os_name} ({platform.release()})\n"
-            f"• **Baterai Laptop**: {battery_info}\n"
-            f"• **Model AI**: `{self.agent.model_name}`\n"
-            f"• **Sesi Aktif**: `{self.agent.session.title}`\n"
-            f"• **Penggunaan Token**: `{tokens:,} tokens`\n"
-            f"• **Waktu Server**: `{Path.cwd()}`"
+        m = ambil_metrik_realtime()
+        msg = (
+            "📶 **DETAIL KONEKSI WI-FI REAL-TIME**\n\n"
+            f"• **Nama SSID**: `{m['wifi_ssid']}`\n"
+            f"• **Kekuatan Sinyal**: `{m['wifi_signal']}`\n"
+            f"• **Status Hubungan**: `{m['wifi_state']}`\n"
+            f"• **Alamat IP Laptop**: `{m['ip']}`\n\n"
+            f"_Waktu periksa: {m['timestamp']}_"
         )
-        await update.message.reply_text(info_text, parse_mode=ParseMode.MARKDOWN)
+        if update.message:
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    async def battery_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        m = ambil_metrik_realtime()
+        msg = (
+            "🔋 **STATUS DAYA BATERAI LAPTOP**\n\n"
+            f"• **Persentase Daya**: `{m['battery_percent']}%`\n"
+            f"• **Status Pengisian**: {m['battery_status']}\n\n"
+            f"_Waktu periksa: {m['timestamp']}_"
+        )
+        if update.message:
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    async def window_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        m = ambil_metrik_realtime()
+        app_list = (
+            "\n".join([f"• `{a}`" for a in m["running_apps"]])
+            if m["running_apps"]
+            else "• Tidak ada aplikasi desktop khusus terdeteksi"
+        )
+        msg = (
+            "🪟 **JENDELA & APLIKASI AKTIF DI LAPTOP**\n\n"
+            f"🎯 **Jendela yang Sedang Dibuka di Depan Layar**:\n"
+            f"👉 `{m['active_window']}`\n\n"
+            f"📱 **Aplikasi Desktop yang Terbuka**:\n"
+            f"{app_list}\n\n"
+            f"_Waktu periksa: {m['timestamp']}_"
+        )
+        if update.message:
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
+    async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if not query:
+            return
+
+        await query.answer("Memperbarui data...")
+
+        if not self.is_authorized(update):
+            return
+
+        data = query.data
+        if data == "refresh_status":
+            text, markup = self._build_status_dashboard()
+            try:
+                await query.edit_message_text(
+                    text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                pass
+        elif data == "btn_battery":
+            m = ambil_metrik_realtime()
+            msg = (
+                f"🔋 **BATERAI LAPTOP**: `{m['battery_percent']}%`\n"
+                f"Status: {m['battery_status']}\n"
+                f"Waktu: `{m['timestamp']}`"
+            )
+            if query.message:
+                await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        elif data == "btn_wifi":
+            m = ambil_metrik_realtime()
+            msg = (
+                f"📶 **WI-FI LAPTOP**: `{m['wifi_ssid']}`\n"
+                f"Sinyal: `{m['wifi_signal']}` ({m['wifi_state']})\n"
+                f"IP: `{m['ip']}`\n"
+                f"Waktu: `{m['timestamp']}`"
+            )
+            if query.message:
+                await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        elif data == "btn_window":
+            m = ambil_metrik_realtime()
+            app_list = ", ".join([f"`{a}`" for a in m["running_apps"]])
+            msg = (
+                f"🪟 **JENDELA FOKUS**: `{m['active_window']}`\n\n"
+                f"Aplikasi Terbuka:\n{app_list}\n"
+                f"Waktu: `{m['timestamp']}`"
+            )
+            if query.message:
+                await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
     async def get_file_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Mengirim berkas dari laptop ke HP pengguna via Telegram document."""
@@ -462,11 +754,21 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("models", self.models_cmd))
         app.add_handler(CommandHandler("model", self.model_cmd))
         app.add_handler(CommandHandler("status", self.status_cmd))
+        app.add_handler(CommandHandler("laptop", self.status_cmd))
+        app.add_handler(CommandHandler("pantau", self.status_cmd))
+        app.add_handler(CommandHandler("wifi", self.wifi_cmd))
+        app.add_handler(CommandHandler("baterai", self.battery_cmd))
+        app.add_handler(CommandHandler("battery", self.battery_cmd))
+        app.add_handler(CommandHandler("jendela", self.window_cmd))
+        app.add_handler(CommandHandler("window", self.window_cmd))
+        app.add_handler(CommandHandler("apps", self.window_cmd))
         app.add_handler(CommandHandler("get", self.get_file_cmd))
         app.add_handler(CommandHandler("new", self.new_session_cmd))
         app.add_handler(CommandHandler("sessions", self.list_sessions_cmd))
         app.add_handler(CommandHandler("load", self.load_session_cmd))
         app.add_handler(CommandHandler("memory", self.memory_cmd))
+
+        app.add_handler(CallbackQueryHandler(self.handle_callback_query))
 
         app.add_handler(MessageHandler(filters.Document.ALL, self.handle_document))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_user_message))

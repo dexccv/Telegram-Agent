@@ -213,7 +213,21 @@ class ConfigManager:
 
     def is_debug(self) -> bool:
         """Memeriksa apakah mode debug diaktifkan via GEMINI_AGENT_DEBUG."""
-        return os.environ.get("GEMINI_AGENT_DEBUG", "0").strip() == "1"
+        self.reload()
+        return os.environ.get("GEMINI_AGENT_DEBUG", "").strip().lower() in ("1", "true", "yes")
+
+    def get_telegram_token(self) -> str:
+        """Mengambil token bot Telegram dari environment variable."""
+        self.reload()
+        return os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+
+    def get_telegram_allowed_user_id(self) -> str:
+        """Mengambil Telegram User ID yang diizinkan (whitelist)."""
+        self.reload()
+        return os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
+
+    ambil_telegram_token = get_telegram_token
+    ambil_telegram_allowed_user_id = get_telegram_allowed_user_id
 
 
 config_manager = ConfigManager()
