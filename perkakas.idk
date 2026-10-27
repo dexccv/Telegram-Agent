@@ -1428,6 +1428,30 @@ fungsi send_file_to_user(file_path: str, caption: str = "") -> str {
 kirim_berkas_ke_pengguna = send_file_to_user
 
 
+fungsi lock_laptop() -> str {
+    """Mengunci layar Windows / Workstation laptop seketika (setara pintasan Ctrl + L / Win + L)."""
+    coba {
+        impor ctypes
+        user32 = ctypes.windll.user32
+        res = user32.LockWorkStation()
+        jika res {
+            pesan = "[SUKSES] Layar laptop berhasil dikunci 🔒 (Lock Workstation aktif)."
+            agent_logger.log_info("perkakas.lock_laptop", pesan)
+            kembalikan pesan
+        } selain {
+            kembalikan "[GAGAL] Gagal mengunci workstation laptop."
+        }
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.lock_laptop", f"Gagal mengunci laptop: {exc}")
+        kembalikan f"[GAGAL] Gagal mengunci laptop: {exc}"
+    }
+}
+
+kunci_laptop = lock_laptop
+kunci_layar = lock_laptop
+lock_screen = lock_laptop
+
+
 ALAT_TERSEDIA = {
     "buat_folder": buat_folder,
     "create_folder": create_folder,
@@ -1480,6 +1504,10 @@ ALAT_TERSEDIA = {
     "buat_pdf": buat_pdf,
     "send_file_to_user": send_file_to_user,
     "kirim_berkas_ke_pengguna": send_file_to_user,
+    "lock_laptop": lock_laptop,
+    "kunci_laptop": lock_laptop,
+    "lock_screen": lock_laptop,
+    "kunci_layar": lock_laptop,
 }
 
 DAFTAR_PANGGILAN_ALAT = [
@@ -1508,6 +1536,7 @@ DAFTAR_PANGGILAN_ALAT = [
     control_browser_media,
     create_pdf,
     send_file_to_user,
+    lock_laptop,
 ]
 
 AVAILABLE_TOOLS = ALAT_TERSEDIA
@@ -1822,6 +1851,14 @@ SKEMA_ALAT_OPENAI = [
                 },
                 "required": ["file_path"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lock_laptop",
+            "description": "Mengunci layar Windows / Workstation laptop seketika (setara menekan tombol pintasan Windows Win+L atau Ctrl+L).",
+            "parameters": {"type": "object", "properties": {}},
         },
     },
 ]

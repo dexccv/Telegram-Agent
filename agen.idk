@@ -769,6 +769,24 @@ kelas AgenGemini {
                 pengelola_sesi.simpan_sesi(diri.session)
                 kembalikan hasil
             }
+
+            # 9. Tindakan Kunci Layar / Lock Laptop (Ctrl + L)
+            jika any([k dalam msg_lower untuk k dalam ["kunci laptop", "lock laptop", "kunci layar", "lock screen", "kunci pc", "lock pc", "ctrl + l", "ctrl+l"]]) {
+                jika on_tool_call {
+                    on_tool_call("lock_laptop", {})
+                }
+                fn_lock = ALAT_TERSEDIA.get("lock_laptop")
+                hasil = fn_lock() jika fn_lock selain "Alat lock_laptop tidak ditemukan."
+                jika on_tool_result {
+                    on_tool_result("lock_laptop", hasil)
+                }
+                jika on_chunk {
+                    on_chunk(hasil)
+                }
+                diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil))
+                pengelola_sesi.simpan_sesi(diri.session)
+                kembalikan hasil
+            }
         }
 
         jika diri.provider == "groq" {

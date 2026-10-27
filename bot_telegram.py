@@ -435,6 +435,9 @@ class TelegramAgentGateway:
                     InlineKeyboardButton("📸 Foto Webcam", callback_data="btn_camera"),
                     InlineKeyboardButton("🖥️ Screenshot Layar", callback_data="btn_capture_screen"),
                 ],
+                [
+                    InlineKeyboardButton("🔒 Kunci Layar Laptop (Ctrl+L)", callback_data="btn_lock_laptop"),
+                ],
             ]
         )
         return text, keyboard
@@ -564,6 +567,9 @@ class TelegramAgentGateway:
         elif data == "btn_capture_screen":
             await query.answer("🖥️ Mengambil screenshot layar...")
             await self.capture_screen_cmd(update, context)
+        elif data == "btn_lock_laptop":
+            await query.answer("🔒 Mengunci laptop...")
+            await self.lock_cmd(update, context)
         elif data == "btn_volume_panel":
             import perkakas
             fn_vol = getattr(perkakas, "set_volume", None)
@@ -1033,6 +1039,81 @@ class TelegramAgentGateway:
             await update.message.reply_text(f"🖥️ {res}")
         else:
             await update.message.reply_text("❌ Fungsi close_application tidak tersedia.")
+
+    async def lock_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Mengunci layar Windows / Workstation laptop seketika (setara pintasan Ctrl + L / Win + L)."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        u_info = get_user_info(update)
+        log_terminal_box("Command", "/lock", [("Pengguna", u_info), ("Aksi", "Mengunci layar workstation laptop")], color="bright_red")
+
+        try:
+            import ctypes
+            ctypes.windll.user32.LockWorkStation()
+            pesan = (
+                "🔒 **LAPTOP BERHASIL DIKUNCI!**\n\n"
+                "• Layar Windows telah beralih ke mode Lock Screen.\n"
+                "• Sesi kerja dan laptop Anda kini aman terkunci.\n"
+                "• Pintasan keyboard lokal: **Ctrl + L** juga aktif di laptop."
+            )
+        except Exception as exc:
+            pesan = f"❌ Gagal mengunci workstation laptop: {exc}"
+
+        msg_target = update.message or (update.callback_query.message if update.callback_query else None)
+        if msg_target:
+            await msg_target.reply_text(pesan, parse_mode=ParseMode.MARKDOWN)
+
+    def _start_global_lock_hotkey_listener(self, application: Application) -> None:
+        """Menjalankan thread latar belakang untuk mendengarkan tombol kombinasi Ctrl + L di laptop."""
+        import threading
+
+        def _hotkey_worker():
+            try:
+                import ctypes
+                from ctypes import wintypes
+                user32 = ctypes.windll.user32
+                HOTKEY_ID = 9988
+                MOD_CONTROL = 0x0002
+                VK_L = 0x4C  # Tombol 'L'
+
+                if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL, VK_L):
+                    agent_logger.log_warning("hotkey_listener", "Hotkey Ctrl + L gagal didaftarkan (mungkin telah dipakai aplikasi lain).")
+                    return
+
+                agent_logger.log_info("hotkey_listener", "Pintasan keyboard global Ctrl + L aktif untuk mengunci laptop.")
+                msg = wintypes.MSG()
+                while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+                    if msg.message == 0x0312 and msg.wParam == HOTKEY_ID:
+                        # Kunci layar laptop
+                        user32.LockWorkStation()
+                        # Kirim notifikasi instan ke Telegram jika whitelist chat_id terdaftar
+                        if self.allowed_user_id and str(self.allowed_user_id).isdigit():
+                            try:
+                                loop = asyncio.get_event_loop()
+                                notif_text = (
+                                    "🔒 **PINTASAN KEYBOARD: LAPTOP DIKUNCI!**\n\n"
+                                    "Laptop baru saja dikunci menggunakan kombinasi tombol **Ctrl + L** di laptop.\n"
+                                    f"⏱ Waktu: `{datetime.datetime.now().strftime('%H:%M:%S WIB')}`"
+                                )
+                                asyncio.run_coroutine_threadsafe(
+                                    application.bot.send_message(
+                                        chat_id=int(self.allowed_user_id),
+                                        text=notif_text,
+                                        parse_mode=ParseMode.MARKDOWN,
+                                    ),
+                                    loop,
+                                )
+                            except Exception:
+                                pass
+                    user32.TranslateMessage(ctypes.byref(msg))
+                    user32.DispatchMessageW(ctypes.byref(msg))
+            except Exception as exc_hk:
+                agent_logger.log_error("hotkey_listener", f"Galat pada listener Ctrl+L: {exc_hk}")
+
+        listener_thread = threading.Thread(target=_hotkey_worker, daemon=True, name="CtrlL_LockListener")
+        listener_thread.start()
 
     def _build_open_hub_markup(self, tab_count: int = 0) -> InlineKeyboardMarkup:
         """Membuat tombol peluncur aplikasi desktop dan tab browser laptop."""
@@ -1848,6 +1929,11 @@ class TelegramAgentGateway:
             await self.cari_cmd(update, context)
             return
 
+        # Deteksi langsung: Kunci Layar Laptop (Lock Workstation)
+        if any(k in u_clean for k in ["kunci laptop", "lock laptop", "kunci layar", "lock screen", "kunci pc", "lock pc", "ctrl + l", "ctrl+l"]):
+            await self.lock_cmd(update, context)
+            return
+
         # Deteksi langsung: Pencarian / Pemutaran YouTube otomatis HANYA jika perintah tunggal (bukan majemuk dengan 'dan', 'volume', 'lalu', dsb)
         is_compound = any(w in u_clean for w in [" dan ", " lalu ", " serta ", "sambil", "kemudian", "volume", "suara", "tutup", "pdf"])
         if not is_compound and ("youtube" in u_clean or "yt" in u_clean or "lagu" in u_clean) and any(w in u_clean for w in ["cari", "putar", "play", "dengarkan", "stel", "setel"]):
@@ -2029,6 +2115,7 @@ class TelegramAgentGateway:
         """Mendaftarkan menu tombol command interaktif di aplikasi Telegram."""
         commands = [
             BotCommand("status", "Dashboard monitoring laptop real-time"),
+            BotCommand("lock", "🔒 Kunci layar laptop seketika (Ctrl+L)"),
             BotCommand("capture", "Ambil tangkapan layar laptop (Screenshot)"),
             BotCommand("cari", "Cari konten di YouTube, Google, Spotify (misal: /cari youtube the jansen)"),
             BotCommand("speed", "Uji kecepatan respon AI & kirim Telegram"),
@@ -2178,6 +2265,8 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("pause", self.play_pause_cmd))
         app.add_handler(CommandHandler("next", self.next_track_cmd))
         app.add_handler(CommandHandler("prev", self.prev_track_cmd))
+        app.add_handler(CommandHandler("lock", self.lock_cmd))
+        app.add_handler(CommandHandler("kunci", self.lock_cmd))
         app.add_handler(CommandHandler("baca", self.read_file_cmd))
         app.add_handler(CommandHandler("read", self.read_file_cmd))
         app.add_handler(CommandHandler("get", self.get_file_cmd))
@@ -2198,6 +2287,7 @@ class TelegramAgentGateway:
                 print("[SOLUSI] Pastikan hanya satu terminal / proses bot_telegram.py yang berjalan.")
 
         app.add_error_handler(error_handler)
+        self._start_global_lock_hotkey_listener(app)
         app.run_polling(drop_pending_updates=True)
 
 

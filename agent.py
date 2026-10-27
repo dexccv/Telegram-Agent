@@ -660,6 +660,19 @@ class GeminiAgent:
                     session_manager.save_session(self.session)
                     return res
 
+            # 8. Kunci Layar / Lock Laptop (Ctrl + L)
+            if any(k in msg_lower for k in ["kunci laptop", "lock laptop", "kunci layar", "lock screen", "kunci pc", "lock pc", "ctrl + l", "ctrl+l"]):
+                fn_lock = AVAILABLE_TOOLS.get("lock_laptop")
+                if fn_lock:
+                    if on_tool_call:
+                        on_tool_call("lock_laptop", {})
+                    res = str(fn_lock())
+                    if on_tool_result:
+                        on_tool_result("lock_laptop", res)
+                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                    session_manager.save_session(self.session)
+                    return res
+
         self.provider = config_manager.get_provider()
         if self.provider == "groq":
             return self._send_message_groq(message, on_tool_call, on_tool_result)
