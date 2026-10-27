@@ -42,11 +42,14 @@ kelas PengelolaKonfigurasi {
     }
 
     fungsi ambil_provider() {
-        """Mengambil nama provider AI aktif ('gemini', 'omniroute', atau 'ollama')."""
+        """Mengambil nama provider AI aktif ('gemini', 'omniroute', 'ollama', atau 'groq')."""
         diri.muat_ulang()
         prov = os.environ.get("AI_PROVIDER", "").strip().lower()
-        jika prov dalam ["gemini", "omniroute", "ollama"] {
+        jika prov dalam ["gemini", "omniroute", "ollama", "groq"] {
             kembalikan prov
+        }
+        jika os.environ.get("GROQ_API_KEY") {
+            kembalikan "groq"
         }
         jika os.environ.get("OMNI_API_KEY") {
             kembalikan "omniroute"
@@ -131,10 +134,35 @@ kelas PengelolaKonfigurasi {
         os.environ["OLLAMA_MODEL"] = clean
     }
 
+    fungsi ambil_groq_api_key() {
+        diri.muat_ulang()
+        k = os.environ.get("GROQ_API_KEY", "").strip()
+        kembalikan k jika k selain kosong
+    }
+
+    fungsi simpan_groq_api_key(api_key) {
+        clean = api_key.strip()
+        set_key(str(diri.env_path), "GROQ_API_KEY", clean)
+        os.environ["GROQ_API_KEY"] = clean
+    }
+
+    fungsi ambil_groq_model() {
+        diri.muat_ulang()
+        kembalikan os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip() atau "llama-3.3-70b-versatile"
+    }
+
+    fungsi simpan_groq_model(model_name) {
+        clean = model_name.strip()
+        set_key(str(diri.env_path), "GROQ_MODEL", clean)
+        os.environ["GROQ_MODEL"] = clean
+    }
+
     fungsi ambil_api_key() {
         """Mengambil API key sesuai provider aktif."""
         prov = diri.ambil_provider()
-        jika prov == "omniroute" {
+        jika prov == "groq" {
+            kembalikan diri.ambil_groq_api_key()
+        } jika_lain prov == "omniroute" {
             kembalikan diri.ambil_omni_api_key() atau diri.ambil_gemini_api_key()
         } jika_lain prov == "ollama" {
             kembalikan "ollama"
@@ -145,7 +173,9 @@ kelas PengelolaKonfigurasi {
     fungsi simpan_api_key(api_key) {
         """Menyimpan API key untuk provider aktif."""
         prov = diri.ambil_provider()
-        jika prov == "omniroute" {
+        jika prov == "groq" {
+            diri.simpan_groq_api_key(api_key)
+        } jika_lain prov == "omniroute" {
             diri.simpan_omni_api_key(api_key)
         } jika_lain prov == "ollama" {
             lewati
@@ -157,7 +187,9 @@ kelas PengelolaKonfigurasi {
     fungsi ambil_base_url() {
         """Mengambil base URL API sesuai provider aktif."""
         prov = diri.ambil_provider()
-        jika prov == "omniroute" {
+        jika prov == "groq" {
+            kembalikan "https://api.groq.com/openai/v1"
+        } jika_lain prov == "omniroute" {
             kembalikan diri.ambil_omni_base_url()
         } jika_lain prov == "ollama" {
             kembalikan diri.ambil_ollama_base_url()
@@ -168,7 +200,9 @@ kelas PengelolaKonfigurasi {
     fungsi simpan_base_url(base_url) {
         clean_url = base_url.strip()
         prov = diri.ambil_provider()
-        jika prov == "omniroute" {
+        jika prov == "groq" {
+            lewati
+        } jika_lain prov == "omniroute" {
             diri.simpan_omni_base_url(clean_url)
         } jika_lain prov == "ollama" {
             diri.simpan_ollama_base_url(clean_url)
@@ -182,7 +216,9 @@ kelas PengelolaKonfigurasi {
         """Mengambil model aktif terpilih untuk provider yang aktif."""
         diri.muat_ulang()
         prov = diri.ambil_provider()
-        jika prov == "omniroute" {
+        jika prov == "groq" {
+            kembalikan diri.ambil_groq_model()
+        } jika_lain prov == "omniroute" {
             kembalikan os.environ.get("OMNI_MODEL", "auto").strip() atau "auto"
         } jika_lain prov == "ollama" {
             kembalikan diri.ambil_ollama_model()
@@ -194,7 +230,9 @@ kelas PengelolaKonfigurasi {
         """Menyimpan model terpilih untuk provider yang aktif."""
         clean_model = model_name.strip()
         prov = diri.ambil_provider()
-        jika prov == "omniroute" {
+        jika prov == "groq" {
+            diri.simpan_groq_model(clean_model)
+        } jika_lain prov == "omniroute" {
             set_key(str(diri.env_path), "OMNI_MODEL", clean_model)
             os.environ["OMNI_MODEL"] = clean_model
         } jika_lain prov == "ollama" {

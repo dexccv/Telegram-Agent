@@ -433,7 +433,9 @@ class GeminiAgent:
         ) and len(self.session.ui_messages) <= 2:
             auto_title = message.strip().replace("\n", " ")[:36]
         self.provider = config_manager.get_provider()
-        if self.provider == "omniroute":
+        if self.provider == "groq":
+            return self._send_message_groq(message, on_tool_call, on_tool_result)
+        elif self.provider == "omniroute":
             return self._send_message_omniroute(message, on_tool_call, on_tool_result)
         elif self.provider == "ollama":
             return self._send_message_ollama(message, on_tool_call, on_tool_result)
@@ -518,6 +520,96 @@ class GeminiAgent:
         session_manager.save_session(self.session)
 
         return final_text
+
+    def _send_message_groq(
+        self,
+        message: str,
+        on_tool_call: Optional[Callable[[str, dict[str, Any]], None]] = None,
+        on_tool_result: Optional[Callable[[str, str], None]] = None,
+    ) -> str:
+        agent_logger.log_info(
+            "agent.groq",
+            f"Kirim prompt Groq: {message[:80]} (Model: {self.model_name})",
+        )
+
+        api_key = config_manager.get_groq_api_key() or self.api_key
+        if not api_key:
+            err = "[Galat Groq]: API Key Groq belum disetel. Dapatkan gratis di https://console.groq.com/keys lalu ketik: /provider groq <API_KEY>"
+            self.session.ui_messages.append(SessionMessage(msg_type="agent", text=err))
+            session_manager.save_session(self.session)
+            return err
+
+        target_url = "https://api.groq.com/openai/v1/chat/completions"
+        persistent_memory = memory_manager.format_for_system_instruction()
+        system_instruction = (
+            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis Groq). "
+            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
+            "Dilarang keras menggunakan emoji apapun. "
+            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
+            f"{persistent_memory}"
+        )
+
+        messages = [{"role": "system", "content": system_instruction}]
+        for m in self.session.ui_messages[-10:]:
+            role = "user" if m.msg_type == "user" else "assistant"
+            if m.text:
+                messages.append({"role": role, "content": m.text})
+        if not messages or messages[-1].get("content") != message:
+            messages.append({"role": "user", "content": message})
+
+        model_name = self.model_name or "llama-3.3-70b-versatile"
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "stream": False,
+        }
+
+        accumulated_text = ""
+        try:
+            req = urllib.request.Request(
+                target_url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                data=json.dumps(payload).encode("utf-8"),
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode())
+                if "error" in data:
+                    err_obj = data["error"]
+                    err_msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
+                    accumulated_text = f"[Galat Groq]: {err_msg}"
+                else:
+                    choices = data.get("choices", [])
+                    if choices:
+                        accumulated_text = choices[0].get("message", {}).get("content", "")
+        except urllib.error.HTTPError as exc_http:
+            detail_err = ""
+            try:
+                body_str = exc_http.read().decode("utf-8", errors="ignore")
+                if body_str:
+                    try:
+                        body_json = json.loads(body_str)
+                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
+                    except Exception:
+                        detail_err = body_str[:120]
+            except Exception:
+                detail_err = str(exc_http)
+            agent_logger.log_error("agent.groq", f"Galat Groq HTTP: {exc_http} - Detail: {detail_err}")
+            accumulated_text = f"[Galat Groq HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err or exc_http}"
+        except Exception as exc:
+            agent_logger.log_error("agent.groq", f"Galat Groq: {exc}")
+            accumulated_text = f"[Galat Groq]: {exc}"
+
+        if not accumulated_text.strip():
+            accumulated_text = f"[Galat Groq]: Tidak ada respon teks dari model '{model_name}'."
+
+        if accumulated_text:
+            self.session.ui_messages.append(SessionMessage(msg_type="agent", text=accumulated_text))
+            session_manager.save_session(self.session)
+
+        return accumulated_text
 
     def _send_message_omniroute(
         self,

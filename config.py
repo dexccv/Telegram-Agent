@@ -39,11 +39,13 @@ class ConfigManager:
             os.environ["OLLAMA_MODELS"] = r"D:\.ollama\models"
 
     def get_provider(self) -> str:
-        """Mengambil provider AI aktif ('gemini', 'omniroute', atau 'ollama')."""
+        """Mengambil provider AI aktif ('gemini', 'omniroute', 'ollama', atau 'groq')."""
         self.reload()
         prov = os.environ.get("AI_PROVIDER", "").strip().lower()
-        if prov in ["gemini", "omniroute", "ollama"]:
+        if prov in ["gemini", "omniroute", "ollama", "groq"]:
             return prov
+        if os.environ.get("GROQ_API_KEY"):
+            return "groq"
         if os.environ.get("OMNI_API_KEY"):
             return "omniroute"
         return "gemini"
@@ -122,10 +124,35 @@ class ConfigManager:
         set_key(str(self.env_path), "OLLAMA_MODEL", clean)
         os.environ["OLLAMA_MODEL"] = clean
 
+    def get_groq_api_key(self) -> Optional[str]:
+        """Mengambil API key Groq."""
+        self.reload()
+        k = os.environ.get("GROQ_API_KEY", "").strip()
+        return k or None
+
+    def save_groq_api_key(self, api_key: str) -> None:
+        """Menyimpan API key Groq."""
+        clean = api_key.strip()
+        set_key(str(self.env_path), "GROQ_API_KEY", clean)
+        os.environ["GROQ_API_KEY"] = clean
+
+    def get_groq_model(self) -> str:
+        """Mengambil model Groq aktif (default: llama-3.3-70b-versatile)."""
+        self.reload()
+        return os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip() or "llama-3.3-70b-versatile"
+
+    def save_groq_model(self, model_name: str) -> None:
+        """Menyimpan nama model Groq."""
+        clean = model_name.strip()
+        set_key(str(self.env_path), "GROQ_MODEL", clean)
+        os.environ["GROQ_MODEL"] = clean
+
     def get_api_key(self) -> Optional[str]:
         """Mengambil API key sesuai provider aktif."""
         prov = self.get_provider()
-        if prov == "omniroute":
+        if prov == "groq":
+            return self.get_groq_api_key()
+        elif prov == "omniroute":
             return self.get_omni_api_key() or self.get_gemini_api_key()
         elif prov == "ollama":
             return "ollama"
@@ -134,7 +161,9 @@ class ConfigManager:
     def save_api_key(self, api_key: str) -> None:
         """Menyimpan API key ke provider aktif."""
         prov = self.get_provider()
-        if prov == "omniroute":
+        if prov == "groq":
+            self.save_groq_api_key(api_key)
+        elif prov == "omniroute":
             self.save_omni_api_key(api_key)
         elif prov == "ollama":
             pass
@@ -144,7 +173,9 @@ class ConfigManager:
     def get_base_url(self) -> Optional[str]:
         """Mengambil base URL sesuai provider aktif."""
         prov = self.get_provider()
-        if prov == "omniroute":
+        if prov == "groq":
+            return "https://api.groq.com/openai/v1"
+        elif prov == "omniroute":
             return self.get_omni_base_url()
         elif prov == "ollama":
             return self.get_ollama_base_url()
@@ -153,7 +184,9 @@ class ConfigManager:
     def save_base_url(self, base_url: str) -> None:
         clean_url = base_url.strip()
         prov = self.get_provider()
-        if prov == "omniroute":
+        if prov == "groq":
+            pass
+        elif prov == "omniroute":
             self.save_omni_base_url(clean_url)
         elif prov == "ollama":
             self.save_ollama_base_url(clean_url)
@@ -165,7 +198,9 @@ class ConfigManager:
         """Mengambil model terpilih untuk provider aktif."""
         self.reload()
         prov = self.get_provider()
-        if prov == "omniroute":
+        if prov == "groq":
+            return self.get_groq_model()
+        elif prov == "omniroute":
             return os.environ.get("OMNI_MODEL", "auto").strip() or "auto"
         elif prov == "ollama":
             return self.get_ollama_model()
@@ -175,7 +210,9 @@ class ConfigManager:
         """Menyimpan model terpilih untuk provider aktif."""
         clean_model = model_name.strip()
         prov = self.get_provider()
-        if prov == "omniroute":
+        if prov == "groq":
+            self.save_groq_model(clean_model)
+        elif prov == "omniroute":
             set_key(str(self.env_path), "OMNI_MODEL", clean_model)
             os.environ["OMNI_MODEL"] = clean_model
         elif prov == "ollama":

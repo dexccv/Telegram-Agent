@@ -1724,17 +1724,28 @@ class TelegramAgentGateway:
                 f"• Provider: `{current.upper()}`\n"
                 f"• Model Terpilih: `{model}`\n\n"
                 "Untuk beralih provider, gunakan:\n"
-                "• `/provider omniroute`\n"
-                "• `/provider ollama`\n"
-                "• `/provider gemini`"
+                "• `/provider groq [API_KEY]` (⚡ Super Cepat 14.400 request/hari)\n"
+                "• `/provider gemini [API_KEY]` (Resmi Google AI)\n"
+                "• `/provider ollama` (Lokal Offline di D:\\.ollama\\models)\n"
+                "• `/provider omniroute`"
             )
             await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
             return
 
         target = context.args[0].strip().lower()
-        if target not in ["gemini", "omniroute", "ollama"]:
-            await update.message.reply_text("⚠️ Pilihan provider: `gemini`, `omniroute`, atau `ollama`.")
+        if target not in ["gemini", "omniroute", "ollama", "groq"]:
+            await update.message.reply_text("⚠️ Pilihan provider: `groq`, `gemini`, `ollama`, atau `omniroute`.")
             return
+
+        # Simpan API key jika disertakan di argumen kedua (misal: /provider groq gsk_xxx)
+        if len(context.args) > 1:
+            new_key = context.args[1].strip()
+            if target == "groq":
+                self.config.simpan_groq_api_key(new_key)
+            elif target == "gemini":
+                self.config.simpan_gemini_api_key(new_key)
+            elif target == "omniroute":
+                self.config.simpan_omni_api_key(new_key)
 
         if target == "ollama":
             os.environ["OLLAMA_MODELS"] = r"D:\.ollama\models"
@@ -1746,7 +1757,7 @@ class TelegramAgentGateway:
         self.model_name = self.config.ambil_model()
         self.agent = agen.AgenGemini(api_key=self.api_key, model_name=self.model_name)
         await update.message.reply_text(
-            f"✅ Provider AI berhasil dialihkan ke **{target.upper()}** (Model: `{self.model_name}`)\n📁 Models: `{r'D:\.ollama\models' if target == 'ollama' else 'Cloud API'}`",
+            f"✅ Provider AI berhasil dialihkan ke **{target.upper()}** (Model: `{self.model_name}`)\n📁 Backend: `{r'D:\.ollama\models' if target == 'ollama' else ('Groq Cloud LPU ⚡' if target == 'groq' else 'Cloud API')}`",
             parse_mode=ParseMode.MARKDOWN,
         )
 
