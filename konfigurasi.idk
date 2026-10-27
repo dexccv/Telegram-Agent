@@ -36,13 +36,16 @@ kelas PengelolaKonfigurasi {
         jika diri.env_path.exists() {
             load_dotenv(dotenv_path=diri.env_path, override=benar)
         }
+        jika "OLLAMA_MODELS" tidak dalam os.environ atau tidak os.environ.get("OLLAMA_MODELS") {
+            os.environ["OLLAMA_MODELS"] = r"D:\.ollama\models"
+        }
     }
 
     fungsi ambil_provider() {
-        """Mengambil nama provider AI aktif ('gemini' atau 'omniroute')."""
+        """Mengambil nama provider AI aktif ('gemini', 'omniroute', atau 'ollama')."""
         diri.muat_ulang()
         prov = os.environ.get("AI_PROVIDER", "").strip().lower()
-        jika prov dalam ["gemini", "omniroute"] {
+        jika prov dalam ["gemini", "omniroute", "ollama"] {
             kembalikan prov
         }
         jika os.environ.get("OMNI_API_KEY") {
@@ -93,18 +96,59 @@ kelas PengelolaKonfigurasi {
         os.environ["OMNI_BASE_URL"] = clean
     }
 
+    fungsi ambil_ollama_base_url() {
+        diri.muat_ulang()
+        kembalikan os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1").strip()
+    }
+
+    fungsi simpan_ollama_base_url(base_url) {
+        clean = base_url.strip()
+        set_key(str(diri.env_path), "OLLAMA_BASE_URL", clean)
+        os.environ["OLLAMA_BASE_URL"] = clean
+    }
+
+    fungsi ambil_ollama_models_path() {
+        """Mengambil path direktori penyimpanan model Ollama (default: D:\\.ollama\\models)."""
+        diri.muat_ulang()
+        kembalikan os.environ.get("OLLAMA_MODELS", r"D:\.ollama\models").strip() atau r"D:\.ollama\models"
+    }
+
+    fungsi simpan_ollama_models_path(path) {
+        """Menyimpan path direktori penyimpanan model Ollama."""
+        clean = path.strip()
+        set_key(str(diri.env_path), "OLLAMA_MODELS", clean)
+        os.environ["OLLAMA_MODELS"] = clean
+    }
+
+    fungsi ambil_ollama_model() {
+        diri.muat_ulang()
+        kembalikan os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b").strip() atau "qwen2.5-coder:7b"
+    }
+
+    fungsi simpan_ollama_model(model_name) {
+        clean = model_name.strip()
+        set_key(str(diri.env_path), "OLLAMA_MODEL", clean)
+        os.environ["OLLAMA_MODEL"] = clean
+    }
+
     fungsi ambil_api_key() {
         """Mengambil API key sesuai provider aktif."""
-        jika diri.ambil_provider() == "omniroute" {
+        prov = diri.ambil_provider()
+        jika prov == "omniroute" {
             kembalikan diri.ambil_omni_api_key() atau diri.ambil_gemini_api_key()
+        } jika_lain prov == "ollama" {
+            kembalikan "ollama"
         }
         kembalikan diri.ambil_gemini_api_key() atau diri.ambil_omni_api_key()
     }
 
     fungsi simpan_api_key(api_key) {
         """Menyimpan API key untuk provider aktif."""
-        jika diri.ambil_provider() == "omniroute" {
+        prov = diri.ambil_provider()
+        jika prov == "omniroute" {
             diri.simpan_omni_api_key(api_key)
+        } jika_lain prov == "ollama" {
+            lewati
         } selain {
             diri.simpan_gemini_api_key(api_key)
         }
@@ -112,16 +156,22 @@ kelas PengelolaKonfigurasi {
 
     fungsi ambil_base_url() {
         """Mengambil base URL API sesuai provider aktif."""
-        jika diri.ambil_provider() == "omniroute" {
+        prov = diri.ambil_provider()
+        jika prov == "omniroute" {
             kembalikan diri.ambil_omni_base_url()
+        } jika_lain prov == "ollama" {
+            kembalikan diri.ambil_ollama_base_url()
         }
         kembalikan os.environ.get("GEMINI_BASE_URL", "").strip() atau kosong
     }
 
     fungsi simpan_base_url(base_url) {
         clean_url = base_url.strip()
-        jika diri.ambil_provider() == "omniroute" {
+        prov = diri.ambil_provider()
+        jika prov == "omniroute" {
             diri.simpan_omni_base_url(clean_url)
+        } jika_lain prov == "ollama" {
+            diri.simpan_ollama_base_url(clean_url)
         } selain {
             set_key(str(diri.env_path), "GEMINI_BASE_URL", clean_url)
             os.environ["GEMINI_BASE_URL"] = clean_url
@@ -131,8 +181,11 @@ kelas PengelolaKonfigurasi {
     fungsi ambil_model() {
         """Mengambil model aktif terpilih untuk provider yang aktif."""
         diri.muat_ulang()
-        jika diri.ambil_provider() == "omniroute" {
+        prov = diri.ambil_provider()
+        jika prov == "omniroute" {
             kembalikan os.environ.get("OMNI_MODEL", "auto").strip() atau "auto"
+        } jika_lain prov == "ollama" {
+            kembalikan diri.ambil_ollama_model()
         }
         kembalikan os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() atau "gemini-2.5-flash"
     }
@@ -140,9 +193,12 @@ kelas PengelolaKonfigurasi {
     fungsi simpan_model(model_name) {
         """Menyimpan model terpilih untuk provider yang aktif."""
         clean_model = model_name.strip()
-        jika diri.ambil_provider() == "omniroute" {
+        prov = diri.ambil_provider()
+        jika prov == "omniroute" {
             set_key(str(diri.env_path), "OMNI_MODEL", clean_model)
             os.environ["OMNI_MODEL"] = clean_model
+        } jika_lain prov == "ollama" {
+            diri.simpan_ollama_model(clean_model)
         } selain {
             set_key(str(diri.env_path), "GEMINI_MODEL", clean_model)
             os.environ["GEMINI_MODEL"] = clean_model

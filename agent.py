@@ -221,6 +221,49 @@ def fetch_available_models(api_key: Optional[str] = None) -> list[dict[str, Any]
         ]
 
 
+def pindai_model_ollama(base_url: Optional[str] = None) -> list[str]:
+    """Memindai daftar model lokal yang tersedia di server Ollama (dengan fallback disk D:\.ollama)."""
+    url_base = (base_url or config_manager.get_ollama_base_url()).rstrip("/")
+    url_native = url_base[:-3] if url_base.endswith("/v1") else url_base
+    endpoint = f"{url_native}/api/tags"
+
+    daftar = []
+    try:
+        req = urllib.request.Request(endpoint, headers={"User-Agent": "Terminal-Agent"})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models = data.get("models", [])
+            daftar = [m.get("name", "") for m in models if m.get("name")]
+    except Exception as exc:
+        agent_logger.log_error("agent.pindai_model_ollama", f"Gagal membaca model dari API Ollama: {exc}")
+
+    if daftar:
+        return daftar
+
+    try:
+        jalur_models = Path(config_manager.get_ollama_models_path())
+        manifests_dir = jalur_models / "manifests"
+        if manifests_dir.exists() and manifests_dir.is_dir():
+            for root, dirs, files in os.walk(str(manifests_dir)):
+                for f in files:
+                    p = Path(root) / f
+                    rel = p.relative_to(manifests_dir)
+                    parts = rel.parts
+                    if len(parts) >= 2:
+                        model = parts[-2]
+                        tag = parts[-1]
+                        nama_m = f"{model}:{tag}"
+                        if nama_m not in daftar:
+                            daftar.append(nama_m)
+    except Exception:
+        pass
+
+    return daftar if daftar else ["qwen2.5-coder:7b", "llama3.2"]
+
+
+fetch_available_models_ollama = pindai_model_ollama
+
+
 class GeminiAgent:
     """Agent Gemini interaktif dengan loop tool calling otomatis, memori jangka panjang, dan sesi persisten."""
 
@@ -320,6 +363,8 @@ class GeminiAgent:
             self.model_name = config_manager.get_omni_model() or "auto"
         elif self.provider == "gemini" and ("/" in self.model_name or self.model_name == "auto"):
             self.model_name = config_manager.get_gemini_model() or "gemini-2.5-flash"
+        elif self.provider == "ollama" and (self.model_name.startswith("gemini-") or self.model_name == "auto"):
+            self.model_name = config_manager.get_ollama_model() or "qwen2.5-coder:7b"
         session.model_name = self.model_name
         session_manager.set_active_session_id(session.session_id)
         self._init_chat_session()
@@ -388,6 +433,8 @@ class GeminiAgent:
         self.provider = config_manager.get_provider()
         if self.provider == "omniroute":
             return self._send_message_omniroute(message, on_tool_call, on_tool_result)
+        elif self.provider == "ollama":
+            return self._send_message_ollama(message, on_tool_call, on_tool_result)
 
         if not self.chat:
             self._init_chat_session()
@@ -520,9 +567,14 @@ class GeminiAgent:
             )
             with urllib.request.urlopen(req, timeout=60) as resp:
                 data = json.loads(resp.read().decode())
-                choices = data.get("choices", [])
-                if choices:
-                    accumulated_text = choices[0].get("message", {}).get("content", "")
+                if "error" in data:
+                    err_obj = data["error"]
+                    err_msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
+                    accumulated_text = f"[Galat Omniroute]: {err_msg}"
+                else:
+                    choices = data.get("choices", [])
+                    if choices:
+                        accumulated_text = choices[0].get("message", {}).get("content", "")
         except urllib.error.HTTPError as exc_http:
             detail_err = ""
             try:
@@ -540,6 +592,97 @@ class GeminiAgent:
         except Exception as exc:
             agent_logger.log_error("agent.omniroute", f"Galat Omniroute: {exc}")
             accumulated_text = f"[Galat Omniroute]: {exc}\nPastikan server Omniroute aktif di {base_url} dan model '{self.model_name}' tersedia."
+
+        if not accumulated_text.strip():
+            accumulated_text = f"[Galat Omniroute]: Tidak ada respon teks dari model '{self.model_name}'. Provider upstream (Felo/Opencode) di Omniroute sedang limit (429) atau belum terkonfigurasi. Beralihlah ke Gemini dengan `/provider gemini` atau periksa dashboard Omniroute di {base_url}."
+
+        if accumulated_text:
+            self.session.ui_messages.append(SessionMessage(msg_type="agent", text=accumulated_text))
+            session_manager.save_session(self.session)
+
+        return accumulated_text
+
+    def _send_message_ollama(
+        self,
+        message: str,
+        on_tool_call: Optional[Callable[[str, dict], None]] = None,
+        on_tool_result: Optional[Callable[[str, str], None]] = None,
+    ) -> str:
+        agent_logger.log_info(
+            "agent.ollama",
+            f"Kirim prompt Ollama: {message[:80]} (Model: {self.model_name})",
+        )
+
+        base_url = config_manager.get_ollama_base_url().rstrip("/")
+        target_url = (base_url if base_url.endswith("/v1") else f"{base_url}/v1") + "/chat/completions"
+
+        persistent_memory = memory_manager.format_for_system_instruction()
+        system_instruction = (
+            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis Ollama). "
+            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
+            "Dilarang keras menggunakan emoji apapun. "
+            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
+            f"{persistent_memory}"
+        )
+
+        messages = [{"role": "system", "content": system_instruction}]
+        for m in self.session.ui_messages[-10:]:
+            role = "user" if m.msg_type == "user" else "assistant"
+            if m.text:
+                messages.append({"role": role, "content": m.text})
+        if not messages or messages[-1].get("content") != message:
+            messages.append({"role": "user", "content": message})
+
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "stream": False,
+        }
+
+        accumulated_text = ""
+        try:
+            req = urllib.request.Request(
+                target_url,
+                headers={
+                    "Content-Type": "application/json",
+                },
+                data=json.dumps(payload).encode("utf-8"),
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read().decode())
+                if "error" in data:
+                    err_obj = data["error"]
+                    err_msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
+                    accumulated_text = f"[Galat Ollama]: {err_msg}"
+                else:
+                    choices = data.get("choices", [])
+                    if choices:
+                        accumulated_text = choices[0].get("message", {}).get("content", "")
+        except urllib.error.HTTPError as exc_http:
+            detail_err = ""
+            try:
+                body_str = exc_http.read().decode("utf-8", errors="ignore")
+                if body_str:
+                    try:
+                        body_json = json.loads(body_str)
+                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
+                    except Exception:
+                        detail_err = body_str[:120]
+            except Exception:
+                detail_err = str(exc_http)
+            agent_logger.log_error("agent.ollama", f"Galat Ollama HTTP: {exc_http} - Detail: {detail_err}")
+            accumulated_text = f"[Galat Ollama HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err or exc_http}\nPastikan model '{self.model_name}' sudah diunduh ('ollama pull {self.model_name}')."
+        except Exception as exc:
+            agent_logger.log_error("agent.ollama", f"Galat Koneksi Ollama: {exc}")
+            accumulated_text = (
+                f"[Galat Koneksi Ollama]: Tidak dapat terhubung ke server Ollama di {base_url}.\n"
+                "- Pastikan aplikasi Ollama sudah berjalan ('ollama serve' di terminal).\n"
+                f"- Pastikan model '{self.model_name}' sudah diunduh ('ollama pull {self.model_name}').\n"
+                f"- Detail: {exc}"
+            )
+
+        if not accumulated_text.strip():
+            accumulated_text = f"[Peringatan Ollama]: Tidak ada respon teks dari model '{self.model_name}'. Periksa apakah model sudah diunduh ('ollama list')."
 
         if accumulated_text:
             self.session.ui_messages.append(SessionMessage(msg_type="agent", text=accumulated_text))

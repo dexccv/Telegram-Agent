@@ -35,12 +35,14 @@ class ConfigManager:
         """Muat ulang environment variables dari file .env."""
         if self.env_path.exists():
             load_dotenv(dotenv_path=self.env_path, override=True)
+        if not os.environ.get("OLLAMA_MODELS"):
+            os.environ["OLLAMA_MODELS"] = r"D:\.ollama\models"
 
     def get_provider(self) -> str:
-        """Mengambil provider AI aktif ('gemini' atau 'omniroute')."""
+        """Mengambil provider AI aktif ('gemini', 'omniroute', atau 'ollama')."""
         self.reload()
         prov = os.environ.get("AI_PROVIDER", "").strip().lower()
-        if prov in ["gemini", "omniroute"]:
+        if prov in ["gemini", "omniroute", "ollama"]:
             return prov
         if os.environ.get("OMNI_API_KEY"):
             return "omniroute"
@@ -87,29 +89,74 @@ class ConfigManager:
         set_key(str(self.env_path), "OMNI_BASE_URL", clean)
         os.environ["OMNI_BASE_URL"] = clean
 
+    def get_ollama_base_url(self) -> str:
+        """Mengambil Base URL Ollama (default: http://localhost:11434/v1)."""
+        self.reload()
+        return os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1").strip()
+
+    def save_ollama_base_url(self, base_url: str) -> None:
+        """Menyimpan Base URL Ollama."""
+        clean = base_url.strip()
+        set_key(str(self.env_path), "OLLAMA_BASE_URL", clean)
+        os.environ["OLLAMA_BASE_URL"] = clean
+
+    def get_ollama_models_path(self) -> str:
+        r"""Mengambil path direktori penyimpanan model Ollama (default: D:\.ollama\models)."""
+        self.reload()
+        return os.environ.get("OLLAMA_MODELS", r"D:\.ollama\models").strip() or r"D:\.ollama\models"
+
+    def save_ollama_models_path(self, path: str) -> None:
+        """Menyimpan path direktori penyimpanan model Ollama."""
+        clean = path.strip()
+        set_key(str(self.env_path), "OLLAMA_MODELS", clean)
+        os.environ["OLLAMA_MODELS"] = clean
+
+    def get_ollama_model(self) -> str:
+        """Mengambil nama model Ollama (default: qwen2.5-coder:7b)."""
+        self.reload()
+        return os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b").strip() or "qwen2.5-coder:7b"
+
+    def save_ollama_model(self, model_name: str) -> None:
+        """Menyimpan nama model Ollama."""
+        clean = model_name.strip()
+        set_key(str(self.env_path), "OLLAMA_MODEL", clean)
+        os.environ["OLLAMA_MODEL"] = clean
+
     def get_api_key(self) -> Optional[str]:
         """Mengambil API key sesuai provider aktif."""
-        if self.get_provider() == "omniroute":
+        prov = self.get_provider()
+        if prov == "omniroute":
             return self.get_omni_api_key() or self.get_gemini_api_key()
+        elif prov == "ollama":
+            return "ollama"
         return self.get_gemini_api_key() or self.get_omni_api_key()
 
     def save_api_key(self, api_key: str) -> None:
         """Menyimpan API key ke provider aktif."""
-        if self.get_provider() == "omniroute":
+        prov = self.get_provider()
+        if prov == "omniroute":
             self.save_omni_api_key(api_key)
+        elif prov == "ollama":
+            pass
         else:
             self.save_gemini_api_key(api_key)
 
     def get_base_url(self) -> Optional[str]:
         """Mengambil base URL sesuai provider aktif."""
-        if self.get_provider() == "omniroute":
+        prov = self.get_provider()
+        if prov == "omniroute":
             return self.get_omni_base_url()
+        elif prov == "ollama":
+            return self.get_ollama_base_url()
         return os.environ.get("GEMINI_BASE_URL")
 
     def save_base_url(self, base_url: str) -> None:
         clean_url = base_url.strip()
-        if self.get_provider() == "omniroute":
+        prov = self.get_provider()
+        if prov == "omniroute":
             self.save_omni_base_url(clean_url)
+        elif prov == "ollama":
+            self.save_ollama_base_url(clean_url)
         else:
             set_key(str(self.env_path), "GEMINI_BASE_URL", clean_url)
             os.environ["GEMINI_BASE_URL"] = clean_url
@@ -117,16 +164,22 @@ class ConfigManager:
     def get_model(self) -> Optional[str]:
         """Mengambil model terpilih untuk provider aktif."""
         self.reload()
-        if self.get_provider() == "omniroute":
+        prov = self.get_provider()
+        if prov == "omniroute":
             return os.environ.get("OMNI_MODEL", "auto").strip() or "auto"
+        elif prov == "ollama":
+            return self.get_ollama_model()
         return os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
 
     def save_model(self, model_name: str) -> None:
         """Menyimpan model terpilih untuk provider aktif."""
         clean_model = model_name.strip()
-        if self.get_provider() == "omniroute":
+        prov = self.get_provider()
+        if prov == "omniroute":
             set_key(str(self.env_path), "OMNI_MODEL", clean_model)
             os.environ["OMNI_MODEL"] = clean_model
+        elif prov == "ollama":
+            self.save_ollama_model(clean_model)
         else:
             set_key(str(self.env_path), "GEMINI_MODEL", clean_model)
             os.environ["GEMINI_MODEL"] = clean_model

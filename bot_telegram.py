@@ -307,14 +307,15 @@ class TelegramAgentGateway:
                 f"• Model Terpilih: `{model}`\n\n"
                 "Untuk beralih provider, gunakan:\n"
                 "• `/provider omniroute`\n"
+                "• `/provider ollama`\n"
                 "• `/provider gemini`"
             )
             await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
             return
 
         target = context.args[0].strip().lower()
-        if target not in ["gemini", "omniroute"]:
-            await update.message.reply_text("⚠️ Pilihan provider hanya: `gemini` atau `omniroute`.")
+        if target not in ["gemini", "omniroute", "ollama"]:
+            await update.message.reply_text("⚠️ Pilihan provider: `gemini`, `omniroute`, atau `ollama`.")
             return
 
         self.config.simpan_provider(target)

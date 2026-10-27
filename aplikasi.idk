@@ -9,6 +9,7 @@ impor json
 impor os
 impor re
 impor sys
+impor time
 dari pathlib impor Path
 dari typing impor Any, Optional
 
@@ -18,9 +19,10 @@ dari textual.app impor App, ComposeResult
 dari textual.binding impor Binding
 dari textual.containers impor Container, Horizontal, Vertical, VerticalScroll
 dari textual.screen impor ModalScreen, Screen
-dari textual.widgets impor Button, Input, Label, ListItem, ListView, LoadingIndicator, Static
+dari textual.widgets impor Button, Input, Label, ListItem, ListView, LoadingIndicator, OptionList, Static
+dari textual.widgets.option_list impor Option
 
-dari agen impor AgenGemini, GeminiAgent, pindai_model_tersedia, fetch_available_models, pindai_model_omniroute
+dari agen impor AgenGemini, GeminiAgent, pindai_model_tersedia, fetch_available_models, pindai_model_omniroute, pindai_model_ollama
 dari konfigurasi impor pengelola_konfigurasi, config_manager
 dari logger impor agent_logger
 dari memori impor pengelola_memori, memory_manager
@@ -189,6 +191,36 @@ Screen {
     color: #d29922;
     margin: 0;
     border-left: solid #d29922;
+}
+
+#autocomplete_box {
+    height: auto;
+    max-height: 8;
+    background: #161b22;
+    border-top: round #388bfd;
+    border-left: round #388bfd;
+    border-right: round #388bfd;
+    padding: 0;
+    margin: 0;
+}
+
+#autocomplete_list {
+    height: auto;
+    max-height: 7;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+#autocomplete_list > .option-list--option {
+    padding: 0 1;
+    color: #c9d1d9;
+}
+
+#autocomplete_list > .option-list--option-highlighted {
+    background: #388bfd;
+    color: #ffffff;
+    text-style: bold;
 }
 
 #input_container {
@@ -376,6 +408,19 @@ Screen.theme-{nama} .tool-title {{
 }}
 Screen.theme-{nama} #thinking_box {{
     background: {t['bg_panel']};
+}}
+Screen.theme-{nama} #autocomplete_box {{
+    background: {t['bg_panel']};
+    border-top: round {t['accent']};
+    border-left: round {t['accent']};
+    border-right: round {t['accent']};
+}}
+Screen.theme-{nama} #autocomplete_list {{
+    background: {t['bg_panel']};
+}}
+Screen.theme-{nama} #autocomplete_list > .option-list--option-highlighted {{
+    background: {t['accent']};
+    color: #ffffff;
 }}
 Screen.theme-{nama} #input_container {{
     background: {t['bg_panel']};
@@ -823,18 +868,21 @@ kelas ToolCallCard < Horizontal {
 
 
 kelas TypingMessageCard < Static {
-    """Bubble respon agen dengan live chunk streaming Markdown."""
+    """Bubble respon agen dengan live chunk streaming Markdown berkinerja tinggi."""
 
     fungsi init(full_text="", animate=salah) {
         super().init(classes="msg-agent-box")
         diri.full_text = full_text
         diri._widget_mounted = salah
+        diri._last_render_time = 0.0
+        diri._dirty = salah
+        diri._timer_active = salah
     }
 
     fungsi compose() {
         provider_name = pengelola_konfigurasi.ambil_provider().upper()
         yield Label(f"⌬ {provider_name} AGENT:", classes="msg-agent-title")
-        content = diri.full_text jika diri.full_text selain ""
+        content = diri.full_text jika diri.full_text selain "*(Memproses...)*"
         yield Static(Markdown(content) jika content selain "", id="typed_content")
     }
 
@@ -847,27 +895,109 @@ kelas TypingMessageCard < Static {
 
     fungsi append_delta(delta) {
         diri.full_text += delta
+        diri._dirty = benar
+        now = time.monotonic()
+        jika now - diri._last_render_time >= 0.025 {
+            diri._flush_render()
+        } jika_lain tidak diri._timer_active {
+            diri._timer_active = benar
+            diri.set_timer(0.03, diri._timer_flush)
+        }
+    }
+
+    fungsi _timer_flush() {
+        diri._timer_active = salah
+        jika diri._dirty {
+            diri._flush_render()
+        }
+    }
+
+    fungsi _flush_render() {
+        diri._dirty = salah
+        diri._last_render_time = time.monotonic()
         coba {
             content_widget = diri.query_one("#typed_content", Static)
             content_widget.update(Markdown(diri.full_text))
+            app = diri.app
+            jika app {
+                scroll = app.query_one("#chat_messages", VerticalScroll)
+                scroll.scroll_end(animate=salah)
+            }
         } kecuali exc {
             lewati
         }
     }
 
     fungsi finalize(final_text) {
-        diri.full_text = final_text
-        coba {
-            content_widget = diri.query_one("#typed_content", Static)
-            content_widget.update(Markdown(diri.full_text) jika diri.full_text selain "(tidak ada respon)")
-        } kecuali exc {
-            lewati
-        }
+        diri._timer_active = salah
+        diri._dirty = salah
+        diri.full_text = final_text jika (final_text dan str(final_text).strip()) selain "(tidak ada respon)"
+        diri._flush_render()
     }
 
     fungsi stop_animation() {
         diri.finalize(diri.full_text)
     }
+}
+
+
+DAFTAR_SARAN_SLASH = [
+    ("/help", "Panduan lengkap perintah dan tombol pintas"),
+    ("/model", "Pilih atau ganti model AI aktif (/model [nama])"),
+    ("/models", "Tampilkan daftar model AI yang tersedia"),
+    ("/provider", "Beralih AI provider (gemini, omniroute, ollama)"),
+    ("/session", "Buka dialog modal manajemen dan riwayat sesi"),
+    ("/session new", "Mulai sesi percakapan baru"),
+    ("/session list", "Tampilkan daftar semua sesi tersimpan"),
+    ("/session load", "Muat sesi percakapan tertentu (/session load <id>)"),
+    ("/session rename", "Beri nama baru untuk sesi aktif saat ini"),
+    ("/session delete", "Hapus sesi tertentu dari penyimpanan"),
+    ("/session info", "Tampilkan informasi detail sesi aktif"),
+    ("/memory", "Tampilkan daftar memori jangka panjang agent"),
+    ("/memory set", "Simpan fakta/aturan ke memori (/memory set <kunci> <nilai>)"),
+    ("/memory delete", "Hapus kunci memori tertentu (/memory delete <kunci>)"),
+    ("/memory clear", "Kosongkan seluruh memori jangka panjang"),
+    ("/export", "Ekspor percakapan sesi ke file Markdown (/export [nama])"),
+    ("/theme", "Ganti tema visual (default, emerald, crimson, amber, purple)"),
+    ("/clear", "Bersihkan layar chat & mulai sesi baru"),
+    ("/restart", "Muat ulang / restart aplikasi terminal agent"),
+    ("/stop", "Hentikan respon agen yang sedang berjalan"),
+    ("/quit", "Keluar dari aplikasi terminal agent"),
+]
+
+
+fungsi scan_file_saran(prefix) {
+    saran = []
+    coba {
+        jika "/" dalam prefix atau "\\" dalam prefix {
+            base_dir = Path(prefix).parent
+            target_pref = Path(prefix).name.lower()
+        } selain {
+            base_dir = Path(".")
+            target_pref = prefix.lower()
+        }
+
+        jika base_dir.exists() dan base_dir.is_dir() {
+            untuk item dalam base_dir.iterdir() {
+                nama = item.name
+                jika nama.startswith(".") atau nama == "__pycache__" atau nama == "venv" {
+                    lanjut
+                }
+                jika target_pref == "" atau target_pref dalam nama.lower() {
+                    rel_path = item.as_posix()
+                    jika rel_path.startswith("./") {
+                        rel_path = rel_path[2:]
+                    }
+                    tipe = "Folder" jika item.is_dir() selain "Berkas"
+                    saran.append((f"@{rel_path}", f"{tipe}: {rel_path}"))
+                }
+            }
+        }
+    } kecuali exc {
+        lewati
+    }
+    saran.sort(key=lambda x: x[0].lower())
+    kembalikan saran[:15]
 }
 
 
@@ -895,6 +1025,8 @@ kelas GeminiTerminalAgentApp < App {
         diri.current_agent_worker = kosong
         diri.is_thinking = salah
         diri.active_theme = pengelola_konfigurasi.ambil_tema()
+        diri._autocomplete_mode = kosong
+        diri._autocomplete_at_query = "@"
     }
 
     fungsi compose() {
@@ -908,6 +1040,10 @@ kelas GeminiTerminalAgentApp < App {
         dengan Horizontal(id="thinking_box") {
             yield LoadingIndicator()
             yield Label("  [▒▒▒▒] Agen sedang memproses...")
+        }
+
+        dengan Vertical(id="autocomplete_box") {
+            yield OptionList(id="autocomplete_list")
         }
 
         dengan Horizontal(id="input_container") {
@@ -931,6 +1067,7 @@ kelas GeminiTerminalAgentApp < App {
 
     fungsi on_mount() {
         diri.query_one("#thinking_box").display = salah
+        diri.query_one("#autocomplete_box").display = salah
         diri.apply_theme(diri.active_theme)
         diri.update_live_clock()
         diri.set_interval(1.0, diri.update_live_clock)
@@ -1095,9 +1232,163 @@ kelas GeminiTerminalAgentApp < App {
         )
     }
 
+    fungsi on_key(event) {
+        coba {
+            box = diri.query_one("#autocomplete_box")
+        } kecuali exc {
+            kembalikan
+        }
+
+        jika box dan box.display {
+            opt_list = diri.query_one("#autocomplete_list", OptionList)
+            jika event.key == "up" {
+                opt_list.action_cursor_up()
+                event.prevent_default()
+                event.stop()
+                kembalikan
+            } jika_lain event.key == "down" {
+                opt_list.action_cursor_down()
+                event.prevent_default()
+                event.stop()
+                kembalikan
+            } jika_lain event.key == "escape" {
+                box.display = salah
+                diri._autocomplete_mode = kosong
+                event.prevent_default()
+                event.stop()
+                kembalikan
+            } jika_lain event.key == "tab" {
+                diri._apply_autocomplete_selection()
+                event.prevent_default()
+                event.stop()
+                kembalikan
+            } jika_lain event.key == "enter" {
+                jika diri._autocomplete_mode == "file" {
+                    diri._apply_autocomplete_selection()
+                    event.prevent_default()
+                    event.stop()
+                    kembalikan
+                } jika_lain diri._autocomplete_mode == "slash" {
+                    input_widget = diri.query_one("#chat_input", Input)
+                    val = input_widget.value.strip()
+                    daftar_cmd = [c[0] untuk c dalam DAFTAR_SARAN_SLASH]
+                    jika val tidak dalam daftar_cmd {
+                        diri._apply_autocomplete_selection()
+                        event.prevent_default()
+                        event.stop()
+                        kembalikan
+                    }
+                }
+                box.display = salah
+            }
+        }
+    }
+
+    @on(Input.Changed, "#chat_input")
+    fungsi handle_chat_input_changed(event: Input.Changed) {
+        val = event.value
+        coba {
+            box = diri.query_one("#autocomplete_box")
+            opt_list = diri.query_one("#autocomplete_list", OptionList)
+        } kecuali exc {
+            kembalikan
+        }
+
+        jika val.startswith("/") dan " " tidak dalam val {
+            val_lower = val.lower()
+            cocok = []
+            untuk cmd, desc dalam DAFTAR_SARAN_SLASH {
+                jika cmd.lower().startswith(val_lower) atau (val_lower != "/" dan val_lower dalam cmd.lower()) {
+                    cocok.append((cmd, f"{cmd} ─ {desc}"))
+                }
+            }
+            jika cocok {
+                diri._autocomplete_mode = "slash"
+                opt_list.clear_options()
+                untuk cmd, label dalam cocok {
+                    opt_list.add_option(Option(label, id=cmd))
+                }
+                opt_list.highlighted = 0
+                box.display = benar
+                kembalikan
+            }
+        }
+
+        match_at = re.search(r"@([a-zA-Z0-9_\.\-\/\\]*)$", val)
+        jika match_at {
+            prefix = match_at.group(1)
+            daftar_berkas = scan_file_saran(prefix)
+            jika daftar_berkas {
+                diri._autocomplete_mode = "file"
+                diri._autocomplete_at_query = match_at.group(0)
+                opt_list.clear_options()
+                untuk tag_at, desc dalam daftar_berkas {
+                    opt_list.add_option(Option(f"{tag_at}  ({desc})", id=tag_at))
+                }
+                opt_list.highlighted = 0
+                box.display = benar
+                kembalikan
+            }
+        }
+
+        box.display = salah
+        diri._autocomplete_mode = kosong
+    }
+
+    @on(OptionList.OptionSelected, "#autocomplete_list")
+    fungsi handle_autocomplete_selected(event: OptionList.OptionSelected) {
+        diri._apply_autocomplete_selection()
+    }
+
+    fungsi _apply_autocomplete_selection() {
+        coba {
+            box = diri.query_one("#autocomplete_box")
+            jika tidak box.display {
+                kembalikan salah
+            }
+            opt_list = diri.query_one("#autocomplete_list", OptionList)
+            jika opt_list.highlighted adalah kosong atau opt_list.option_count == 0 {
+                box.display = salah
+                kembalikan salah
+            }
+            opt = opt_list.get_option_at_index(opt_list.highlighted)
+            selected_id = str(opt.id)
+            input_widget = diri.query_one("#chat_input", Input)
+
+            jika diri._autocomplete_mode == "slash" {
+                input_widget.value = selected_id + " "
+                input_widget.cursor_position = len(input_widget.value)
+            } jika_lain diri._autocomplete_mode == "file" {
+                val = input_widget.value
+                at_query = diri._autocomplete_at_query jika hasattr(diri, "_autocomplete_at_query") dan diri._autocomplete_at_query selain "@"
+                jika val.endswith(at_query) {
+                    new_val = val[:-len(at_query)] + selected_id + " "
+                } selain {
+                    new_val = val + selected_id + " "
+                }
+                input_widget.value = new_val
+                input_widget.cursor_position = len(new_val)
+            }
+
+            box.display = salah
+            diri._autocomplete_mode = kosong
+            input_widget.focus()
+            kembalikan benar
+        } kecuali exc {
+            kembalikan salah
+        }
+    }
+
     @on(Button.Pressed, "#btn_send")
     @on(Input.Submitted, "#chat_input")
     fungsi handle_submit() {
+        coba {
+            diri.query_one("#autocomplete_box").display = salah
+            diri._autocomplete_mode = kosong
+        } kecuali exc {
+            lewati
+        }
+
         input_widget = diri.query_one("#chat_input", Input)
         raw_msg = input_widget.value.strip()
         jika tidak raw_msg {
@@ -1182,7 +1473,7 @@ kelas GeminiTerminalAgentApp < App {
             }
         } jika_lain command == "/provider" {
             p_arg = arg.strip().lower()
-            jika p_arg dalam ["gemini", "omniroute"] {
+            jika p_arg dalam ["gemini", "omniroute", "ollama"] {
                 pengelola_konfigurasi.simpan_provider(p_arg)
                 jika diri.agent {
                     diri.agent.provider = p_arg
@@ -1195,7 +1486,7 @@ kelas GeminiTerminalAgentApp < App {
                 prov_saat_ini = pengelola_konfigurasi.ambil_provider()
                 diri.append_system_message(
                     f"Provider saat ini: `{prov_saat_ini}`.\n"
-                    "Gunakan `/provider gemini` atau `/provider omniroute` untuk beralih."
+                    "Gunakan `/provider gemini`, `/provider omniroute`, atau `/provider ollama` untuk beralih."
                 )
             }
         } jika_lain command dalam ["/models", "/model-list"] {
@@ -1204,6 +1495,10 @@ kelas GeminiTerminalAgentApp < App {
                 daftar_m = pindai_model_omniroute()
                 teks_m = ", ".join([f"`{m}`" untuk m dalam daftar_m[:15]])
                 diri.append_system_message(f"Daftar Model Omniroute ({len(daftar_m)} ditemukan, 15 pertama):\n{teks_m}\n\nGunakan `/model <nama_model>`.")
+            } jika_lain prov == "ollama" {
+                daftar_o = pindai_model_ollama()
+                teks_o = ", ".join([f"`{m}`" untuk m dalam daftar_o])
+                diri.append_system_message(f"Daftar Model Ollama Lokal ({len(daftar_o)} model):\n{teks_o}\n\nGunakan `/model <nama_model>`.")
             } selain {
                 daftar_g = pindai_model_tersedia(pengelola_konfigurasi.ambil_gemini_api_key() atau "")
                 teks_g = ", ".join([f"`{m}`" untuk m dalam daftar_g])
@@ -1527,8 +1822,6 @@ kelas GeminiTerminalAgentApp < App {
             }
             coba {
                 diri.active_typing_card.append_delta(delta_text)
-                scroll = diri.query_one("#chat_messages", VerticalScroll)
-                scroll.scroll_end(animate=salah)
             } kecuali exc {
                 lewati
             }
@@ -1573,12 +1866,13 @@ kelas GeminiTerminalAgentApp < App {
     }
 
     fungsi _render_agent_response(full_text) {
+        teks_tampil = full_text jika (full_text dan str(full_text).strip()) selain "(Tidak ada teks dalam respon)"
         jika diri.active_typing_card {
-            diri.active_typing_card.finalize(full_text)
+            diri.active_typing_card.finalize(teks_tampil)
             diri.active_typing_card = kosong
         } selain {
             scroll = diri.query_one("#chat_messages", VerticalScroll)
-            card = TypingMessageCard(full_text, animate=salah)
+            card = TypingMessageCard(teks_tampil, animate=salah)
             scroll.mount(card)
         }
         scroll = diri.query_one("#chat_messages", VerticalScroll)

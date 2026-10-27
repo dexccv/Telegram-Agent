@@ -240,6 +240,56 @@ fungsi fetch_available_models(api_key) {
     kembalikan pindai_model_tersedia(api_key)
 }
 
+fungsi pindai_model_ollama(base_url=kosong) {
+    """Memindai daftar model lokal yang tersedia di server Ollama (dengan fallback disk D:\\.ollama)."""
+    url_base = (base_url atau pengelola_konfigurasi.ambil_ollama_base_url()).rstrip("/")
+    url_native = url_base[:-3] jika url_base.endswith("/v1") selain url_base
+    endpoint = f"{url_native}/api/tags"
+
+    daftar = []
+    coba {
+        req = urllib.request.Request(endpoint, headers={"User-Agent": "Terminal-Agent"})
+        dengan urllib.request.urlopen(req, timeout=3) sebagai resp {
+            data = json.loads(resp.read().decode("utf-8"))
+            models = data.get("models", [])
+            daftar = [m.get("name", "") untuk m dalam models jika m.get("name")]
+        }
+    } kecuali exc {
+        agent_logger.log_error("agen.pindai_model_ollama", f"Gagal membaca model dari API Ollama: {exc}")
+    }
+
+    jika daftar {
+        kembalikan daftar
+    }
+
+    # Fallback: Pindai langsung dari folder manifest D:\.ollama\models
+    coba {
+        jalur_models = Path(pengelola_konfigurasi.ambil_ollama_models_path())
+        manifests_dir = jalur_models / "manifests"
+        jika manifests_dir.exists() dan manifests_dir.is_dir() {
+            untuk root, dirs, files dalam os.walk(str(manifests_dir)) {
+                untuk f dalam files {
+                    p = Path(root) / f
+                    rel = p.relative_to(manifests_dir)
+                    parts = rel.parts
+                    jika len(parts) >= 2 {
+                        model = parts[-2]
+                        tag = parts[-1]
+                        nama_m = f"{model}:{tag}"
+                        jika nama_m tidak dalam daftar {
+                            daftar.append(nama_m)
+                        }
+                    }
+                }
+            }
+        }
+    } kecuali exc {
+        lewati
+    }
+
+    kembalikan daftar jika daftar selain ["qwen2.5-coder:7b", "llama3.2"]
+}
+
 
 kelas AgenGemini {
     """Agent Gemini interaktif dengan loop tool calling otomatis, memori, dan sesi persisten."""
@@ -374,6 +424,8 @@ kelas AgenGemini {
             diri.model_name = pengelola_konfigurasi.ambil_omni_model() atau "auto"
         } jika_lain diri.provider == "gemini" dan ("/" dalam diri.model_name atau diri.model_name == "auto") {
             diri.model_name = pengelola_konfigurasi.ambil_gemini_model() atau "gemini-2.5-flash"
+        } jika_lain diri.provider == "ollama" dan (diri.model_name.startswith("gemini-") atau diri.model_name == "auto") {
+            diri.model_name = pengelola_konfigurasi.ambil_ollama_model() atau "qwen2.5-coder:7b"
         }
         session.model_name = diri.model_name
         pengelola_sesi.atur_sesi_aktif_id(session.session_id)
@@ -447,6 +499,8 @@ kelas AgenGemini {
         diri.provider = pengelola_konfigurasi.ambil_provider()
         jika diri.provider == "omniroute" {
             kembalikan diri._kirim_pesan_omniroute(message, on_tool_call, on_tool_result, on_chunk)
+        } jika_lain diri.provider == "ollama" {
+            kembalikan diri._kirim_pesan_ollama(message, on_tool_call, on_tool_result, on_chunk)
         }
 
         diri.interrupted = salah
@@ -642,6 +696,16 @@ kelas AgenGemini {
                     jika baris.startswith("data: ") dan baris != "data: [DONE]" {
                         coba {
                             data_chunk = json.loads(baris[6:])
+                            jika "error" dalam data_chunk {
+                                err_obj = data_chunk["error"]
+                                err_msg = err_obj.get("message", str(err_obj)) jika isinstance(err_obj, dict) selain str(err_obj)
+                                pesan_galat = f"[Galat Omniroute]: {err_msg}"
+                                teks_akumulasi += pesan_galat
+                                jika on_chunk {
+                                    on_chunk(pesan_galat)
+                                }
+                                berhenti
+                            }
                             pilihan = data_chunk.get("choices", [])
                             jika pilihan {
                                 delta = pilihan[0].get("delta", {})
@@ -686,6 +750,144 @@ kelas AgenGemini {
             teks_akumulasi += pesan_galat
             jika on_chunk {
                 on_chunk(pesan_galat)
+            }
+        }
+
+        jika tidak teks_akumulasi.strip() {
+            pesan_kosong = f"[Galat Omniroute]: Tidak ada respon teks dari model '{diri.model_name}'. Provider upstream (Felo/Opencode) di Omniroute sedang limit (429) atau belum terkonfigurasi. Beralihlah ke Gemini dengan `/provider gemini` atau periksa dashboard Omniroute di {base_url}."
+            teks_akumulasi = pesan_kosong
+            jika on_chunk {
+                on_chunk(pesan_kosong)
+            }
+        }
+
+        jika teks_akumulasi {
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=teks_akumulasi))
+            pengelola_sesi.simpan_sesi(diri.session)
+        }
+        kembalikan teks_akumulasi
+    }
+
+    fungsi _kirim_pesan_ollama(message, on_tool_call=kosong, on_tool_result=kosong, on_chunk=kosong) {
+        agent_logger.log_info(
+            "agen.ollama",
+            f"Kirim prompt Ollama: {message[:80]} (Model: {diri.model_name})",
+        )
+
+        base_url = pengelola_konfigurasi.ambil_ollama_base_url().rstrip("/")
+        url_target = (base_url jika base_url.endswith("/v1") selain f"{base_url}/v1") + "/chat/completions"
+
+        memori_sistem = pengelola_memori.format_instruksi_sistem()
+        instruksi_sistem = (
+            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis Ollama). "
+            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
+            "Dilarang keras menggunakan emoji apapun. "
+            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
+            f"{memori_sistem}"
+        )
+
+        pesan_list = [{"role": "system", "content": instruksi_sistem}]
+        untuk m dalam diri.session.ui_messages[-10:] {
+            role = "user" jika m.msg_type == "user" selain "assistant"
+            jika m.text {
+                pesan_list.append({"role": role, "content": m.text})
+            }
+        }
+        jika tidak pesan_list atau pesan_list[-1].get("content") != message {
+            pesan_list.append({"role": "user", "content": message})
+        }
+
+        payload = {
+            "model": diri.model_name,
+            "messages": pesan_list,
+            "stream": benar,
+        }
+
+        teks_akumulasi = ""
+        coba {
+            req = urllib.request.Request(
+                url_target,
+                headers={
+                    "Content-Type": "application/json",
+                },
+                data=json.dumps(payload).encode("utf-8"),
+            )
+            dengan urllib.request.urlopen(req, timeout=120) sebagai resp {
+                untuk baris_mentah dalam resp {
+                    jika diri.interrupted {
+                        berhenti
+                    }
+                    baris = baris_mentah.decode("utf-8", errors="replace").strip()
+                    jika baris.startswith("data: ") dan baris != "data: [DONE]" {
+                        coba {
+                            data_chunk = json.loads(baris[6:])
+                            jika "error" dalam data_chunk {
+                                err_obj = data_chunk["error"]
+                                err_msg = err_obj.get("message", str(err_obj)) jika isinstance(err_obj, dict) selain str(err_obj)
+                                pesan_galat = f"[Galat Ollama]: {err_msg}"
+                                teks_akumulasi += pesan_galat
+                                jika on_chunk {
+                                    on_chunk(pesan_galat)
+                                }
+                                berhenti
+                            }
+                            pilihan = data_chunk.get("choices", [])
+                            jika pilihan {
+                                delta = pilihan[0].get("delta", {})
+                                token = delta.get("content", "")
+                                jika token {
+                                    teks_akumulasi += token
+                                    jika on_chunk {
+                                        on_chunk(token)
+                                    }
+                                }
+                            }
+                        } kecuali exc_parse {
+                            lewati
+                        }
+                    }
+                }
+            }
+        } kecuali urllib.error.HTTPError sebagai exc_http {
+            detail_err = ""
+            coba {
+                body_str = exc_http.read().decode("utf-8", errors="ignore")
+                jika body_str {
+                    coba {
+                        body_json = json.loads(body_str)
+                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
+                    } kecuali exc_j {
+                        detail_err = body_str[:120]
+                    }
+                }
+            } kecuali exc_r {
+                detail_err = str(exc_http)
+            }
+            agent_logger.log_error("agen.ollama", f"Galat Ollama HTTP: {exc_http} - Detail: {detail_err}")
+            pesan_galat = f"[Galat Ollama HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err atau exc_http}\nPastikan model '{diri.model_name}' sudah diunduh ('ollama pull {diri.model_name}')."
+            teks_akumulasi += pesan_galat
+            jika on_chunk {
+                on_chunk(pesan_galat)
+            }
+        } kecuali Exception sebagai exc_all {
+            agent_logger.log_error("agen.ollama", f"Galat Koneksi Ollama: {exc_all}")
+            pesan_galat = (
+                f"[Galat Koneksi Ollama]: Tidak dapat terhubung ke server Ollama di {base_url}.\n"
+                "- Pastikan aplikasi Ollama sudah berjalan ('ollama serve' di terminal).\n"
+                f"- Pastikan model '{diri.model_name}' sudah diunduh ('ollama pull {diri.model_name}').\n"
+                f"- Detail: {exc_all}"
+            )
+            teks_akumulasi += pesan_galat
+            jika on_chunk {
+                on_chunk(pesan_galat)
+            }
+        }
+
+        jika tidak teks_akumulasi.strip() {
+            pesan_kosong = f"[Peringatan Ollama]: Tidak ada respon teks dari model '{diri.model_name}'. Periksa apakah model sudah diunduh ('ollama list')."
+            teks_akumulasi = pesan_kosong
+            jika on_chunk {
+                on_chunk(pesan_kosong)
             }
         }
 
