@@ -9,3 +9,4 @@ pycaw>=20240210
 comtypes>=1.4.0
 Pillow>=10.0.0
 opencv-python>=4.8.0
+uiautomation>=2.0.0

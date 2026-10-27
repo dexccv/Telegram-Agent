@@ -19,11 +19,23 @@ _bot_process: subprocess.Popen | None = None
 
 
 def mulai_server_bot_telegram() -> None:
-    """Memulai bot Telegram di background jika token sudah dikonfigurasi."""
+    """Memulai bot Telegram di background jika token sudah dikonfigurasi dan belum aktif."""
     global _bot_process
     token = config_manager.get_telegram_token() or os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         return
+
+    # Jika bot_telegram.py sudah berjalan di window lain (misal dari run.bat), jangan spawn ganda
+    try:
+        import psutil
+        my_pid = os.getpid()
+        for p in psutil.process_iter(["pid", "cmdline"]):
+            if p.info["pid"] != my_pid:
+                cmd = " ".join(p.info.get("cmdline") or [])
+                if "bot_telegram.py" in cmd:
+                    return
+    except Exception:
+        pass
 
     bot_script = Path(__file__).parent / "bot_telegram.py"
     if not bot_script.exists():

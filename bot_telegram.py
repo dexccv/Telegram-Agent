@@ -733,22 +733,26 @@ class TelegramAgentGateway:
                         f"▶️ **Memutar Video di Laptop:**\n{res}\n🔗 https://www.youtube.com/watch?v={vid}"
                     )
         elif data.startswith("tab_focus:"):
-            hwnd_val = int(data.split(":", 1)[1])
+            parts = data.split(":")
+            hwnd_val = int(parts[1])
+            tab_idx = int(parts[2]) if len(parts) > 2 else -1
             import perkakas
             fn_focus = getattr(perkakas, "focus_window", None)
             if fn_focus:
-                res = fn_focus(hwnd_val)
+                res = fn_focus(hwnd_val, tab_idx)
                 await query.answer("🎯 Tab/Jendela dibawa ke depan!")
                 if query.message:
                     await query.message.reply_text(f"🖥️ {res}")
         elif data.startswith("tab_close:"):
-            hwnd_val = int(data.split(":", 1)[1])
+            parts = data.split(":")
+            hwnd_val = int(parts[1])
+            tab_idx = int(parts[2]) if len(parts) > 2 else -1
             import perkakas
             fn_close_tab = getattr(perkakas, "close_window_tab", None)
             if fn_close_tab:
-                res = fn_close_tab(hwnd_val)
-                await query.answer("❌ Perintah tutup dikirim!")
-                await asyncio.sleep(0.5)
+                res = fn_close_tab(hwnd_val, tab_idx)
+                await query.answer("❌ Perintah tutup tab dikirim!")
+                await asyncio.sleep(0.6)
                 text, markup = self._build_browser_tabs_markup()
                 try:
                     await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
@@ -1243,12 +1247,13 @@ class TelegramAgentGateway:
             proc = t.get("process_name", "browser")
             text_lines.append(f"{idx}. {icon} `{clean_title}` ({proc})")
 
+            t_idx = t.get("tab_index", -1)
             row = [
-                InlineKeyboardButton(f"🎯 Fokus #{idx}", callback_data=f"tab_focus:{t['hwnd']}"),
+                InlineKeyboardButton(f"🎯 Fokus #{idx}", callback_data=f"tab_focus:{t['hwnd']}:{t_idx}"),
             ]
             if t.get("is_media") or t.get("is_youtube"):
                 row.append(InlineKeyboardButton("⏸️ Play/Pause", callback_data=f"tab_media:{t['hwnd']}"))
-            row.append(InlineKeyboardButton("❌ Tutup", callback_data=f"tab_close:{t['hwnd']}"))
+            row.append(InlineKeyboardButton("❌ Tutup", callback_data=f"tab_close:{t['hwnd']}:{t_idx}"))
             buttons.append(row)
 
         buttons.append(

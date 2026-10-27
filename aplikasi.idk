@@ -1071,7 +1071,54 @@ kelas GeminiTerminalAgentApp < App {
         diri.apply_theme(diri.active_theme)
         diri.update_live_clock()
         diri.set_interval(1.0, diri.update_live_clock)
+        diri.set_interval(1.5, diri.sync_session_from_disk)
         diri.check_first_run()
+    }
+
+    fungsi sync_session_from_disk() {
+        """Memeriksa dan menampilkan pesan baru yang datang dari Telegram atau proses eksternal ke layar TUI."""
+        jika diri.is_thinking atau diri.active_typing_card atau tidak diri.agent atau tidak diri.agent.session {
+            kembalikan
+        }
+        coba {
+            curr_id = diri.agent.session.session_id
+            active_id = pengelola_sesi.ambil_sesi_aktif_id() atau curr_id
+            target_id = active_id jika active_id == curr_id selain curr_id
+
+            disk_sess = pengelola_sesi.ambil_sesi(target_id)
+            jika tidak disk_sess {
+                kembalikan
+            }
+
+            local_count = len(diri.agent.session.ui_messages)
+            disk_count = len(disk_sess.ui_messages)
+
+            jika disk_count > local_count {
+                pesan_baru = disk_sess.ui_messages[local_count:]
+                scroll = diri.query_one("#chat_messages", VerticalScroll)
+
+                untuk msg dalam pesan_baru {
+                    jika msg.msg_type == "user" {
+                        box = Vertical(Label("📱 ANDA (TELEGRAM):", classes="msg-user-title"), Label(msg.text), classes="msg-user-box")
+                        scroll.mount(box)
+                    } jika_lain msg.msg_type == "tool" {
+                        card = ToolCallCard(tool_name=msg.tool_name, args=msg.tool_args, initial_preview=msg.tool_preview)
+                        scroll.mount(card)
+                    } jika_lain msg.msg_type == "agent" {
+                        card = TypingMessageCard(full_text=msg.text, animate=salah)
+                        scroll.mount(card)
+                    } jika_lain msg.msg_type == "system" {
+                        box = Vertical(Label(Markdown(msg.text)), classes="msg-system-box")
+                        scroll.mount(box)
+                    }
+                }
+                scroll.scroll_end(animate=benar)
+                diri.agent.session = disk_sess
+                diri.update_status_bar(diri.agent.model_name, "READY", disk_sess.title)
+            }
+        } kecuali exc {
+            lewati
+        }
     }
 
     fungsi update_live_clock() {

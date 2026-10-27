@@ -851,9 +851,58 @@ class GeminiTerminalAgentApp(App[None]):
         # Live clock update tiap 1 detik
         self.update_live_clock()
         self.set_interval(1.0, self.update_live_clock)
+        self.set_interval(1.5, self.sync_session_from_disk)
 
         # Cek alur first-run
         self.check_first_run()
+
+    def sync_session_from_disk(self) -> None:
+        """Memeriksa dan menampilkan pesan baru yang datang dari Telegram atau proses eksternal ke layar TUI."""
+        if getattr(self, "is_thinking", False) or getattr(self, "active_typing_card", None) or not self.agent or not self.agent.session:
+            return
+        try:
+            curr_id = self.agent.session.session_id
+            active_id = session_manager.get_active_session_id() or curr_id
+            target_id = active_id if active_id == curr_id else curr_id
+
+            disk_sess = session_manager.get_session(target_id)
+            if not disk_sess:
+                return
+
+            local_count = len(self.agent.session.ui_messages)
+            disk_count = len(disk_sess.ui_messages)
+
+            if disk_count > local_count:
+                new_msgs = disk_sess.ui_messages[local_count:]
+                scroll = self.query_one("#chat_messages", VerticalScroll)
+
+                for msg in new_msgs:
+                    if msg.msg_type == "user":
+                        box = Vertical(
+                            Label("📱 ANDA (TELEGRAM):", classes="msg-user-title"),
+                            Label(msg.text),
+                            classes="msg-user-box",
+                        )
+                        scroll.mount(box)
+                    elif msg.msg_type == "tool":
+                        card = ToolCallCard(
+                            tool_name=msg.tool_name,
+                            args=msg.tool_args,
+                            initial_preview=msg.tool_preview,
+                        )
+                        scroll.mount(card)
+                    elif msg.msg_type == "agent":
+                        card = TypingMessageCard(full_text=msg.text, animate=False)
+                        scroll.mount(card)
+                    elif msg.msg_type == "system":
+                        box = Vertical(Label(Markdown(msg.text)), classes="msg-system-box")
+                        scroll.mount(box)
+
+                scroll.scroll_end(animate=True)
+                self.agent.session = disk_sess
+                self.update_status_bar(self.agent.model_name, "READY", disk_sess.title)
+        except Exception:
+            pass
 
     def update_live_clock(self) -> None:
         """Memperbarui label jam di header."""

@@ -51,15 +51,19 @@ if %errorlevel% neq 0 (
     pip install -r requirements.txt
 )
 
-:: 4. Jalankan aplikasi
+:: 4. Jalankan 2 Window Mandiri (Telegram Bot Gateway & Terminal Agent TUI)
 echo.
-echo [*] Meluncurkan Gemini Terminal Agent...
-echo.
-python app.py
+echo [*] Meluncurkan Telegram Bot Gateway di Window terpisah...
+start "Gemini Agent - Telegram Gateway" cmd /k "title Gemini Agent - Telegram Gateway && color 0B && call .venv\Scripts\activate.bat && python bot_telegram.py"
 
-:: 5. Pause di akhir
+echo [*] Meluncurkan Terminal Agent TUI di Window terpisah...
+start "Gemini Agent - Terminal TUI" cmd /k "title Gemini Agent - Terminal TUI && color 0A && call .venv\Scripts\activate.bat && python app.py"
+
+:: 5. Status selesai
 echo.
 echo ========================================================
-echo       Sesi Gemini Terminal Agent telah selesai.
+echo   [OK] Kedua Window (Bot Tele & Terminal TUI) Telah Terbuka!
+echo   Jendela peluncur ini dapat ditutup kapan saja.
 echo ========================================================
-pause
+timeout /t 5 >nul
+exit /b 0

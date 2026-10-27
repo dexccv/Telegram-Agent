@@ -801,6 +801,9 @@ fungsi open_application(app_or_query: str, query: str = "") -> str {
 
         # Deteksi URL langsung
         jika target_lower.startswith("http://") atau target_lower.startswith("https://") {
+            jika "youtube.com" dalam target_lower atau "youtu.be" dalam target_lower {
+                kembalikan play_youtube_video(target_clean)
+            }
             os.startfile(target_clean)
             agent_logger.log_info("perkakas.open_application", f"Membuka URL: {target_clean}")
             kembalikan f"[SUKSES] Membuka tautan di browser: {target_clean}"
@@ -836,25 +839,9 @@ fungsi open_application(app_or_query: str, query: str = "") -> str {
             }
 
             jika search_term {
-                yt_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(search_term)}"
-                jika chrome_exe {
-                    subprocess.Popen([chrome_exe, yt_url])
-                } selain {
-                    os.startfile(yt_url)
-                }
-                pesan = f"[SUKSES] Berhasil membuka Chrome dan memutar/mencari di YouTube: \"{search_term}\""
-                agent_logger.log_info("perkakas.open_application", pesan)
-                kembalikan pesan
+                kembalikan play_youtube_video(search_term)
             } selain {
-                yt_url = "https://www.youtube.com"
-                jika chrome_exe {
-                    subprocess.Popen([chrome_exe, yt_url])
-                } selain {
-                    os.startfile(yt_url)
-                }
-                pesan = "[SUKSES] Berhasil membuka YouTube di Chrome."
-                agent_logger.log_info("perkakas.open_application", pesan)
-                kembalikan pesan
+                kembalikan play_youtube_video("https://www.youtube.com")
             }
         }
 
@@ -1024,6 +1011,79 @@ fungsi play_youtube_video(video_id_or_url: str) -> str {
             }
         }
 
+        # Cek apakah ada tab YouTube yang sudah terbuka di browser (Re-use untuk hemat tab)
+        tabs_aktif = get_open_browser_tabs()
+        yt_tab = kosong
+        untuk t dalam tabs_aktif {
+            jika t.get("is_youtube") {
+                yt_tab = t
+                berhenti
+            }
+        }
+
+        jika yt_tab {
+            coba {
+                hwnd = yt_tab["hwnd"]
+                tab_idx = yt_tab.get("tab_index", 0)
+
+                impor ctypes
+                impor time
+                user32 = ctypes.windll.user32
+                user32.ShowWindow(hwnd, 9)
+                user32.SetForegroundWindow(hwnd)
+                time.sleep(0.2)
+
+                coba {
+                    impor uiautomation as auto
+                    w_ctrl = auto.ControlFromHandle(hwnd)
+                    jika w_ctrl {
+                        tab_items = []
+                        untuk c, d dalam auto.WalkControl(w_ctrl, maxDepth=8) {
+                            jika c.ControlType == auto.ControlType.TabItemControl dan c.Name {
+                                tab_items.append(c)
+                            }
+                        }
+                        jika 0 <= tab_idx < len(tab_items) {
+                            tab_items[tab_idx].Click()
+                            time.sleep(0.2)
+                        }
+                    }
+                } kecuali Exception {
+                    lewati
+                }
+
+                subprocess.run(["clip"], input=final_url.encode("utf-16le"), timeout=3)
+                time.sleep(0.15)
+
+                VK_CONTROL = 0x11
+                KEYEVENTF_KEYUP = 0x0002
+                # Kirim Ctrl + L (Fokus Address Bar)
+                user32.keybd_event(VK_CONTROL, 0, 0, 0)
+                user32.keybd_event(ord('L'), 0, 0, 0)
+                user32.keybd_event(ord('L'), 0, KEYEVENTF_KEYUP, 0)
+                user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+                time.sleep(0.15)
+
+                # Kirim Ctrl + V (Paste URL)
+                user32.keybd_event(VK_CONTROL, 0, 0, 0)
+                user32.keybd_event(ord('V'), 0, 0, 0)
+                user32.keybd_event(ord('V'), 0, KEYEVENTF_KEYUP, 0)
+                user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+                time.sleep(0.15)
+
+                # Kirim Enter
+                VK_RETURN = 0x0D
+                user32.keybd_event(VK_RETURN, 0, 0, 0)
+                user32.keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, 0)
+
+                pesan = f"[SUKSES] Menggunakan tab YouTube yang sudah aktif (hemat tab) untuk memutar: {final_url}"
+                agent_logger.log_info("perkakas.play_youtube_video", pesan)
+                kembalikan pesan
+            } kecuali Exception sebagai exc_reuse {
+                agent_logger.log_warning("perkakas.play_youtube_video", f"Gagal re-use tab YouTube: {exc_reuse}")
+            }
+        }
+
         chrome_candidates = [
             r"C:\Program Files\Google\Chrome\Application\chrome.exe",
             r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -1090,25 +1150,64 @@ fungsi get_open_browser_tabs() -> list {
             }
 
             browser_exes = ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe"]
-            is_browser = pname dalam browser_exes atau any(b dalam title.lower() untuk b dalam [" - google chrome", " - microsoft edge", " - edge", " - mozilla firefox"])
+            is_browser = pname dalam browser_exes atau any(b dalam title.lower() untuk b dalam [" - google chrome", " - microsoft edge", " - edge", " - mozilla firefox", " - brave"])
 
             jika is_browser {
-                clean_title = title
-                untuk sfx dalam [" - Google Chrome", " - Microsoft​ Edge", " - Microsoft Edge", " - Mozilla Firefox", " - Brave"] {
-                    clean_title = clean_title.replace(sfx, "")
+                tab_ditemukan = []
+                coba {
+                    impor uiautomation as auto
+                    w_ctrl = auto.ControlFromHandle(hwnd)
+                    jika w_ctrl {
+                        untuk c, d dalam auto.WalkControl(w_ctrl, maxDepth=8) {
+                            jika c.ControlType == auto.ControlType.TabItemControl dan c.Name dan c.Name.strip() {
+                                tab_ditemukan.append(c.Name.strip())
+                            }
+                        }
+                    }
+                } kecuali Exception {
+                    lewati
                 }
-                is_youtube = "youtube" dalam title.lower() atau "youtu.be" dalam title.lower()
-                is_media = is_youtube atau any(m dalam title.lower() untuk m dalam ["spotify", "music", "audio", "video", "soundcloud"])
 
-                browsers.append({
-                    "hwnd": int(hwnd),
-                    "pid": int(pid.value),
-                    "process_name": pname,
-                    "full_title": title,
-                    "clean_title": clean_title,
-                    "is_youtube": is_youtube,
-                    "is_media": is_media,
-                })
+                jika tab_ditemukan {
+                    untuk idx, t_name dalam enumerate(tab_ditemukan) {
+                        clean_t = t_name
+                        untuk sfx dalam [" - Google Chrome", " - Microsoft​ Edge", " - Microsoft Edge", " - Mozilla Firefox", " - Brave"] {
+                            clean_t = clean_t.replace(sfx, "")
+                        }
+                        is_yt = "youtube" dalam t_name.lower() atau "youtu.be" dalam t_name.lower()
+                        is_med = is_yt atau any(m dalam t_name.lower() untuk m dalam ["spotify", "music", "audio", "video", "soundcloud"])
+                        browsers.append({
+                            "hwnd": int(hwnd),
+                            "tab_index": idx,
+                            "pid": int(pid.value),
+                            "process_name": pname,
+                            "full_title": t_name,
+                            "clean_title": clean_t,
+                            "is_youtube": is_yt,
+                            "is_media": is_med,
+                            "is_individual_tab": benar,
+                        })
+                    }
+                } selain {
+                    clean_title = title
+                    untuk sfx dalam [" - Google Chrome", " - Microsoft​ Edge", " - Microsoft Edge", " - Mozilla Firefox", " - Brave"] {
+                        clean_title = clean_title.replace(sfx, "")
+                    }
+                    is_youtube = "youtube" dalam title.lower() atau "youtu.be" dalam title.lower()
+                    is_media = is_youtube atau any(m dalam title.lower() untuk m dalam ["spotify", "music", "audio", "video", "soundcloud"])
+
+                    browsers.append({
+                        "hwnd": int(hwnd),
+                        "tab_index": 0,
+                        "pid": int(pid.value),
+                        "process_name": pname,
+                        "full_title": title,
+                        "clean_title": clean_title,
+                        "is_youtube": is_youtube,
+                        "is_media": is_media,
+                        "is_individual_tab": salah,
+                    })
+                }
             }
             kembalikan benar
         }
@@ -1125,14 +1224,37 @@ fungsi get_open_browser_tabs() -> list {
 ambil_tab_browser = get_open_browser_tabs
 
 
-fungsi focus_window(hwnd: int) -> str {
+fungsi focus_window(hwnd: int, tab_index: int = 0) -> str {
     """Membawa jendela aplikasi atau tab browser tertentu ke layar depan laptop."""
     coba {
         impor ctypes
+        impor time
         user32 = ctypes.windll.user32
         user32.ShowWindow(hwnd, 9)
         user32.SetForegroundWindow(hwnd)
-        pesan = f"[SUKSES] Jendela (HWND: {hwnd}) berhasil dibawa ke depan."
+        time.sleep(0.15)
+
+        jika tab_index >= 0 {
+            coba {
+                impor uiautomation as auto
+                w_ctrl = auto.ControlFromHandle(hwnd)
+                jika w_ctrl {
+                    tab_items = []
+                    untuk c, d dalam auto.WalkControl(w_ctrl, maxDepth=8) {
+                        jika c.ControlType == auto.ControlType.TabItemControl dan c.Name {
+                            tab_items.append(c)
+                        }
+                    }
+                    jika 0 <= tab_index < len(tab_items) {
+                        tab_items[tab_index].Click()
+                    }
+                }
+            } kecuali Exception {
+                lewati
+            }
+        }
+
+        pesan = f"[SUKSES] Jendela (HWND: {hwnd}, Tab: #{tab_index + 1}) berhasil dibawa ke depan."
         agent_logger.log_info("perkakas.focus_window", pesan)
         kembalikan pesan
     } kecuali Exception sebagai exc {
@@ -1144,18 +1266,53 @@ fungsi focus_window(hwnd: int) -> str {
 fokus_jendela = focus_window
 
 
-fungsi close_window_tab(hwnd: int) -> str {
-    """Menutup jendela aplikasi atau tab browser tertentu berdasarkan HWND."""
+fungsi close_window_tab(hwnd: int, tab_index: int = 0) -> str {
+    """Menutup tab tertentu di browser (Ctrl + W) atau menutup jendela jika tab_index tidak dispesifikasikan."""
     coba {
         impor ctypes
+        impor time
         user32 = ctypes.windll.user32
-        user32.PostMessageW(hwnd, 0x0010, 0, 0)
-        pesan = f"[SUKSES] Perintah tutup dikirim ke jendela (HWND: {hwnd})."
+
+        # 1. Bawa jendela ke depan
+        user32.ShowWindow(hwnd, 9)
+        user32.SetForegroundWindow(hwnd)
+        time.sleep(0.15)
+
+        # 2. Jika ada tab_index, klik tab tersebut agar aktif
+        coba {
+            impor uiautomation as auto
+            w_ctrl = auto.ControlFromHandle(hwnd)
+            jika w_ctrl {
+                tab_items = []
+                untuk c, d dalam auto.WalkControl(w_ctrl, maxDepth=8) {
+                    jika c.ControlType == auto.ControlType.TabItemControl dan c.Name {
+                        tab_items.append(c)
+                    }
+                }
+                jika 0 <= tab_index < len(tab_items) {
+                    tab_items[tab_index].Click()
+                    time.sleep(0.15)
+                }
+            }
+        } kecuali Exception {
+            lewati
+        }
+
+        # 3. Kirim Ctrl + W untuk menutup HANYA tab tersebut
+        VK_CONTROL = 0x11
+        VK_W = ord('W')
+        KEYEVENTF_KEYUP = 0x0002
+        user32.keybd_event(VK_CONTROL, 0, 0, 0)
+        user32.keybd_event(VK_W, 0, 0, 0)
+        user32.keybd_event(VK_W, 0, KEYEVENTF_KEYUP, 0)
+        user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+
+        pesan = f"[SUKSES] Tab #{tab_index + 1} pada jendela (HWND: {hwnd}) berhasil ditutup (Ctrl+W)."
         agent_logger.log_info("perkakas.close_window_tab", pesan)
         kembalikan pesan
     } kecuali Exception sebagai exc {
-        agent_logger.log_error("perkakas.close_window_tab", f"Gagal menutup jendela: {exc}")
-        kembalikan f"[GAGAL] Gagal menutup jendela: {exc}"
+        agent_logger.log_error("perkakas.close_window_tab", f"Gagal menutup tab: {exc}")
+        kembalikan f"[GAGAL] Gagal menutup tab: {exc}"
     }
 }
 
