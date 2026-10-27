@@ -864,6 +864,9 @@ atur_volume = set_volume
 fungsi media_control(action: str = "play_pause") -> str {
     """Mengendalikan pemutar media laptop (Play/Pause, Next Track, Previous Track, Stop) untuk YouTube, Spotify, dll.
 
+    Mengirimkan simulasi penekanan tombol fisik keyboard laptop (F10 untuk Play/Pause, F11 untuk Next, F9 untuk Prev)
+    beserta sinyal tombol multimedia standar Windows dengan scan code perangkat keras.
+
     Args:
         action: 'play_pause', 'play', 'pause', 'next', 'prev', 'previous', atau 'stop'.
 
@@ -872,36 +875,65 @@ fungsi media_control(action: str = "play_pause") -> str {
     """
     coba {
         impor ctypes
+        impor time
+
+        user32 = ctypes.windll.user32
+
+        VK_F9 = 0x78   # Previous Track di keyboard laptop
+        VK_F10 = 0x79  # Play / Pause di keyboard laptop
+        VK_F11 = 0x7A  # Next Track di keyboard laptop
 
         VK_MEDIA_NEXT_TRACK = 0xB0
         VK_MEDIA_PREV_TRACK = 0xB1
         VK_MEDIA_STOP = 0xB2
         VK_MEDIA_PLAY_PAUSE = 0xB3
+
+        KEYEVENTF_EXTENDEDKEY = 0x0001
         KEYEVENTF_KEYUP = 0x0002
 
         act = str(action).strip().lower()
-        key_code = kosong
+        fk = kosong
+        mk = kosong
         deskripsi = ""
 
         jika act dalam ["play", "pause", "play_pause", "jeda", "putar", "lanjut"] {
-            key_code = VK_MEDIA_PLAY_PAUSE
-            deskripsi = "⏯️ Play / Pause telah ditekan di laptop (YouTube / Spotify)."
+            fk = VK_F10
+            mk = VK_MEDIA_PLAY_PAUSE
+            deskripsi = "⏯️ Play / Pause (F10) telah ditekan di laptop (YouTube / Spotify)."
         } jika_lain act dalam ["next", "berikutnya", "lanjut_lagu", "next_track"] {
-            key_code = VK_MEDIA_NEXT_TRACK
-            deskripsi = "⏭️ Lagu berikutnya (Next Track) telah diputar."
+            fk = VK_F11
+            mk = VK_MEDIA_NEXT_TRACK
+            deskripsi = "⏭️ Lagu berikutnya (Next Track / F11) telah ditekan."
         } jika_lain act dalam ["prev", "previous", "sebelumnya", "prev_track"] {
-            key_code = VK_MEDIA_PREV_TRACK
-            deskripsi = "⏮️ Lagu sebelumnya (Previous Track) telah diputar."
+            fk = VK_F9
+            mk = VK_MEDIA_PREV_TRACK
+            deskripsi = "⏮️ Lagu sebelumnya (Previous Track / F9) telah ditekan."
         } jika_lain act dalam ["stop", "berhenti"] {
-            key_code = VK_MEDIA_STOP
+            mk = VK_MEDIA_STOP
             deskripsi = "⏹️ Pemutaran media telah dihentikan."
         } selain {
-            key_code = VK_MEDIA_PLAY_PAUSE
-            deskripsi = "⏯️ Play / Pause telah ditekan di laptop."
+            fk = VK_F10
+            mk = VK_MEDIA_PLAY_PAUSE
+            deskripsi = "⏯️ Play / Pause (F10) telah ditekan di laptop."
         }
 
-        ctypes.windll.user32.keybd_event(key_code, 0, 0, 0)
-        ctypes.windll.user32.keybd_event(key_code, 0, KEYEVENTF_KEYUP, 0)
+        # 1. Simulasikan tombol F-Key (F9, F10, atau F11) dengan hardware scan code
+        jika fk {
+            scan_f = user32.MapVirtualKeyW(fk, 0)
+            user32.keybd_event(fk, scan_f, 0, 0)
+            time.sleep(0.04)
+            user32.keybd_event(fk, scan_f, KEYEVENTF_KEYUP, 0)
+        }
+
+        time.sleep(0.02)
+
+        # 2. Simulasikan tombol multimedia Windows standar dengan flag EXTENDEDKEY
+        jika mk {
+            scan_m = user32.MapVirtualKeyW(mk, 0)
+            user32.keybd_event(mk, scan_m, KEYEVENTF_EXTENDEDKEY, 0)
+            time.sleep(0.04)
+            user32.keybd_event(mk, scan_m, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0)
+        }
 
         agent_logger.log_info("perkakas.media_control", deskripsi)
         kembalikan deskripsi

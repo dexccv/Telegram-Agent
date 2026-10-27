@@ -892,9 +892,9 @@ class TelegramAgentGateway:
         return InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("⏮️ Prev", callback_data="media_prev"),
-                    InlineKeyboardButton("⏯️ Play / Pause", callback_data="media_play_pause"),
-                    InlineKeyboardButton("⏭️ Next", callback_data="media_next"),
+                    InlineKeyboardButton("⏮️ Prev (F9)", callback_data="media_prev"),
+                    InlineKeyboardButton("⏯️ Play/Pause (F10)", callback_data="media_play_pause"),
+                    InlineKeyboardButton("⏭️ Next (F11)", callback_data="media_next"),
                 ],
                 [
                     InlineKeyboardButton("🔉 -10%", callback_data="vol_down_10"),
