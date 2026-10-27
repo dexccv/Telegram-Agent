@@ -40,6 +40,10 @@ Runtime dieksekusi secara native via `penerjemah_idk.py` yang menyediakan Import
 ```text
 gemini-terminal-agent/
 │
+├── bot_telegram.py     # Gateway Telegram Remote Control (kendalikan laptop dari HP kapan pun)
+├── run_bot.bat         # Launcher 1-klik untuk menyalakan Gateway Telegram di Windows
+├── run_bot.sh          # Launcher Gateway Telegram di Linux/macOS
+│
 ├── penerjemah_idk.py   # Engine penerjemah & import hook loader Indonesiaku-Lang (.idk)
 ├── utama.py            # Peluncur utama berbasis Indonesiaku-Lang (menjalankan aplikasi.idk)
 │
@@ -52,9 +56,9 @@ gemini-terminal-agent/
 │
 ├── app.py              # Pintu masuk kompatibilitas (meneruskan ke aplikasi.idk)
 ├── logger.py           # Logger rotasi harian dan formatter diagnosa error detail
-├── requirements.txt    # Dependensi library Python (textual, google-genai, dll.)
-├── run.bat             # Script peluncur Windows (venv otomatis + install deps)
-├── run.sh              # Script peluncur Linux/macOS
+├── requirements.txt    # Dependensi library Python (textual, google-genai, python-telegram-bot, dll.)
+├── run.bat             # Script peluncur TUI Windows (venv otomatis + install deps)
+├── run.sh              # Script peluncur TUI Linux/macOS
 └── README.md           # Dokumentasi teknis proyek
 ```
 
@@ -118,6 +122,24 @@ Script launcher di atas secara otomatis akan:
    # atau
    python app.py
    ```
+
+---
+
+## ⌬ Remote Control dari HP via Telegram Bot
+
+Anda dapat mengendalikan AI Agent di laptop secara penuh dari handphone kapan pun dan di mana pun melalui Telegram Bot, asalkan laptop dalam keadaan menyala dan terhubung ke internet:
+
+### Cara Menjalankan:
+1. Klik ganda berkas **`run_bot.bat`** (Windows) atau jalankan `./run_bot.sh` (Linux/macOS).
+2. Buka aplikasi Telegram di handphone Anda, cari bot Anda (`@rexc_091`), lalu ketik `/start`.
+3. Anda dapat langsung mengirim instruksi dari HP, misalnya:
+   - *"Buatkan script Python kalkulator di laptop dan tes jalankan"*
+   - *"Cari berkas laporan di folder ini dan baca isinya"*
+   - `/status` : Memeriksa sisa baterai laptop, RAM, dan status sistem
+   - `/get <nama_file>` : Mengunduh berkas dari laptop langsung ke Telegram HP Anda
+   - Mengirim berkas/dokumen dari HP ke bot untuk disimpan otomatis di laptop.
+
+> **Keamanan Whitelist Terjamin**: Bot dikunci secara otomatis hanya untuk User ID Telegram Anda (`5467304452`). Siapa pun di luar Anda yang mencoba menghubungi bot akan langsung ditolak aksesnya. Token Telegram disimpan di file konfigurasi lokal `~/.gemini-agent/.env` dan tidak pernah dipublikasikan ke GitHub.
 
 ---
 

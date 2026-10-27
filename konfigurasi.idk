@@ -115,6 +115,18 @@ kelas PengelolaKonfigurasi {
         """Memeriksa apakah mode debug aktif via GEMINI_AGENT_DEBUG."""
         kembalikan os.environ.get("GEMINI_AGENT_DEBUG", "0").strip() == "1"
     }
+
+    fungsi ambil_telegram_token() {
+        """Mengambil bot token Telegram dari berkas konfigurasi .env."""
+        diri.muat_ulang()
+        kembalikan os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    }
+
+    fungsi ambil_telegram_allowed_user_id() {
+        """Mengambil User ID Telegram pemilik yang diizinkan mengontrol laptop."""
+        diri.muat_ulang()
+        kembalikan os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
+    }
 }
 
 pengelola_konfigurasi = PengelolaKonfigurasi()
