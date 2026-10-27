@@ -36,8 +36,8 @@ Dilengkapi dengan antarmuka visual **Textual TUI**, dukungan multi-provider AI (
 
 ### 📱 Telegram Remote Gateway (Kendalikan Laptop dari HP)
 - **Monitoring Real-Time (`/status`)**: Pantau daya baterai & charger, koneksi Wi-Fi (SSID, sinyal, IP), jendela aplikasi aktif di layar, beban CPU, pemakaian RAM, dan penyimpanan disk.
-- **Pusat Media & Peluncur Aplikasi Interaktif (`/buka`)**: Menu hub terpadu untuk membuka Chrome, YouTube, Spotify, VS Code, Notepad, Kalkulator, File Explorer, Terminal, atau Edge.
-- **Pencarian YouTube & Pemutar Musik Instan**: Cari lagu/video apa pun (misal: `/buka yt lagu hindia`), bot akan menyajikan daftar video teratas lengkap dengan **tautan link langsung** serta tombol interaktif untuk langsung memutar (*autoplay*) di laptop.
+- **Pencarian YouTube & Media Cepat (`/cari <aplikasi> <keyword>`)**: Cari lagu/video apa pun (misal: `/cari youtube the jansen` atau `/cari spotify feast`), bot menyajikan daftar video teratas lengkap dengan tautan link langsung serta tombol interaktif untuk langsung memutar (*autoplay*) di laptop.
+- **Peluncur Aplikasi Desktop (`/buka`)**: Menu tombol cepat untuk membuka Chrome, Spotify, VS Code, Notepad, File Explorer, Kalkulator, Terminal, atau Edge.
 - **Inspeksi & Kontrol Tab Browser (`/tabs`)**: Memantau seluruh tab dan jendela browser (Chrome/Edge) yang sedang aktif di laptop, membawa tab tertentu ke depan layar (*focus*), memutar/jeda musik di tab, atau menutup tab dari HP.
 - **Penjelajah Berkas & Pengunduh Dokumen (`/get`)**: Jelajahi folder laptop (Project, Downloads, Documents, Desktop, Drive C/D) dengan tombol inline dan unduh berkas apa pun langsung ke HP dalam satu ketukan.
 - **Kontrol Volume & Pemutar Musik (`/volume`, `/play`, `/next`, `/prev`)**: Tombol volume (+/-10%, Mute/Unmute, 20-100%) dan kontrol lagu (Play/Pause `F10`, Next `F11`, Prev `F9`) yang disimulasikan langsung ke keyboard laptop.
@@ -206,8 +206,9 @@ Jika Anda ingin menjalankan agen secara offline atau menggunakan model open-sour
 | Perintah | Deskripsi |
 | :--- | :--- |
 | `/status` | Menampilkan dashboard monitoring laptop real-time (baterai, Wi-Fi, jendela aktif, RAM, CPU). |
-| `/buka` | Membuka Pusat Media & Peluncur Aplikasi (YouTube Hub, Tab Browser, Spotify, VS Code, dll). |
-| `/buka <nama>` | Cari lagu/video YouTube dengan pilihan tombol lagu & link, buka link URL, atau buka aplikasi. |
+| `/cari <aplikasi> <kata_kunci>` | Cari lagu/video di YouTube, Google, Spotify (contoh: `/cari youtube the jansen` atau `/cari spotify feast`). |
+| `/buka` | Membuka tombol pintasan Peluncur Aplikasi desktop (Chrome, Spotify, VS Code, Notepad, dll). |
+| `/buka <nama>` | Membuka aplikasi desktop atau link URL tertentu di laptop (contoh: `/buka chrome` atau `/buka notepad`). |
 | `/tabs` / `/tab` | Memantau seluruh tab/jendela browser (Chrome/Edge) aktif, fokuskan tab, atau tutup tab dari HP. |
 | `/get` | Membuka Penjelajah Berkas (File Picker) interaktif untuk mengunduh dokumen laptop ke HP. |
 | `/get <path>` | Mengunduh berkas tertentu langsung ke HP (bisa berkas di dalam maupun di luar project). |

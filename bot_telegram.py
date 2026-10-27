@@ -354,7 +354,8 @@ class TelegramAgentGateway:
             "• `/jendela` : Pantau jendela yang sedang dibuka di layar & daftar aplikasi aktif.\n"
             "• `/kamera` : Ambil foto langsung dari webcam laptop dan kirimkan ke sini.\n"
             "• `/capture` : Ambil tangkapan layar (screenshot) tampilan display laptop saat ini.\n"
-            "• `/buka <target>` : Buka aplikasi, link, atau cari lagu di YouTube (misal: `/buka youtube lagu hindia`).\n"
+            "• `/cari <aplikasi> <keyword>` : Cari lagu/video di YouTube, Google, Spotify, dsb (misal: `/cari youtube the jansen`).\n"
+            "• `/buka [target]` : Buka aplikasi desktop atau pantau tab browser (misal: `/buka chrome` atau `/buka spotify`).\n"
             "• `/tutup <nama>` : Tutup aplikasi desktop tertentu (misal: `/tutup chrome` atau `/tutup notepad`).\n"
             "• `/volume [level]` : Atur volume master laptop (0-100, +10, -10, mute, unmute) atau buka panel volume.\n"
             "• `/mute` / `/unmute` : Matikan atau nyalakan suara speaker laptop.\n"
@@ -662,11 +663,12 @@ class TelegramAgentGateway:
             tabs = fn_tabs() if fn_tabs else []
             count_str = f"{len(tabs)} tab aktif" if tabs else "belum ada tab aktif"
             new_text = (
-                "📱 **PUSAT KENDALI MEDIA & APLIKASI LAPTOP**\n\n"
+                "📱 **PELUNCUR APLIKASI LAPTOP**\n\n"
                 f"• **Browser Tab**: `{count_str}`\n"
-                "• Pilih menu di bawah untuk membuka aplikasi atau memutar musik:\n"
-                "• Atau cari lagu langsung: `/buka youtube lagu hindia`\n"
-                "• Atau pantau tab browser: `/tabs`"
+                "• Pilih aplikasi di bawah untuk langsung dibuka di laptop:\n\n"
+                "💡 **Untuk mencari lagu/video/informasi:**\n"
+                "Gunakan: `/cari <aplikasi> <keyword>`\n"
+                "Contoh: `/cari youtube the jansen`"
             )
             try:
                 await query.edit_message_text(
@@ -678,14 +680,16 @@ class TelegramAgentGateway:
                 pass
         elif data == "open_hub:yt":
             yt_text = (
-                "🎬 **YOUTUBE MEDIA & MUSIC HUB**\n\n"
-                "Pilih genre / playlist cepat di bawah atau ketik perintah pencarian:\n"
-                "• Contoh: `/buka yt lagu hindia` atau `/buka youtube lofi`"
+                "🔍 **PENCARIAN CEPAT YOUTUBE**\n\n"
+                "Gunakan perintah praktis:\n"
+                "• `/cari youtube <keyword>`\n"
+                "• `/cari yt <keyword>`\n\n"
+                "Contoh: `/cari youtube the jansen`"
             )
             try:
                 await query.edit_message_text(
                     text=yt_text,
-                    reply_markup=self._build_yt_hub_markup(),
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Menu Buka", callback_data="open_hub:main")]]),
                     parse_mode=ParseMode.MARKDOWN,
                 )
             except Exception:
@@ -1031,48 +1035,25 @@ class TelegramAgentGateway:
             await update.message.reply_text("❌ Fungsi close_application tidak tersedia.")
 
     def _build_open_hub_markup(self, tab_count: int = 0) -> InlineKeyboardMarkup:
-        """Membuat tombol pilihan hub aplikasi desktop, YouTube hub, dan pemantau tab browser."""
-        tab_label = f"📑 Tab Browser Aktif ({tab_count})" if tab_count > 0 else "📑 Tab Browser Aktif"
+        """Membuat tombol peluncur aplikasi desktop dan tab browser laptop."""
+        tab_label = f"📑 Tab Browser ({tab_count})" if tab_count > 0 else "📑 Tab Browser"
         return InlineKeyboardMarkup(
             [
-                [
-                    InlineKeyboardButton("🎬 YouTube Hub", callback_data="open_hub:yt"),
-                    InlineKeyboardButton(tab_label, callback_data="open_hub:tabs"),
-                ],
                 [
                     InlineKeyboardButton("🌐 Google Chrome", callback_data="open_app:chrome"),
                     InlineKeyboardButton("🎧 Spotify", callback_data="open_app:spotify"),
                 ],
                 [
-                    InlineKeyboardButton("🎵 YT: Lagu Hindia", callback_data="yt_search:lagu hindia evaluasi"),
                     InlineKeyboardButton("💻 VS Code", callback_data="open_app:vscode"),
-                ],
-                [
-                    InlineKeyboardButton("📝 Notepad", callback_data="open_app:notepad"),
                     InlineKeyboardButton("📁 File Explorer", callback_data="open_app:explorer"),
                 ],
                 [
+                    InlineKeyboardButton("📝 Notepad", callback_data="open_app:notepad"),
                     InlineKeyboardButton("🧮 Kalkulator", callback_data="open_app:calc"),
+                ],
+                [
+                    InlineKeyboardButton(tab_label, callback_data="open_hub:tabs"),
                     InlineKeyboardButton("⚡ Terminal / CMD", callback_data="open_app:terminal"),
-                ],
-            ]
-        )
-
-    def _build_yt_hub_markup(self) -> InlineKeyboardMarkup:
-        """Membuat menu pintasan genre musik YouTube."""
-        return InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton("☕ Lofi Hip Hop Study", callback_data="yt_search:lofi hip hop study beats"),
-                    InlineKeyboardButton("🎸 Pop Indo Hits", callback_data="yt_search:pop indonesia hits terbaru"),
-                ],
-                [
-                    InlineKeyboardButton("🎵 Lagu Hindia", callback_data="yt_search:lagu hindia evaluasi"),
-                    InlineKeyboardButton("🎙️ Podcast Indonesia", callback_data="yt_search:podcast indonesia"),
-                ],
-                [
-                    InlineKeyboardButton("🌐 Buka YouTube Home", callback_data="open_app:https://www.youtube.com"),
-                    InlineKeyboardButton("🔙 Menu Buka", callback_data="open_hub:main"),
                 ],
             ]
         )
@@ -1178,8 +1159,7 @@ class TelegramAgentGateway:
         lines.append("👇 *Tekan tombol di bawah untuk langsung memutar video di laptop:*")
         encoded_q = urllib.parse.quote_plus(query)
         buttons.append([
-            InlineKeyboardButton("🌐 Buka Pencarian di Browser", callback_data=f"open_app:https://www.youtube.com/results?search_query={encoded_q}"),
-            InlineKeyboardButton("🔙 Hub Buka", callback_data="open_hub:main"),
+            InlineKeyboardButton("🌐 Buka Hasil di Browser", callback_data=f"open_app:https://www.youtube.com/results?search_query={encoded_q}"),
         ])
 
         await msg_target.reply_text(
@@ -1202,12 +1182,136 @@ class TelegramAgentGateway:
         text, markup = self._build_browser_tabs_markup()
         await msg_target.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
 
-    async def open_app_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Membuka aplikasi desktop, link URL, tab browser, atau mencari & memutar lagu di YouTube."""
+    async def cari_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Mencari konten/lagu/video/artikel berdasarkan aplikasi dan kata kunci (misal: /cari youtube the jansen)."""
         if not self.is_authorized(update):
             await self.unauthorized_handler(update)
             return
 
+        u_info = get_user_info(update)
+        msg_target = update.message or (update.callback_query.message if update.callback_query else None)
+        if not msg_target:
+            return
+
+        if not context.args:
+            msg = (
+                "🔍 **PANDUAN FITUR CARI CEPAT LAPTOP**\n\n"
+                "Format: `/cari <aplikasi> <kata kunci>`\n\n"
+                "📌 **Contoh Penggunaan:**\n"
+                "• `/cari youtube the jansen` : Cari & putar lagu/video YouTube di laptop\n"
+                "• `/cari yt the jansen` : Versi singkat untuk YouTube\n"
+                "• `/cari google tutorial python` : Cari di Google via Chrome laptop\n"
+                "• `/cari spotify feast` : Cari artis/lagu di Spotify\n"
+                "• `/cari github gemini agent` : Cari repositori di GitHub\n"
+                "• `/cari wikipedia kecerdasan buatan` : Cari artikel Wikipedia\n\n"
+                "💡 *Tips:* Jika langsung mengetik `/cari the jansen`, otomatis mencari ke YouTube."
+            )
+            await msg_target.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+            return
+
+        first_arg = context.args[0].lower().strip()
+        remaining_args = context.args[1:]
+
+        app_aliases = {
+            "youtube": "youtube",
+            "yt": "youtube",
+            "ytb": "youtube",
+            "google": "google",
+            "gg": "google",
+            "chrome": "google",
+            "browser": "google",
+            "web": "google",
+            "spotify": "spotify",
+            "sp": "spotify",
+            "github": "github",
+            "gh": "github",
+            "wikipedia": "wikipedia",
+            "wiki": "wikipedia",
+            "bing": "bing",
+        }
+
+        if first_arg in app_aliases:
+            target_app = app_aliases[first_arg]
+            if not remaining_args:
+                await msg_target.reply_text(
+                    f"⚠️ Masukkan kata kunci yang ingin dicari di {target_app.upper()}.\nContoh: `/cari {first_arg} the jansen`",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                return
+            query_term = " ".join(remaining_args).strip()
+        else:
+            # Default ke YouTube jika kata pertama bukan nama aplikasi
+            target_app = "youtube"
+            query_term = " ".join(context.args).strip()
+
+        log_terminal_box(
+            "Command", f"/cari {target_app}",
+            [("Pengguna", u_info), ("Aplikasi", target_app.upper()), ("Query", query_term)],
+            color="bright_cyan",
+        )
+
+        import urllib.parse
+        import perkakas
+
+        if target_app == "youtube":
+            await self.search_and_send_youtube(msg_target, query_term)
+            return
+
+        encoded_q = urllib.parse.quote_plus(query_term)
+        app_urls = {
+            "google": f"https://www.google.com/search?q={encoded_q}",
+            "spotify": f"https://open.spotify.com/search/{encoded_q}",
+            "github": f"https://github.com/search?q={encoded_q}",
+            "wikipedia": f"https://id.wikipedia.org/wiki/Special:Search?search={encoded_q}",
+            "bing": f"https://www.bing.com/search?q={encoded_q}",
+        }
+        app_labels = {
+            "google": "Google Search (Chrome)",
+            "spotify": "Spotify",
+            "github": "GitHub",
+            "wikipedia": "Wikipedia Indonesia",
+            "bing": "Bing Search",
+        }
+        target_url = app_urls.get(target_app, f"https://www.google.com/search?q={encoded_q}")
+        app_label = app_labels.get(target_app, target_app.title())
+
+        fn_open = getattr(perkakas, "open_application", None)
+        if fn_open:
+            status_msg = await msg_target.reply_text(f"⏳ Membuka pencarian {app_label} di laptop...")
+            res = await asyncio.to_thread(fn_open, target_url)
+            msg_reply = (
+                f"🔍 **Pencarian {app_label}:**\n"
+                f"• Kata Kunci: `{query_term}`\n"
+                f"• Tautan URL: {target_url}\n\n"
+                f"🖥️ Status Laptop: {res}"
+            )
+            buttons = [
+                [
+                    InlineKeyboardButton("🌐 Buka Tautan di Browser", callback_data=f"open_app:{target_url}"),
+                ]
+            ]
+            try:
+                await status_msg.edit_text(
+                    msg_reply,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    disable_web_page_preview=True,
+                )
+            except Exception:
+                await msg_target.reply_text(
+                    msg_reply,
+                    reply_markup=InlineKeyboardMarkup(buttons),
+                    disable_web_page_preview=True,
+                )
+        else:
+            await msg_target.reply_text("❌ Fungsi open_application tidak tersedia.")
+
+    async def open_app_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Membuka aplikasi desktop, link URL, atau tab browser."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        u_info = get_user_info(update)
         msg_target = update.message or (update.callback_query.message if update.callback_query else None)
         if not msg_target:
             return
@@ -1218,11 +1322,12 @@ class TelegramAgentGateway:
             tabs = fn_tabs() if fn_tabs else []
             count_str = f"{len(tabs)} tab aktif" if tabs else "belum ada tab aktif"
             msg = (
-                "📱 **PUSAT KENDALI MEDIA & APLIKASI LAPTOP**\n\n"
+                "📱 **PELUNCUR APLIKASI LAPTOP**\n\n"
                 f"• **Browser Tab**: `{count_str}`\n"
-                "• Pilih menu di bawah untuk membuka aplikasi atau memutar musik:\n"
-                "• Atau cari lagu langsung: `/buka youtube lagu hindia`\n"
-                "• Atau pantau tab browser: `/tabs`"
+                "• Pilih aplikasi di bawah untuk langsung dibuka di laptop:\n\n"
+                "💡 **Untuk mencari sesuatu di YouTube / Google / Spotify:**\n"
+                "Gunakan perintah: `/cari <aplikasi> <keyword>`\n"
+                "Contoh: `/cari youtube the jansen`"
             )
             await msg_target.reply_text(
                 msg,
@@ -1231,22 +1336,14 @@ class TelegramAgentGateway:
             )
             return
 
-        target_query = " ".join(context.args).strip()
-        target_lower = target_query.lower()
-
-        # Deteksi intent pencarian YouTube
-        yt_keywords = ["youtube", "yt", "lagu", "video", "play", "musik", "putar"]
-        if any(k in target_lower for k in yt_keywords) and not target_lower.startswith("http"):
-            cleaned = re.sub(
-                r"^(buka|open|play|putar|cari|search)\s+(youtube|yt)?\s*(dan\s+cari|lalu\s+cari|cari)?\s*",
-                "",
-                target_query,
-                flags=re.IGNORECASE,
-            ).strip()
-            if not cleaned or cleaned.lower() in ["youtube", "yt"]:
-                cleaned = target_query
-            await self.search_and_send_youtube(msg_target, cleaned)
+        first_lower = context.args[0].lower().strip()
+        # Jika pengguna mengetik "/buka youtube the jansen" atau sejenisnya, alirkan langsung ke cari_cmd
+        if first_lower in ["youtube", "yt", "cari", "search", "spotify", "google"]:
+            await self.cari_cmd(update, context)
             return
+
+        target_query = " ".join(context.args).strip()
+        log_terminal_box("Command", f"/buka {target_query}", [("Pengguna", u_info), ("Target", target_query)], color="bright_yellow")
 
         fn_open = getattr(perkakas, "open_application", None)
         if fn_open:
@@ -1730,7 +1827,14 @@ class TelegramAgentGateway:
             await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
             return
 
-        # Deteksi langsung: Pencarian / Pemutaran YouTube
+        # Deteksi langsung: Pesan diawali kata "cari ..." (misal: "cari youtube the jansen")
+        if u_clean.startswith("cari ") or u_clean.startswith("search "):
+            parts = user_text.split()[1:]
+            context.args = parts
+            await self.cari_cmd(update, context)
+            return
+
+        # Deteksi langsung: Pencarian / Pemutaran YouTube otomatis
         if ("youtube" in u_clean or "yt" in u_clean or "lagu" in u_clean) and any(w in u_clean for w in ["cari", "putar", "play", "dengarkan", "stel", "setel"]):
             cleaned_query = re.sub(
                 r"\b(buka|open|chrome|lalu|didalam|dan|youtube|yt|tolong|coba|cari|carikan|putar|putarkan|play|lagu|video|setel|musik)\b",
@@ -1872,9 +1976,10 @@ class TelegramAgentGateway:
         commands = [
             BotCommand("status", "Dashboard monitoring laptop real-time"),
             BotCommand("capture", "Ambil tangkapan layar laptop (Screenshot)"),
+            BotCommand("cari", "Cari konten di YouTube, Google, Spotify (misal: /cari youtube the jansen)"),
             BotCommand("speed", "Uji kecepatan respon AI & kirim Telegram"),
             BotCommand("kamera", "Ambil foto dari webcam laptop"),
-            BotCommand("buka", "Pusat Media, YouTube, Cari Lagu & Peluncur Aplikasi"),
+            BotCommand("buka", "Peluncur aplikasi desktop & browser laptop"),
             BotCommand("tabs", "Pantau & kontrol tab browser terbuka di laptop"),
             BotCommand("tutup", "Tutup aplikasi desktop (contoh: /tutup chrome)"),
             BotCommand("volume", "Atur volume laptop & kontrol lagu"),
@@ -2005,6 +2110,8 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("ss", self.capture_screen_cmd))
         app.add_handler(CommandHandler("tutup", self.close_app_cmd))
         app.add_handler(CommandHandler("close", self.close_app_cmd))
+        app.add_handler(CommandHandler("cari", self.cari_cmd))
+        app.add_handler(CommandHandler("search", self.cari_cmd))
         app.add_handler(CommandHandler("buka", self.open_app_cmd))
         app.add_handler(CommandHandler("open", self.open_app_cmd))
         app.add_handler(CommandHandler("tabs", self.tabs_cmd))
