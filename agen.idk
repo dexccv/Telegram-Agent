@@ -328,6 +328,25 @@ fungsi pindai_model_ollama(base_url=kosong) {
 }
 
 
+fungsi pangkas_output_tool(output, maks_karakter=1500) {
+    """Memotong output perkakas yang terlalu panjang agar tidak memicu galat TPM/HTTP 413 pada model AI."""
+    jika len(output) <= maks_karakter {
+        kembalikan output
+    }
+    total_len = len(output)
+    total_baris = output.count("\n") + 1
+    head_len = maks_karakter - 250
+    head = output[:head_len]
+    tail = output[-150:]
+    kembalikan (
+        f"{head}\n\n"
+        f"[... OUTPUT DIPOTONG: Menampilkan {head_len + 150} dari {total_len} karakter "
+        f"({total_baris} baris). Minta parameter atau filter yang lebih spesifik jika butuh baris lainnya ...]\n\n"
+        f"{tail}"
+    )
+}
+
+
 kelas AgenGemini {
     """Agent Gemini interaktif dengan loop tool calling otomatis, memori, dan sesi persisten."""
 
@@ -908,7 +927,7 @@ kelas AgenGemini {
 
                 bagian = types.Part.from_function_response(
                     name=nama_alat,
-                    response={"result": hasil_str},
+                    response={"result": pangkas_output_tool(hasil_str)},
                 )
                 daftar_respon_bagian.append(bagian)
             }
@@ -1056,7 +1075,7 @@ kelas AgenGemini {
                         pesan_list.append({
                             "role": "tool",
                             "tool_call_id": tc_id,
-                            "content": hasil_alat,
+                            "content": pangkas_output_tool(hasil_alat),
                         })
                     }
                     lanjut

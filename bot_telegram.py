@@ -289,16 +289,25 @@ class TelegramAgentGateway:
         console.print(f"[dim]• Menginisialisasi Agen ({self.provider.upper()} - {self.model_name})...[/dim]")
         self.agent = agen.AgenGemini(api_key=self.api_key, model_name=self.model_name)
         self.file_picker_state: dict[int, dict] = {}
+        self.session_lock = asyncio.Lock()
         console.print("[dim green]✓ Agen AI & modul sistem siap.[/dim green]")
 
     def is_authorized(self, update: Update) -> bool:
-        """Memeriksa apakah pengirim pesan adalah pemilik sah laptop."""
-        if not self.allowed_user_id:
-            return True
+        """Memeriksa apakah pengirim pesan adalah pemilik sah laptop.
+        
+        Secara default mengunci total akses jika whitelist ID belum disetel
+        demi mencegah eksekusi remote oleh pihak ketiga yang tidak berwenang.
+        """
         user = update.effective_user
         if not user:
             return False
-        return str(user.id) == str(self.allowed_user_id)
+        if not self.allowed_user_id or not str(self.allowed_user_id).strip():
+            agent_logger.log_critical(
+                "telegram_gateway.auth",
+                f"Akses ditolak dari {user.id} karena TELEGRAM_ALLOWED_USER_ID belum dikonfigurasi di ~/.gemini-agent/.env",
+            )
+            return False
+        return str(user.id) == str(self.allowed_user_id).strip()
 
     async def unauthorized_handler(self, update: Update) -> None:
         u_info = get_user_info(update)
@@ -1064,6 +1073,65 @@ class TelegramAgentGateway:
         msg_target = update.message or (update.callback_query.message if update.callback_query else None)
         if msg_target:
             await msg_target.reply_text(pesan, parse_mode=ParseMode.MARKDOWN)
+
+    async def clip_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Mengambil teks yang sedang ada di clipboard laptop Windows."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        u_info = get_user_info(update)
+        log_terminal_box("Command", "/clip", [("Pengguna", u_info), ("Aksi", "Membaca clipboard laptop")], color="bright_blue")
+        try:
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=5,
+            )
+            clip_text = res.stdout.strip()
+            if not clip_text:
+                await update.message.reply_text("📋 **Clipboard Laptop**: (Kosong atau bukan berupa teks teks murni)")
+            else:
+                chunks = split_message(clip_text, 3500)
+                await update.message.reply_text(f"📋 **Isi Clipboard Laptop Saat Ini**:\n\n```\n{chunks[0]}\n```", parse_mode=ParseMode.MARKDOWN)
+                for c in chunks[1:]:
+                    await update.message.reply_text(f"```\n{c}\n```", parse_mode=ParseMode.MARKDOWN)
+        except Exception as exc:
+            await update.message.reply_text(f"❌ Gagal membaca clipboard laptop: {exc}")
+
+    async def copy_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Menyalin teks dari Telegram langsung masuk ke clipboard laptop Windows."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                "📋 **PANDUAN SALIN KE CLIPBOARD LAPTOP**\n\n"
+                "Format: `/copy <teks yang ingin disalin>`\n"
+                "Contoh: `/copy https://github.com/dexccv/gemini-cli`\n\n"
+                "Teks akan langsung disalin ke clipboard laptop sehingga siap Anda tempel (**Ctrl + V**)."
+            )
+            return
+
+        text_to_copy = " ".join(context.args)
+        u_info = get_user_info(update)
+        log_terminal_box("Command", "/copy", [("Pengguna", u_info), ("Teks", f'"{text_to_copy[:60]}..."')], color="bright_green")
+        try:
+            subprocess.run(
+                ["clip"],
+                input=text_to_copy.encode("utf-16le"),
+                timeout=5,
+            )
+            await update.message.reply_text(
+                f"✅ **Teks Berhasil Disalin ke Clipboard Laptop!**\n\n"
+                f"Isi: `{text_to_copy[:120]}`{'...' if len(text_to_copy) > 120 else ''}\n\n"
+                "Anda dapat langsung menekan **Ctrl + V** di laptop untuk menempelkannya."
+            )
+        except Exception as exc:
+            await update.message.reply_text(f"❌ Gagal menyalin ke clipboard laptop: {exc}")
 
     def _start_global_lock_hotkey_listener(self, application: Application, loop: Any = None) -> None:
         """Menjalankan thread latar belakang untuk mendengarkan tombol kombinasi Ctrl + L di laptop."""
@@ -1934,6 +2002,11 @@ class TelegramAgentGateway:
             await self.lock_cmd(update, context)
             return
 
+        # Deteksi langsung: Cek Clipboard Laptop
+        if any(w in u_clean for w in ["cek clipboard", "baca clipboard", "isi clipboard", "lihat clipboard", "get clipboard"]):
+            await self.clip_cmd(update, context)
+            return
+
         # Deteksi langsung: Pencarian / Pemutaran YouTube otomatis HANYA jika perintah tunggal (bukan majemuk dengan 'dan', 'volume', 'lalu', dsb)
         is_compound = any(w in u_clean for w in [" dan ", " lalu ", " serta ", "sambil", "kemudian", "volume", "suara", "tutup", "pdf"])
         if not is_compound and ("youtube" in u_clean or "yt" in u_clean or "lagu" in u_clean) and any(w in u_clean for w in ["cari", "putar", "play", "dengarkan", "stel", "setel"]):
@@ -1993,8 +2066,9 @@ class TelegramAgentGateway:
         try:
             import time as _time
             t_ai_start = _time.perf_counter()
-            # Jalankan di background worker thread agar event loop Telegram tidak terblokir
-            response_text = await asyncio.to_thread(_run_agent)
+            # Jalankan di background worker thread dengan async session lock agar aman dari race condition
+            async with self.session_lock:
+                response_text = await asyncio.to_thread(_run_agent)
             ai_duration = _time.perf_counter() - t_ai_start
 
             try:
@@ -2115,6 +2189,8 @@ class TelegramAgentGateway:
         """Mendaftarkan menu tombol command interaktif di aplikasi Telegram."""
         commands = [
             BotCommand("status", "Dashboard monitoring laptop real-time"),
+            BotCommand("clip", "📋 Lihat isi clipboard laptop saat ini"),
+            BotCommand("copy", "📋 Salin teks dari HP ke clipboard laptop"),
             BotCommand("lock", "🔒 Kunci layar laptop seketika (Ctrl+L)"),
             BotCommand("capture", "Ambil tangkapan layar laptop (Screenshot)"),
             BotCommand("cari", "Cari konten di YouTube, Google, Spotify (misal: /cari youtube the jansen)"),
@@ -2275,6 +2351,10 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("pause", self.play_pause_cmd))
         app.add_handler(CommandHandler("next", self.next_track_cmd))
         app.add_handler(CommandHandler("prev", self.prev_track_cmd))
+        app.add_handler(CommandHandler("clip", self.clip_cmd))
+        app.add_handler(CommandHandler("clipboard", self.clip_cmd))
+        app.add_handler(CommandHandler("copy", self.copy_cmd))
+        app.add_handler(CommandHandler("salin", self.copy_cmd))
         app.add_handler(CommandHandler("lock", self.lock_cmd))
         app.add_handler(CommandHandler("kunci", self.lock_cmd))
         app.add_handler(CommandHandler("baca", self.read_file_cmd))

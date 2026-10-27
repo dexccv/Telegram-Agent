@@ -350,6 +350,23 @@ def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: flo
     return False
 
 
+def pangkas_output_tool(output: str, max_chars: int = 1500) -> str:
+    """Memotong output perkakas yang terlalu panjang agar tidak memicu galat TPM/HTTP 413 pada model AI."""
+    if len(output) <= max_chars:
+        return output
+    total_len = len(output)
+    total_lines = output.count("\n") + 1
+    head_len = max_chars - 250
+    head = output[:head_len]
+    tail = output[-150:]
+    return (
+        f"{head}\n\n"
+        f"[... OUTPUT DIPOTONG: Menampilkan {head_len + 150} dari {total_len} karakter "
+        f"({total_lines} baris). Minta parameter atau filter yang lebih spesifik jika butuh baris lainnya ...]\n\n"
+        f"{tail}"
+    )
+
+
 class GeminiAgent:
     """Agent Gemini interaktif dengan loop tool calling otomatis, memori jangka panjang, dan sesi persisten."""
 
@@ -738,9 +755,10 @@ class GeminiAgent:
                     )
                 )
 
+                safe_result = pangkas_output_tool(result_str)
                 part = types.Part.from_function_response(
                     name=tool_name,
-                    response={"result": result_str},
+                    response={"result": safe_result},
                 )
                 parts_responses.append(part)
 
@@ -867,10 +885,11 @@ class GeminiAgent:
                                 tool_preview=preview,
                             )
                         )
+                        safe_result = pangkas_output_tool(result_str)
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc_id,
-                            "content": result_str,
+                            "content": safe_result,
                         })
                     continue
                 else:

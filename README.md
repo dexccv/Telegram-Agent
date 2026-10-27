@@ -7,364 +7,237 @@
 [![Telegram Gateway](https://img.shields.io/badge/Telegram-Remote%20Control-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://telegram.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-**Gemini Terminal Agent** adalah asisten AI terminal modern, cerdas, dan interaktif yang dibangun menggunakan Python dan bahasa pemrograman **Indonesiaku-Lang** (`.idk`). 
+**Gemini Terminal Agent** adalah asisten AI otonom workstation dan terminal cerdas yang dibangun menggunakan Python dan bahasa pemrograman **Indonesiaku-Lang** (`.idk`).
 
-Dilengkapi dengan antarmuka visual **Textual TUI**, dukungan **Multi-Provider AI** (*Groq Cloud LPU*, *Google Gemini*, *Local Ollama*, dan *Omniroute*), kemampuan eksekusi perkakas mandiri (*Autonomous Function Calling*) untuk kontrol sistem laptop, serta **Telegram Mobile Gateway** yang memungkinkan Anda mengendalikan seluruh fungsi laptop dari handphone kapan pun dan di mana pun.
+Dilengkapi antarmuka visual **Textual TUI**, dukungan **Multi-Provider AI** (*Groq Cloud LPU*, *Google Gemini*, *Local Ollama*, dan *Omniroute*), kemampuan eksekusi perkakas otonom (*Autonomous Function Calling*) untuk kontrol sistem laptop, serta **Telegram Mobile Gateway** yang memungkinkan Anda mengendalikan seluruh fungsi laptop dari smartphone kapan pun dan di mana pun.
 
 ---
 
 ## 📑 Daftar Isi
-1. [Fitur Utama](#-fitur-utama)
-2. [Multi-Provider AI](#-multi-provider-ai)
-3. [Daftar Perkakas Sistem (Tool Calling)](#-daftar-perkakas-sistem-tool-calling)
-4. [Bahasa Pemrograman: Indonesiaku-Lang](#-bahasa-pemrograman-indonesiaku-lang-idk)
-5. [Struktur Berkas](#-struktur-berkas)
-6. [Persyaratan Sistem](#-persyaratan-sistem)
-7. [Panduan Instalasi & Menjalankan](#-panduan-instalasi--menjalankan)
-8. [Panduan Setup Groq AI (Super Cepat ~0.5s)](#-panduan-setup-groq-ai-rekomendasi)
-9. [Panduan Setup Telegram Mobile Gateway](#-panduan-setup-telegram-mobile-gateway)
-10. [Panduan Setup Local AI (Ollama)](#-panduan-setup-local-ai-ollama-opsional)
-11. [Daftar Perintah Telegram Bot](#-daftar-perintah-telegram-bot)
-12. [Daftar Pintasan Keyboard Terminal TUI](#-daftar-pintasan-keyboard-terminal-tui)
-13. [Konfigurasi Lengkap (.env)](#-konfigurasi-lengkap-env)
-14. [Keamanan & Privasi](#-keamanan--privasi)
+1. [Ringkasan Fitur Unggulan](#-ringkasan-fitur-unggulan)
+2. [Perbandingan Multi-Provider AI](#-perbandingan-multi-provider-ai)
+3. [Daftar Lengkap Perintah Telegram Bot](#-daftar-lengkap-perintah-telegram-bot)
+4. [Daftar Perkakas Sistem (Autonomous Tools)](#-daftar-perkakas-sistem-autonomous-tools)
+5. [Daftar Pintasan Keyboard & Hotkey Global](#-daftar-pintasan-keyboard--hotkey-global)
+6. [Bahasa Pemrograman: Indonesiaku-Lang](#-bahasa-pemrograman-indonesiaku-lang-idk)
+7. [Struktur Berkas Repositori](#-struktur-berkas-repositori)
+8. [Panduan Instalasi & Menjalankan](#-panduan-instalasi--menjalankan)
+9. [Panduan Konfigurasi (.env)](#-panduan-konfigurasi-env)
+10. [Keamanan & Privasi](#-keamanan--privasi)
 
 ---
 
-## 🌟 Fitur Utama
+## 🌟 Ringkasan Fitur Unggulan
 
-### 🧠 Otomasi Kontrol Sistem Laptop Penuh (Autonomous Tool Calling)
-Seluruh model AI (Groq, Gemini, Ollama, dan Omniroute) dibekali akses eksekusi perkakas (*Function Calling*) mandiri secara dua arah. Agen dapat memahami bahasa alami untuk:
-- Mengatur volume suara speaker laptop, mute/unmute, dan membaca level volume.
-- Mengontrol pemutar musik (Play/Pause `F10`, Next `F11`, Prev `F9`, Stop) untuk YouTube, Spotify, atau media player.
-- Membuka dan menutup aplikasi desktop (Chrome, Spotify, VS Code, Notepad, Kalkulator, File Explorer, Terminal).
-- Mencari video di YouTube secara real-time dan langsung memutarnya otomatis di browser Chrome.
-- Memantau tab dan jendela browser yang aktif, memfokuskan tab ke depan, atau menutup tab dari HP.
-- Mengambil tangkapan layar display (*screenshot*) dan foto live kamera webcam laptop.
-- Memeriksa kesehatan perangkat keras (Beban CPU, RAM, Sisa Baterai, Penyimpanan disk drive C & D).
+Berikut adalah rangkuman kapabilitas utama Gemini Terminal Agent yang disajikan dalam bentuk tabel ringkas:
 
-### ⚡ Fast-Path Direct Execution (< 50ms)
-Untuk perintah langsung yang umum (seperti *"play lagu"*, *"tutup chrome"*, *"naikkan volume 20"*, *"screenshot"*), agen mendeteksi intent secara lokal dan mengeksekusinya seketika tanpa perlu menunggu jeda koneksi internet.
-
-### 📱 Telegram Remote Gateway (Kendalikan Laptop dari HP)
-- **Monitoring Real-Time (`/status`)**: Pantau daya baterai & charger, koneksi Wi-Fi (SSID, sinyal, IP), jendela aplikasi aktif di layar, beban CPU, pemakaian RAM, dan penyimpanan disk.
-- **Pencarian YouTube & Media Cepat (`/cari <aplikasi> <keyword>`)**: Cari lagu/video apa pun (misal: `/cari youtube the jansen`), bot menyajikan daftar video teratas lengkap dengan tautan link langsung serta tombol interaktif untuk langsung memutar (*autoplay*) di laptop.
-- **Peluncur Aplikasi Desktop (`/buka`)**: Menu tombol cepat untuk membuka Chrome, Spotify, VS Code, Notepad, File Explorer, Kalkulator, Terminal, atau Edge.
-- **Inspeksi & Kontrol Tab Browser (`/tabs`)**: Memantau seluruh tab dan jendela browser (Chrome/Edge) yang sedang aktif di laptop, membawa tab tertentu ke depan layar (*focus*), memutar/jeda musik di tab, atau menutup tab dari HP.
-- **Penjelajah Berkas & Pengunduh Dokumen (`/get`)**: Jelajahi folder laptop (Project, Downloads, Documents, Desktop, Drive C/D) dengan tombol inline dan unduh berkas apa pun langsung ke HP dalam satu ketukan.
-- **Kontrol Volume & Pemutar Musik (`/volume`, `/play`, `/next`, `/prev`)**: Tombol volume (+/-10%, Mute/Unmute, 20-100%) dan kontrol lagu yang disimulasikan langsung ke keyboard laptop.
-- **Tangkapan Layar Display (`/capture`, `/ss`)**: Mengambil screenshot layar laptop resolusi penuh secara instan dan mengirimkannya langsung sebagai foto ke chat Telegram.
-- **Tangkapan Kamera Webcam (`/kamera`)**: Ambil foto live dari webcam laptop dan kirimkan ke chat Telegram.
-- **Manajemen Aplikasi (`/tutup`)**: Menutup aplikasi desktop yang sedang berjalan di laptop.
-- **Uji Kecepatan & Latensi (`/speed`)**: Benchmark latency respon AI dan roundtrip pengiriman Telegram.
-
-### 🖥️ Antarmuka Terminal (TUI) Modern
-- **Desain Dark Mode Estetik**: Dibangun menggunakan [Textual](https://textual.textualize.io/) & [Rich](https://rich.readthedocs.io/) dengan animasi ketik (*typing effect*), *loading spinner*, serta beragam tema warna (`default`, `emerald`, `crimson`, `amber`, `purple`).
-- **Interupsi Cepat (*Interrupt*)**: Batalkan proses generate model atau loop perkakas secara instan dengan menekan `Ctrl + X` / `Escape` atau tombol **Hentikan ⏹**.
-- **Konteks Berkas Cepat**: Sisipkan isi berkas lokal ke prompt hanya dengan mengetik `@nama_berkas` (contoh: `@app.py`).
-
-### 💾 Multi-Turn Sesi & Memori Persisten
-- Riwayat percakapan otomatis tersimpan di `~/.gemini-agent/sessions/`.
-- Memori jangka panjang pengguna tersimpan di `~/.gemini-agent/memory.json` dan otomatis diinjeksi ke sistem instruksi model.
-
----
-
-## 🤖 Multi-Provider AI
-
-Aplikasi mendukung perpindahan provider AI secara dinamis melalui perintah `/provider <nama>` di TUI maupun Telegram:
-
-| Provider | Backend | Kecepatan | Fitur Unggulan |
-| :--- | :--- | :--- | :--- |
-| **Groq** ⚡ *(Rekomendasi)* | Groq Cloud LPU | **~0.3s - 0.8s** | Kuota gratis 14.400 req/hari, model OpenAI `openai/gpt-oss-120b` (120B reasoning) & `openai/gpt-oss-20b`, native function calling. |
-| **Google Gemini** | Google GenAI SDK | **~1.5s - 3.0s** | Resmi dari Google (`gemini-2.5-flash`, `gemini-3-flash`), multimodal, integrasi Google Workspace. |
-| **Ollama** | Local Offline Engine | Tergantung Hardware | 100% offline & privat, mendukung penyimpanan model di drive `D:\.ollama\models`, auto-start daemon otomatis. |
-| **Omniroute** | OpenAI Compatible Proxy | Bervariasi | Mendukung routing upstream model kustom atau server lokal. |
-
----
-
-## 🛠️ Daftar Perkakas Sistem (Tool Calling)
-
-Seluruh perkakas berikut dapat dipanggil secara otomatis oleh AI Agent saat Anda memberikan instruksi dalam bahasa sehari-hari:
-
-| Nama Fungsi | Deskripsi | Parameter |
+| Kategori Fitur | Deskripsi Fungsional | Cara Penggunaan / Akses |
 | :--- | :--- | :--- |
-| `set_volume` | Mengatur volume suara master laptop (0-100%, +10, -10, mute, unmute, status). | `level: str` |
-| `media_control` | Mengendalikan playback pemutar musik (Play/Pause, Next, Prev, Stop). | `action: str` |
-| `open_application` | Membuka aplikasi desktop (Chrome, Spotify, Notepad, dll) atau URL / Google Search. | `app_or_query: str` |
-| `close_application` | Menghentikan atau menutup aplikasi desktop yang sedang berjalan. | `app_name_or_pid: str` |
-| `search_youtube_videos` | Mencari video di YouTube dan mengembalikan daftar judul, durasi, channel, dan URL. | `query: str, limit: int` |
-| `play_youtube_video` | Membuka browser Chrome dan langsung memutar video YouTube secara otomatis. | `video_id_or_url: str` |
-| `get_open_browser_tabs` | Memindai seluruh tab dan jendela browser (Chrome/Edge) yang sedang aktif di laptop. | *(tanpa parameter)* |
-| `focus_window` | Membawa jendela aplikasi atau tab browser tertentu ke layar depan. | `hwnd: int` |
-| `close_window_tab` | Menutup jendela atau tab tertentu berdasarkan handle HWND. | `hwnd: int` |
-| `control_browser_media` | Mengontrol pemutaran media pada jendela browser tertentu. | `hwnd: int, action: str` |
-| `capture_screen` | Mengambil screenshot display layar laptop dan menyimpannya ke berkas gambar. | `output_path: str` |
-| `capture_camera` | Mengambil foto live dari kamera webcam laptop. | `output_path: str` |
-| `get_system_status` | Membaca metrik real-time beban CPU, RAM, baterai, dan sisa kapasitas penyimpanan disk. | *(tanpa parameter)* |
-| `check_speed` | Menguji benchmark kecepatan respons agent dan jaringan. | *(tanpa parameter)* |
-| `create_folder` | Membuat direktori/folder baru pada sistem file laptop. | `path: str` |
-| `list_files` | Mendaftar berkas dan folder di dalam suatu direktori. | `path: str` |
-| `read_file` | Membaca isi teks dari berkas lokal di sistem. | `path: str` |
-| `write_file` | Menulis atau membuat berkas baru dengan isi teks tertentu. | `path: str, content: str` |
-| `run_command` | Menjalankan perintah terminal/shell secara aman dengan filter blacklist. | `command: str` |
-| `save_memory` | Menyimpan fakta preferensi pengguna ke memori jangka panjang persisten. | `key: str, value: str` |
-| `recall_memory` | Mengingat kembali fakta tertentu dari memori jangka panjang. | `key: str` |
-| `list_memories` | Menampilkan seluruh catatan fakta yang tersimpan dalam memori. | *(tanpa parameter)* |
+| **Pencegahan Limit Token (Anti-413)** | Pemotongan cerdas (*Smart Truncation*) otomatis maksimal 1.500 karakter untuk output terminal besar (`tasklist`, `dir /s`, dll.) sehingga bebas dari galat HTTP 413 TPM limit Groq. | Otomatis di seluruh provider |
+| **Remote Clipboard Sync** | Sinkronisasi papan klip instan dua arah antara smartphone dan laptop. Baca clipboard laptop dari HP atau kirim teks dari HP langsung ke clipboard laptop siap di-paste. | Perintah `/clip` dan `/copy <teks>` |
+| **Kunci Layar Workstation Cepat** | Kunci layar laptop seketika saat ditinggal keluar via Telegram atau dengan shortcut global hardware keyboard. | `/lock`, `/kunci`, atau **Ctrl + L** |
+| **Kontrol Audio & Pemutar Musik** | Atur volume master speaker Windows (0-100%, +/-10%, Mute/Unmute) serta simulasi tombol keyboard media (*Play/Pause*, *Next*, *Prev*, *Stop*). | `/volume`, `/play`, `/next`, `/prev` |
+| **Pencarian & Pemutaran YouTube** | Cari video YouTube secara real-time, dapatkan daftar hasil teratas beserta tautan dan durasi, lalu putar otomatis di browser Chrome. | `/cari youtube <judul_lagu>` |
+| **Inspeksi & Kontrol Tab Browser** | Pindai seluruh tab/jendela Google Chrome & Edge yang aktif, bawa tab ke layar depan (*focus*), atau tutup tab dari HP. | `/tabs` atau `/tab` |
+| **Peluncur Aplikasi Desktop** | Buka aplikasi desktop Windows (Chrome, Spotify, VS Code, Notepad, File Explorer, Terminal, Kalkulator) dengan tombol hub interaktif. | `/buka` atau `/buka <nama_app>` |
+| **Tangkapan Layar & Kamera Webcam** | Ambil tangkapan layar resolusi penuh display laptop atau ambil foto live dari webcam laptop dan kirimkan langsung ke chat Telegram. | `/capture`, `/ss`, atau `/kamera` |
+| **Penjelajah Berkas & Pembuat PDF** | Jelajahi direktori laptop dan unduh berkas apa pun langsung ke HP, atau minta AI membuat berkas PDF dokumen profesional. | `/get`, `/baca`, atau via chat AI |
+| **Monitoring Sistem Real-Time** | Pantau status baterai & charger, koneksi Wi-Fi (SSID, sinyal, IP), jendela fokus aktif di layar, serta beban CPU dan pemakaian RAM. | `/status` atau `/laptop` |
+| **Keamanan Whitelist & Mutex Lock** | Gateway Telegram dikunci privat hanya untuk pemilik sah laptop dengan proteksi `asyncio.Lock` agar bebas dari *race condition*. | Otomatis via whitelist ID |
+
+---
+
+## 🤖 Perbandingan Multi-Provider AI
+
+Aplikasi mendukung perpindahan provider AI secara dinamis melalui perintah `/provider <nama>` di antarmuka TUI maupun chat Telegram:
+
+| Provider | Backend Mesin | Latensi Rata-rata | Keunggulan & Karakteristik |
+| :--- | :--- | :---: | :--- |
+| **Groq LPU** ⚡ *(Rekomendasi)* | Groq Cloud LPU | **~0.3s - 0.8s** | Model `openai/gpt-oss-120b` (120B reasoning) & `openai/gpt-oss-20b`, kuota gratis 14.400 req/hari, ultra-fast token streaming. |
+| **Google Gemini** | Google GenAI SDK | **~1.5s - 3.0s** | Model resmi Google (`gemini-2.5-flash`, `gemini-3-flash-preview`), penalaran multimodal kaya konteks. |
+| **Ollama Local** | Local Offline Engine | Hardware-dependent | 100% offline, hemat kuota internet, bebas privasi, auto-start daemon, model tersimpan di `D:\.ollama\models`. |
+| **Omniroute** | OpenAI-Compatible Proxy | Bervariasi | Mendukung integrasi upstream model kustom atau server inferensi lokal privat. |
+
+---
+
+## 📱 Daftar Lengkap Perintah Telegram Bot
+
+Berikut adalah daftar perintah interaktif yang dapat Anda gunakan di bot Telegram:
+
+| Perintah Bot | Parameter | Deskripsi & Contoh Penggunaan |
+| :--- | :--- | :--- |
+| `/status` | *(tanpa argumen)* | Dashboard monitoring real-time laptop (Baterai, Wi-Fi, Window aktif, RAM, CPU). |
+| `/clip` | *(tanpa argumen)* | Mengambil dan membaca teks yang sedang ada di clipboard laptop saat ini. |
+| `/copy` | `<teks>` | Menyalin teks dari pesan Telegram langsung masuk ke clipboard laptop Windows (**Ctrl + V**). |
+| `/lock` / `/kunci` | *(tanpa argumen)* | Mengunci workstation laptop Windows seketika (Lock Screen). |
+| `/cari` | `<app> <query>` | Mencari konten di YouTube, Google, atau Spotify. Contoh: `/cari youtube the jansen`. |
+| `/buka` | `[nama_aplikasi]` | Membuka menu peluncur aplikasi interaktif atau langsung membuka aplikasi (contoh: `/buka chrome`). |
+| `/tabs` | *(tanpa argumen)* | Menampilkan seluruh jendela/tab browser yang sedang terbuka di laptop. |
+| `/volume` | `[level / mute]` | Membuka panel tombol volume laptop (contoh: `/volume 50`, `/volume mute`, `/volume +10`). |
+| `/play` / `/pause` | *(tanpa argumen)* | Memutar atau menjeda pemutar lagu/video di YouTube atau Spotify laptop (`F10`). |
+| `/next` / `/prev` | *(tanpa argumen)* | Memutar lagu berikutnya (`F11`) atau lagu sebelumnya (`F9`). |
+| `/mute` / `/unmute` | *(tanpa argumen)* | Mematikan atau menyalakan suara speaker laptop secara instan. |
+| `/capture` / `/ss` | *(tanpa argumen)* | Mengambil screenshot display laptop dan mengirimkan fotonya ke Telegram. |
+| `/kamera` | *(tanpa argumen)* | Mengambil foto live dari kamera webcam laptop dan mengirimkannya ke chat. |
+| `/tutup` | `<nama_app>` | Menutup aplikasi desktop tertentu yang sedang berjalan (contoh: `/tutup notepad`). |
+| `/get` | `[nama_berkas]` | Membuka File Picker interaktif atau mengunduh berkas tertentu dari laptop ke HP. |
+| `/baca` | `<nama_berkas>` | Membaca isi teks berkas lokal di laptop secara langsung. |
+| `/speed` | *(tanpa argumen)* | Uji kecepatan respons AI dan roundtrip transmisi Telegram. |
+| `/provider` | `[nama_provider]` | Melihat atau beralih provider aktif (`groq`, `gemini`, `ollama`, `omniroute`). |
+| `/models` / `/model` | `[nama_model]` | Memindai daftar model AI yang tersedia atau mengganti model aktif. |
+| `/new` | `[judul_sesi]` | Memulai sesi percakapan baru dengan riwayat bersih. |
+| `/sessions` | *(tanpa argumen)* | Menampilkan daftar riwayat sesi percakapan yang tersimpan di laptop. |
+| `/load` | `<nomor_atau_id>` | Beralih ke sesi percakapan tertentu berdasarkan nomor atau ID sesi. |
+| `/memory` | *(tanpa argumen)* | Melihat seluruh catatan memori jangka panjang persisten pengguna. |
+| `/help` | *(tanpa argumen)* | Menampilkan panduan lengkap fitur dan petunjuk penggunaan. |
+
+---
+
+## 🛠️ Daftar Perkakas Sistem (Autonomous Tools)
+
+Seluruh perkakas berikut dipanggil secara otomatis oleh AI Agent saat Anda memberikan perintah dalam bahasa sehari-hari:
+
+| Nama Fungsi Perkakas | Deskripsi Fungsionalitas | Parameter Input |
+| :--- | :--- | :--- |
+| `set_volume` | Mengatur volume suara speaker master laptop atau status mute. | `level: str` |
+| `media_control` | Menekan tombol keyboard multimedia (Play/Pause, Next, Prev, Stop). | `action: str` |
+| `lock_laptop` | Mengunci workstation layar Windows seketika (`LockWorkStation`). | *(tanpa parameter)* |
+| `open_application` | Membuka aplikasi desktop (Chrome, Spotify, dll) atau URL web di laptop. | `app_or_query: str, query: str` |
+| `close_application` | Menutup atau menghentikan proses aplikasi desktop yang sedang berjalan. | `app_name_or_pid: str` |
+| `search_youtube_videos` | Mencari video di YouTube dan mengembalikan daftar judul, durasi, dan URL. | `query: str, limit: int` |
+| `play_youtube_video` | Membuka browser Chrome dan memutar video YouTube secara otomatis. | `video_id_or_url: str` |
+| `get_open_browser_tabs` | Memindai seluruh jendela & tab browser yang sedang berjalan di laptop. | *(tanpa parameter)* |
+| `focus_window` | Membawa jendela aplikasi atau tab browser tertentu ke layar paling depan. | `hwnd: int` |
+| `close_window_tab` | Menutup jendela atau tab tertentu berdasarkan ID handle HWND. | `hwnd: int` |
+| `capture_screen` | Mengambil tangkapan layar (screenshot) display laptop beresolusi penuh. | `output_path: str` |
+| `capture_camera` | Mengambil foto live dari kamera webcam laptop menggunakan OpenCV. | `output_path: str` |
+| `create_pdf` | Membuat dokumen berkas PDF profesional dengan judul dan konten teks. | `output_path: str, title: str, content: str` |
+| `send_file_to_user` | Menandai berkas lokal di laptop agar otomatis dikirim ke chat Telegram. | `file_path: str` |
+| `get_system_status` | Membaca metrik CPU, pemakaian RAM, sisa baterai, dan kapasitas disk drive. | *(tanpa parameter)* |
+| `run_command` | Menjalankan perintah terminal/shell secara aman dengan filter keamanan. | `command: str` |
+| `create_folder` | Membuat direktori/folder baru pada sistem penyimpanan file laptop. | `path: str` |
+| `list_files` | Mendaftar seluruh berkas dan folder di dalam suatu direktori kerja. | `path: str` |
+| `read_file` | Membaca isi teks berkas lokal pada sistem laptop. | `path: str` |
+| `write_file` | Menulis teks ke berkas baru atau menimpa berkas yang ada. | `path: str, content: str` |
+| `save_memory` | Menyimpan preferensi pengguna ke memori jangka panjang persisten. | `key: str, value: str` |
+
+---
+
+## ⌨️ Daftar Pintasan Keyboard & Hotkey Global
+
+| Pintasan Keyboard | Cakupan Lingkup | Fungsi Teknis |
+| :--- | :--- | :--- |
+| **Ctrl + L** | **Global Windows (OS-Wide)** | Mengunci workstation laptop Windows seketika dan mengirim notifikasi instan ke Telegram Anda. |
+| **Enter** | Terminal TUI | Mengirim pesan instruksi prompt ke AI Agent. |
+| **Ctrl + X** / **Escape** | Terminal TUI | Menghentikan respon agen atau eksekusi perkakas seketika (*Interrupt*). |
+| **Ctrl + S** | Terminal TUI | Membuka dialog pemulihan dan manajemen sesi percakapan. |
+| **Ctrl + M** | Terminal TUI | Membuka dialog pemilihan & pemindaian model AI. |
+| **Ctrl + T** | Terminal TUI | Mengganti tema warna antarmuka TUI (Default, Emerald, Crimson, Amber, Purple). |
+| **Ctrl + R** | Terminal TUI | Memulai ulang (*restart*) proses aplikasi terminal secara bersih. |
+| **Ctrl + C** | Terminal / Launcher | Menutup aplikasi terminal atau daemon gateway Telegram. |
 
 ---
 
 ## 🇮🇩 Bahasa Pemrograman: Indonesiaku-Lang (.idk)
 
-Seluruh logika inti agen, modul memori, pengelola sesi, perkakas eksekusi, antarmuka visual TUI, dan pengelola konfigurasi ditulis menggunakan bahasa pemrograman **Indonesiaku-Lang** (`.idk`).
+Seluruh logika inti agen, pengelola sesi, memori, perkakas, antarmuka visual TUI, dan konfigurasi ditulis menggunakan bahasa pemrograman **Indonesiaku-Lang** (`.idk`).
 
-Runtime dieksekusi secara native oleh engine `penerjemah_idk.py` via `sys.meta_path` import hook yang menerjemahkan sintaks bahasa Indonesia ke Python AST saat runtime tanpa jeda kompilasi manual.
+Transpilasi dieksekusi secara *on-the-fly* oleh engine [penerjemah_idk.py](file:///d:/PROJECT/gemini-terminal-agent/penerjemah_idk.py) via `sys.meta_path` import hook yang menerjemahkan sintaks Bahasa Indonesia ke Python AST saat runtime tanpa jeda kompilasi manual.
 
----
-
-## 📁 Struktur Berkas
-
-```text
-gemini-terminal-agent/
-├── app.py                 # Pintu masuk utama aplikasi & peluncur background bot
-├── utama.py               # Launcher runtime alternatif Indonesiaku-Lang
-├── bot_telegram.py        # Gateway Remote Control Telegram
-├── agent.py               # Implementasi modul agen Python murni
-├── tools.py               # Kumpulan fungsi perkakas Python murni
-├── config.py              # Pengelola konfigurasi Python murni
-│
-├── aplikasi.idk           # Antarmuka TUI Textual (.idk)
-├── agen.idk               # Mesin agen AI & direct actions (.idk)
-├── perkakas.idk           # Kumpulan perkakas sistem, audio, launcher, shell (.idk)
-├── konfigurasi.idk        # Pengelola konfigurasi direktori ~/.gemini-agent & .env (.idk)
-├── pengelola_sesi.idk     # Pengelola riwayat percakapan sesi persisten (.idk)
-├── memori.idk             # Pengelola memori jangka panjang (.idk)
-├── penerjemah_idk.py      # Engine penerjemah & compiler Indonesiaku-Lang
-│
-├── logger.py              # Sistem logging terstruktur rotasi harian
-├── requirements.txt       # Dependensi library Python
-├── run.bat / run.sh       # Script launcher otomatis (Windows / Linux / macOS)
-├── run_bot.bat / .sh      # Script dedicated launcher bot Telegram
-└── README.md              # Dokumentasi panduan proyek
+```idk
+# Contoh cuplikan kode Indonesiaku-Lang (.idk)
+fungsi apakah_siap_membantu(status) {
+    jika status == "aktif" {
+        cetak("Agen siap menjalankan instruksi Anda!")
+        kembalikan benar
+    } selain {
+        kembalikan salah
+    }
+}
 ```
 
 ---
 
-## 💻 Persyaratan Sistem
+## 📦 Struktur Berkas Repositori
 
-- **Python**: Versi `3.10` atau lebih baru.
-- **Sistem Operasi**: Windows 10/11 (disarankan untuk kontrol volume audio & shortcut keyboard), Linux, atau macOS.
-- **Koneksi Internet**: Untuk akses API Groq Cloud, Google Gemini, dan polling Telegram Bot.
-- **Kunci API**: Groq API Key gratis di [Groq Console](https://console.groq.com/keys) atau Google Gemini API Key di [Google AI Studio](https://aistudio.google.com/).
+| Nama Berkas / Modul | Tipe Bahasa | Peran & Deskripsi Fungsional |
+| :--- | :---: | :--- |
+| `bot_telegram.py` | Python 3 | Gateway Telegram remote control bot dengan proteksi whitelist dan async lock. |
+| `agen.idk` / `agent.py` | Indonesiaku / Python | Logika inti AI Agent, loop tool calling multi-provider, dan context management. |
+| `perkakas.idk` / `tools.py` | Indonesiaku / Python | Kumpulan perkakas sistem (Volume Win32, Webcam CV2, Screen Pillow, App Launcher). |
+| `penerjemah_idk.py` | Python 3 | Transpiler dan runtime import hook untuk Bahasa Pemrograman Indonesiaku. |
+| `aplikasi.idk` / `app_legacy.py` | Indonesiaku / Python | Antarmuka grafis terminal TUI berbasis framework Textual & Rich. |
+| `konfigurasi.idk` / `config.py` | Indonesiaku / Python | Pengelola konfigurasi kredensial `.env` di direktori `~/.gemini-agent/.env`. |
+| `pengelola_sesi.idk` | Indonesiaku | Penyimpanan riwayat obrolan persisten multi-turn dengan penulisan atomik. |
+| `memori.idk` | Indonesiaku | Penyimpanan memori jangka panjang persisten pengguna lintas sesi. |
+| `requirements.txt` | Teks | Daftar spesifikasi pustaka dependensi runtime Python. |
+| `run_bot.bat` / `run_bot.sh` | Shell Script | Skrip peluncur cepat dedicated background daemon Telegram bot. |
+| `run.bat` / `run.sh` | Shell Script | Skrip peluncur cepat antarmuka Terminal TUI interaktif. |
 
 ---
 
 ## 🚀 Panduan Instalasi & Menjalankan
 
-### Langkah 1: Kloning Repositori
-Buka terminal / Command Prompt, lalu jalankan:
+### 1. Kloning Repositori
 ```bash
 git clone https://github.com/dexccv/gemini-cli.git
 cd gemini-cli
 ```
 
-### Langkah 2: Menjalankan Aplikasi
-
-#### Cara 1: Menggunakan Script Otomatis (Direkomendasikan)
-Script launcher akan otomatis membuat virtual environment `.venv`, menginstal seluruh dependensi yang dibutuhkan, dan menjalankan aplikasi:
-
-* **Pengguna Windows**:
-  ```cmd
-  run.bat
-  ```
-* **Pengguna Linux / macOS**:
-  ```bash
-  chmod +x run.sh
-  ./run.sh
-  ```
-
-#### Cara 2: Instalasi Manual
-Jika Anda ingin menyiapkan lingkungan secara manual:
+### 2. Buat Virtual Environment & Instal Dependensi
 ```bash
-# 1. Buat virtual environment
 python -m venv .venv
-
-# 2. Aktifkan virtual environment
-# Di Windows:
+# Aktifkan di Windows:
 .venv\Scripts\activate
-# Di Linux / macOS:
-source .venv/bin/activate
-
-# 3. Pasang paket dependensi
+# Instal pustaka lengkap:
 pip install -r requirements.txt
-
-# 4. Jalankan Terminal Agent
-python app.py
 ```
 
----
-
-## ⚡ Panduan Setup Groq AI (Rekomendasi)
-
-Groq LPU memberikan kecepatan generasi respons luar biasa (~0.5 detik) dengan kuota harian gratis hingga 14.400 request/hari.
-
-1. Buka [console.groq.com/keys](https://console.groq.com/keys) lalu buat API Key gratis Anda.
-2. Tambahkan API Key ke berkas `~/.gemini-agent/.env`:
-   ```env
-   AI_PROVIDER=groq
-   GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
-   GROQ_MODEL=openai/gpt-oss-120b
-   ```
-3. Atau cukup ganti langsung dari Telegram bot:
-   ```text
-   /provider groq gsk_xxxxxxxxxxxxxxxxxxxx
-   ```
-
----
-
-## 📲 Panduan Setup Telegram Mobile Gateway
-
-Telegram Mobile Gateway memungkinkan Anda mengendalikan laptop dari jarak jauh melalui chat bot Telegram.
-
-### 1. Buat Bot Telegram Sendiri
-1. Buka aplikasi Telegram, cari akun **`@BotFather`**.
-2. Kirim perintah `/newbot`.
-3. Masukkan nama tampilan dan username bot (contoh: *asisten_laptop_pribadi_bot*).
-4. **Simpan Token Bot**: Simpan token yang diberikan (contoh: `1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ`).
-
-### 2. Dapatkan User ID Telegram Anda
-Untuk memastikan hanya Anda yang bisa mengendalikan laptop:
-1. Di Telegram, cari akun **`@userinfobot`** atau **`@raw_data_bot`**.
-2. Kirim pesan `/start`.
-3. Catat `Id` angka Anda (contoh: `987654321`).
-
-### 3. Masukkan Konfigurasi ke Berkas `.env`
-Buka berkas konfigurasi di folder pengguna Anda (`~/.gemini-agent/.env`):
+### 3. Konfigurasi Kredensial (.env)
+Buka atau buat berkas di direktori profil pengguna Anda (`~/.gemini-agent/.env`):
 ```env
-TELEGRAM_BOT_TOKEN=masukkan_token_botfather_di_sini
-TELEGRAM_ALLOWED_USER_ID=masukkan_user_id_angka_anda_di_sini
-```
-
-### 4. Jalankan Bot
-* **Otomatis**: Setiap kali Anda menjalankan `app.py` atau `run.bat`, bot Telegram otomatis menyala di background.
-* **Dedicated Launcher**: Jika Anda hanya ingin menjalankan bot Telegram tanpa antarmuka TUI:
-  ```cmd
-  run_bot.bat
-  # atau
-  python bot_telegram.py
-  ```
-
-Buka bot Anda di Telegram, lalu ketik `/start`. Menu interaktif dan seluruh tombol kendali laptop akan langsung aktif!
-
----
-
-## 🦙 Panduan Setup Local AI (Ollama) [Opsional]
-
-Jika Anda ingin menjalankan agen secara offline di laptop Anda:
-
-1. Unduh dan instal Ollama dari [ollama.com](https://ollama.com).
-2. Tentukan lokasi model di Drive D (opsional, hemat kapasitas Drive C):
-   ```cmd
-   setx OLLAMA_MODELS "D:\.ollama\models"
-   ```
-3. Unduh model yang diinginkan:
-   ```bash
-   ollama pull qwen2.5-coder:7b
-   ```
-4. Ganti provider di bot Telegram atau TUI:
-   * Ketik `/provider ollama`
-   * Ganti model dengan `/model qwen2.5-coder:7b`
-
----
-
-## 📋 Daftar Perintah Telegram Bot
-
-| Perintah | Deskripsi |
-| :--- | :--- |
-| `/status` | Menampilkan dashboard monitoring laptop real-time (baterai, Wi-Fi, jendela aktif, RAM, CPU). |
-| `/cari <aplikasi> <kata_kunci>` | Cari lagu/video di YouTube, Google, Spotify (contoh: `/cari youtube the jansen`). |
-| `/buka` | Membuka tombol pintasan Peluncur Aplikasi desktop (Chrome, Spotify, VS Code, Notepad, dll). |
-| `/buka <nama>` | Membuka aplikasi desktop atau link URL tertentu di laptop (contoh: `/buka chrome` atau `/buka notepad`). |
-| `/tabs` / `/tab` | Memantau seluruh tab/jendela browser (Chrome/Edge) aktif, fokuskan tab, atau tutup tab dari HP. |
-| `/get` | Membuka Penjelajah Berkas (File Picker) interaktif untuk mengunduh dokumen laptop ke HP. |
-| `/get <path>` | Mengunduh berkas tertentu langsung ke HP (bisa berkas di dalam maupun di luar project). |
-| `/volume` | Membuka panel kontrol volume laptop & tombol kendali musik (Play/Pause, Next, Prev). |
-| `/play` / `/pause` | Memutar atau menjeda lagu/video di YouTube atau Spotify (`F10`). |
-| `/next` / `/prev` | Memutar lagu berikutnya (`F11`) atau lagu sebelumnya (`F9`). |
-| `/mute` / `/unmute` | Mematikan atau menghidupkan kembali suara speaker laptop secara instan. |
-| `/capture` / `/ss` | Mengambil screenshot layar laptop resolusi penuh dan mengirimkan fotonya ke Telegram. |
-| `/kamera` | Mengambil foto live dari webcam laptop dan mengirimkannya ke chat. |
-| `/tutup <nama>` | Menutup aplikasi desktop tertentu yang sedang berjalan di laptop (contoh: `/tutup chrome`). |
-| `/speed` | Menguji latensi respons model AI dan kecepatan kirim jaringan Telegram. |
-| `/baca <file>` | Membaca isi berkas teks lokal laptop langsung di Telegram. |
-| `/provider [nama]` | Melihat atau beralih provider aktif (`groq`, `gemini`, `ollama`, `omniroute`). |
-| `/models` / `/model` | Memindai dan mengganti model AI yang aktif digunakan. |
-| `/new` / `/sessions` | Memulai sesi percakapan baru atau beralih sesi percakapan lama. |
-| `/memory` | Melihat catatan memori jangka panjang persisten agen. |
-| `/stop` | Membatalkan eksekusi jawaban agen yang sedang berjalan. |
-
----
-
-## ⌨️ Daftar Pintasan Keyboard Terminal TUI
-
-| Tombol Pintasan | Fungsi |
-| :--- | :--- |
-| `Enter` | Mengirim pesan prompt ke agen |
-| `Ctrl + X` / `Escape` | Menghentikan respon agen seketika (*Interrupt*) |
-| `Ctrl + S` | Membuka dialog manajemen & pemulihan sesi percakapan |
-| `Ctrl + M` | Membuka dialog pemilihan & pemindaian model AI |
-| `Ctrl + T` | Beralih tema warna antarmuka TUI |
-| `Ctrl + R` | Memulai ulang aplikasi terminal (*Restart*) |
-| `Ctrl + L` | Membersihkan riwayat obrolan di layar |
-| `Ctrl + C` | Keluar dari aplikasi terminal |
-
----
-
-## ⚙️ Konfigurasi Lengkap (.env)
-
-Seluruh konfigurasi tersimpan rapi di berkas `~/.gemini-agent/.env`:
-
-```env
-# Provider AI aktif: groq / gemini / ollama / omniroute
 AI_PROVIDER=groq
-
-# Pengaturan Groq Cloud LPU (Rekomendasi Utama)
 GROQ_API_KEY=gsk_xxxxxxxxxxxxxxxxxxxx
 GROQ_MODEL=openai/gpt-oss-120b
-
-# Pengaturan Google Gemini
-GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-2.5-flash
-
-# Pengaturan Ollama Lokal (Opsional)
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5-coder:7b
-OLLAMA_MODELS=D:\.ollama\models
-
-# Pengaturan Omniroute (Opsional)
-OMNI_BASE_URL=http://localhost:20128/v1
-OMNI_API_KEY=sk-...
-OMNI_MODEL=auto
-
-# Pengaturan Telegram Mobile Gateway
 TELEGRAM_BOT_TOKEN=1234567890:ABCdefGhIJKlmNoPQRsTUVwxyZ
 TELEGRAM_ALLOWED_USER_ID=987654321
-
-# Pengaturan Tampilan & Debug
-GEMINI_THEME=default
-GEMINI_AGENT_DEBUG=0
 ```
+
+> **Tips Cepat Mendapatkan Kredensial:**
+> - **Groq API Key**: Buka [console.groq.com/keys](https://console.groq.com/keys) (Gratis kuota 14.400 request/hari).
+> - **Telegram Bot Token**: Buat bot baru di Telegram melalui `@BotFather` via perintah `/newbot`.
+> - **User ID Telegram**: Cari tahu ID akun angka Anda via `@userinfobot` di Telegram.
+
+### 4. Menjalankan Aplikasi
+
+* **Opsi A: Menjalankan Bot Telegram (Remote Control Smartphone)**:
+  ```bash
+  python bot_telegram.py
+  # atau klik dua kali:
+  run_bot.bat
+  ```
+* **Opsi B: Menjalankan Antarmuka Terminal TUI**:
+  ```bash
+  python app.py
+  # atau klik dua kali:
+  run.bat
+  ```
 
 ---
 
 ## 🛡️ Keamanan & Privasi
 
-- **Whitelist User ID Ketat**: Gateway Telegram hanya menerima dan mengeksekusi instruksi dari ID Telegram pemilik sah (`TELEGRAM_ALLOWED_USER_ID`). Pesan dari akun lain otomatis ditolak.
-- **Proteksi Sandbox Workspace**: Operasi berkas AI secara default dibatasi di direktori kerja proyek guna mencegah modifikasi tak disengaja pada berkas sistem operasi.
-- **Filter Perintah Berbahaya**: Agen dilengkapi proteksi filter blacklist untuk memblokir perintah shell destruktif seperti format disk, penghapusan root paksa, atau shutdown liar.
-- **Privasi Kredensial**: Seluruh API key dan token tersimpan lokal di mesin Anda dan tidak pernah dipublikasikan ke repositori Git.
+| Mekanisme Keamanan | Implementasi & Manfaat |
+| :--- | :--- |
+| **Strict Whitelist Lock** | Gateway Telegram hanya menerima perintah dari ID pemilik sah (`TELEGRAM_ALLOWED_USER_ID`). Jika whitelist belum disetel, seluruh akses dikunci total. |
+| **Async Mutex Session Lock** | Mencegah *race condition* antar thread saat pengguna mengirim beberapa instruksi secara cepat. |
+| **Smart Token Truncation** | Memotong output perintah terminal berukuran besar maksimal 1.500 karakter untuk mencegah galat limit token model AI. |
+| **Sandbox Workspace Boundary** | Operasi berkas AI dibatasi di lingkungan proyek dan direktori aman pengguna, melindungi berkas sistem Windows inti. |
+| **Blacklist Perintah Berbahaya** | Filter pola perintah shell destruktif (format disk, shutdown liar, penghapusan root paksa). |
+| **Penyimpanan Kredensial Terisolasi** | Seluruh API key dan token bot tersimpan di direktori lokal pengguna (`~/.gemini-agent/.env`) dan tidak pernah masuk ke version control Git. |
 
 ---
 
 ## 📄 Lisensi
 
-Proyek ini dilisensikan di bawah lisensi [MIT](LICENSE).
+Proyek ini dilisensikan di bawah lisensi resmi [MIT License](LICENSE).
