@@ -595,13 +595,99 @@ class TelegramAgentGateway:
                 "edge": "msedge",
             }
             target_query = mapping.get(target_key, target_key)
-            await query.answer(f"Membuka {target_key}...")
+            await query.answer(f"Membuka {target_key[:25]}...")
             import perkakas
             fn_open = getattr(perkakas, "open_application", None)
             if fn_open:
                 res = await asyncio.to_thread(fn_open, target_query)
                 if query.message:
                     await query.message.reply_text(f"🖥️ {res}")
+        elif data == "open_hub:main":
+            import perkakas
+            fn_tabs = getattr(perkakas, "get_open_browser_tabs", None)
+            tabs = fn_tabs() if fn_tabs else []
+            count_str = f"{len(tabs)} tab aktif" if tabs else "belum ada tab aktif"
+            new_text = (
+                "📱 **PUSAT KENDALI MEDIA & APLIKASI LAPTOP**\n\n"
+                f"• **Browser Tab**: `{count_str}`\n"
+                "• Pilih menu di bawah untuk membuka aplikasi atau memutar musik:\n"
+                "• Atau cari lagu langsung: `/buka youtube lagu hindia`\n"
+                "• Atau pantau tab browser: `/tabs`"
+            )
+            try:
+                await query.edit_message_text(
+                    text=new_text,
+                    reply_markup=self._build_open_hub_markup(len(tabs)),
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except Exception:
+                pass
+        elif data == "open_hub:yt":
+            yt_text = (
+                "🎬 **YOUTUBE MEDIA & MUSIC HUB**\n\n"
+                "Pilih genre / playlist cepat di bawah atau ketik perintah pencarian:\n"
+                "• Contoh: `/buka yt lagu hindia` atau `/buka youtube lofi`"
+            )
+            try:
+                await query.edit_message_text(
+                    text=yt_text,
+                    reply_markup=self._build_yt_hub_markup(),
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except Exception:
+                pass
+        elif data == "open_hub:tabs":
+            text, markup = self._build_browser_tabs_markup()
+            try:
+                await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                if query.message:
+                    await query.message.reply_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+        elif data.startswith("yt_search:"):
+            q_term = data.split(":", 1)[1]
+            await query.answer(f"🔍 Mencari {q_term[:20]}...")
+            if query.message:
+                await self.search_and_send_youtube(query.message, q_term)
+        elif data.startswith("yt_play:"):
+            vid = data.split(":", 1)[1]
+            await query.answer("▶️ Memutar di laptop...")
+            import perkakas
+            fn_play = getattr(perkakas, "play_youtube_video", None)
+            if fn_play:
+                res = await asyncio.to_thread(fn_play, vid)
+                if query.message:
+                    await query.message.reply_text(
+                        f"▶️ **Memutar Video di Laptop:**\n{res}\n🔗 https://www.youtube.com/watch?v={vid}"
+                    )
+        elif data.startswith("tab_focus:"):
+            hwnd_val = int(data.split(":", 1)[1])
+            import perkakas
+            fn_focus = getattr(perkakas, "focus_window", None)
+            if fn_focus:
+                res = fn_focus(hwnd_val)
+                await query.answer("🎯 Tab/Jendela dibawa ke depan!")
+                if query.message:
+                    await query.message.reply_text(f"🖥️ {res}")
+        elif data.startswith("tab_close:"):
+            hwnd_val = int(data.split(":", 1)[1])
+            import perkakas
+            fn_close_tab = getattr(perkakas, "close_window_tab", None)
+            if fn_close_tab:
+                res = fn_close_tab(hwnd_val)
+                await query.answer("❌ Perintah tutup dikirim!")
+                await asyncio.sleep(0.5)
+                text, markup = self._build_browser_tabs_markup()
+                try:
+                    await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    pass
+        elif data.startswith("tab_media:"):
+            hwnd_val = int(data.split(":", 1)[1])
+            import perkakas
+            fn_ctrl = getattr(perkakas, "control_browser_media", None)
+            if fn_ctrl:
+                res = fn_ctrl(hwnd_val, "play_pause")
+                await query.answer(f"⏸️ {res[:40]}")
         elif data.startswith("fb_"):
             parts = data.split(":", 1)
             action = parts[0]
@@ -890,65 +976,234 @@ class TelegramAgentGateway:
         else:
             await update.message.reply_text("❌ Fungsi close_application tidak tersedia.")
 
-    def _build_open_app_markup(self) -> InlineKeyboardMarkup:
-        """Membuat tombol pilihan aplikasi desktop & pencarian untuk dibuka di laptop."""
+    def _build_open_hub_markup(self, tab_count: int = 0) -> InlineKeyboardMarkup:
+        """Membuat tombol pilihan hub aplikasi desktop, YouTube hub, dan pemantau tab browser."""
+        tab_label = f"📑 Tab Browser Aktif ({tab_count})" if tab_count > 0 else "📑 Tab Browser Aktif"
         return InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("🌐 Google Chrome", callback_data="open_app:chrome"),
-                    InlineKeyboardButton("🎬 YouTube", callback_data="open_app:youtube"),
+                    InlineKeyboardButton("🎬 YouTube Hub", callback_data="open_hub:yt"),
+                    InlineKeyboardButton(tab_label, callback_data="open_hub:tabs"),
                 ],
                 [
-                    InlineKeyboardButton("🎵 YT: Lagu Hindia", callback_data="open_app:yt_hindia"),
+                    InlineKeyboardButton("🌐 Google Chrome", callback_data="open_app:chrome"),
                     InlineKeyboardButton("🎧 Spotify", callback_data="open_app:spotify"),
                 ],
                 [
-                    InlineKeyboardButton("📝 Notepad", callback_data="open_app:notepad"),
-                    InlineKeyboardButton("🧮 Kalkulator", callback_data="open_app:calc"),
+                    InlineKeyboardButton("🎵 YT: Lagu Hindia", callback_data="yt_search:lagu hindia evaluasi"),
+                    InlineKeyboardButton("💻 VS Code", callback_data="open_app:vscode"),
                 ],
                 [
-                    InlineKeyboardButton("💻 VS Code", callback_data="open_app:vscode"),
+                    InlineKeyboardButton("📝 Notepad", callback_data="open_app:notepad"),
                     InlineKeyboardButton("📁 File Explorer", callback_data="open_app:explorer"),
                 ],
                 [
+                    InlineKeyboardButton("🧮 Kalkulator", callback_data="open_app:calc"),
                     InlineKeyboardButton("⚡ Terminal / CMD", callback_data="open_app:terminal"),
-                    InlineKeyboardButton("🌐 Microsoft Edge", callback_data="open_app:edge"),
                 ],
             ]
         )
 
-    async def open_app_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Membuka aplikasi desktop, link URL, atau mencari di YouTube / Google."""
+    def _build_yt_hub_markup(self) -> InlineKeyboardMarkup:
+        """Membuat menu pintasan genre musik YouTube."""
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("☕ Lofi Hip Hop Study", callback_data="yt_search:lofi hip hop study beats"),
+                    InlineKeyboardButton("🎸 Pop Indo Hits", callback_data="yt_search:pop indonesia hits terbaru"),
+                ],
+                [
+                    InlineKeyboardButton("🎵 Lagu Hindia", callback_data="yt_search:lagu hindia evaluasi"),
+                    InlineKeyboardButton("🎙️ Podcast Indonesia", callback_data="yt_search:podcast indonesia"),
+                ],
+                [
+                    InlineKeyboardButton("🌐 Buka YouTube Home", callback_data="open_app:https://www.youtube.com"),
+                    InlineKeyboardButton("🔙 Menu Buka", callback_data="open_hub:main"),
+                ],
+            ]
+        )
+
+    def _build_browser_tabs_markup(self) -> tuple[str, InlineKeyboardMarkup]:
+        """Membuat tampilan dan tombol kontrol interaktif untuk jendela & tab browser yang sedang berjalan."""
+        import perkakas
+        fn_tabs = getattr(perkakas, "get_open_browser_tabs", None)
+        tabs = fn_tabs() if fn_tabs else []
+
+        if not tabs:
+            text = (
+                "📑 **TAB & JENDELA BROWSER LAPTOP**\n\n"
+                "ℹ️ Tidak ada jendela Google Chrome atau Microsoft Edge yang sedang terbuka di laptop saat ini.\n"
+                "Gunakan tombol di bawah untuk membuka browser atau kembali ke menu:"
+            )
+            markup = InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("🌐 Buka Google Chrome", callback_data="open_app:chrome")],
+                    [
+                        InlineKeyboardButton("🔄 Segarkan (Refresh)", callback_data="open_hub:tabs"),
+                        InlineKeyboardButton("🔙 Hub Buka", callback_data="open_hub:main"),
+                    ],
+                ]
+            )
+            return text, markup
+
+        text_lines = [
+            f"📑 **TAB & JENDELA BROWSER AKTIF ({len(tabs)} Ditemukan)**\n",
+            "Berikut tab/jendela yang sedang aktif di laptop:\n",
+        ]
+        buttons = []
+        for idx, t in enumerate(tabs, 1):
+            icon = "🎬" if t.get("is_youtube") else ("🎧" if t.get("is_media") else "🌐")
+            clean_title = t.get("clean_title", "Tab Browser")
+            if len(clean_title) > 60:
+                clean_title = clean_title[:57] + "..."
+            proc = t.get("process_name", "browser")
+            text_lines.append(f"{idx}. {icon} `{clean_title}` ({proc})")
+
+            row = [
+                InlineKeyboardButton(f"🎯 Fokus #{idx}", callback_data=f"tab_focus:{t['hwnd']}"),
+            ]
+            if t.get("is_media") or t.get("is_youtube"):
+                row.append(InlineKeyboardButton("⏸️ Play/Pause", callback_data=f"tab_media:{t['hwnd']}"))
+            row.append(InlineKeyboardButton("❌ Tutup", callback_data=f"tab_close:{t['hwnd']}"))
+            buttons.append(row)
+
+        buttons.append(
+            [
+                InlineKeyboardButton("🔄 Segarkan (Refresh)", callback_data="open_hub:tabs"),
+                InlineKeyboardButton("🔙 Hub Buka", callback_data="open_hub:main"),
+            ]
+        )
+        return "\n".join(text_lines), InlineKeyboardMarkup(buttons)
+
+    async def search_and_send_youtube(self, msg_target, query: str) -> None:
+        """Mencari video di YouTube, menampilkan judul & link langsung, serta tombol pilihan interaktif."""
+        import urllib.parse
+        import perkakas
+        fn_search = getattr(perkakas, "search_youtube_videos", None)
+        if not fn_search:
+            fn_open = getattr(perkakas, "open_application", None)
+            if fn_open:
+                res = await asyncio.to_thread(fn_open, f"youtube {query}")
+                await msg_target.reply_text(f"🖥️ {res}")
+            return
+
+        status_msg = await msg_target.reply_text(
+            f"🔍 *Mencari di YouTube:* `{query}`...",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+        results = await asyncio.to_thread(fn_search, query, 4)
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        if not results:
+            fn_open = getattr(perkakas, "open_application", None)
+            if fn_open:
+                res = await asyncio.to_thread(fn_open, f"youtube {query}")
+                await msg_target.reply_text(f"🖥️ {res}")
+            return
+
+        lines = [
+            f"🎬 **PILIHAN HASIL YOUTUBE: \"{query}\"**\n",
+            "Berikut video teratas yang ditemukan:\n",
+        ]
+        buttons = []
+        for idx, r in enumerate(results, 1):
+            dur_str = f" `[{r['duration']}]`" if r.get("duration") else ""
+            ch_str = f" • *{r['channel']}*" if r.get("channel") else ""
+            v_title = r.get("title", "Video YouTube")
+            v_url = r.get("url", f"https://www.youtube.com/watch?v={r['video_id']}")
+            lines.append(f"{idx}️⃣ **[{v_title}]({v_url})**{dur_str}{ch_str}")
+            lines.append(f"   🔗 `{v_url}`\n")
+
+            btn_title = v_title[:38] + ".." if len(v_title) > 40 else v_title
+            buttons.append([InlineKeyboardButton(f"▶️ {idx}. {btn_title}", callback_data=f"yt_play:{r['video_id']}")])
+
+        lines.append("👇 *Tekan tombol di bawah untuk langsung memutar video di laptop:*")
+        encoded_q = urllib.parse.quote_plus(query)
+        buttons.append([
+            InlineKeyboardButton("🌐 Buka Pencarian di Browser", callback_data=f"open_app:https://www.youtube.com/results?search_query={encoded_q}"),
+            InlineKeyboardButton("🔙 Hub Buka", callback_data="open_hub:main"),
+        ])
+
+        await msg_target.reply_text(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(buttons),
+            parse_mode=ParseMode.MARKDOWN,
+            disable_web_page_preview=True,
+        )
+
+    async def tabs_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Menampilkan dan mengontrol seluruh tab & jendela browser yang sedang terbuka di laptop."""
         if not self.is_authorized(update):
             await self.unauthorized_handler(update)
             return
 
+        msg_target = update.message or (update.callback_query.message if update.callback_query else None)
+        if not msg_target:
+            return
+
+        text, markup = self._build_browser_tabs_markup()
+        await msg_target.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+
+    async def open_app_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Membuka aplikasi desktop, link URL, tab browser, atau mencari & memutar lagu di YouTube."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        msg_target = update.message or (update.callback_query.message if update.callback_query else None)
+        if not msg_target:
+            return
+
+        import perkakas
         if not context.args:
+            fn_tabs = getattr(perkakas, "get_open_browser_tabs", None)
+            tabs = fn_tabs() if fn_tabs else []
+            count_str = f"{len(tabs)} tab aktif" if tabs else "belum ada tab aktif"
             msg = (
-                "📱 **PELUNCUR APLIKASI LAPTOP (APP LAUNCHER)**\n\n"
-                "Pilih aplikasi atau pintasan cepat di bawah untuk langsung dibuka di laptop:\n"
-                "• Atau ketik langsung: `/buka <nama>` (contoh: `/buka spotify`)\n"
-                "• Atau cari di YouTube: `/buka youtube lagu hindia`"
+                "📱 **PUSAT KENDALI MEDIA & APLIKASI LAPTOP**\n\n"
+                f"• **Browser Tab**: `{count_str}`\n"
+                "• Pilih menu di bawah untuk membuka aplikasi atau memutar musik:\n"
+                "• Atau cari lagu langsung: `/buka youtube lagu hindia`\n"
+                "• Atau pantau tab browser: `/tabs`"
             )
-            await update.message.reply_text(
+            await msg_target.reply_text(
                 msg,
-                reply_markup=self._build_open_app_markup(),
+                reply_markup=self._build_open_hub_markup(len(tabs)),
                 parse_mode=ParseMode.MARKDOWN,
             )
             return
 
         target_query = " ".join(context.args).strip()
-        import perkakas
+        target_lower = target_query.lower()
+
+        # Deteksi intent pencarian YouTube
+        yt_keywords = ["youtube", "yt", "lagu", "video", "play", "musik", "putar"]
+        if any(k in target_lower for k in yt_keywords) and not target_lower.startswith("http"):
+            cleaned = re.sub(
+                r"^(buka|open|play|putar|cari|search)\s+(youtube|yt)?\s*(dan\s+cari|lalu\s+cari|cari)?\s*",
+                "",
+                target_query,
+                flags=re.IGNORECASE,
+            ).strip()
+            if not cleaned or cleaned.lower() in ["youtube", "yt"]:
+                cleaned = target_query
+            await self.search_and_send_youtube(msg_target, cleaned)
+            return
+
         fn_open = getattr(perkakas, "open_application", None)
         if fn_open:
-            status_msg = await update.message.reply_text(f"⏳ Membuka `{target_query}` di laptop...")
+            status_msg = await msg_target.reply_text(f"⏳ Membuka `{target_query}` di laptop...")
             res = await asyncio.to_thread(fn_open, target_query)
             try:
                 await status_msg.edit_text(f"🖥️ {res}")
             except Exception:
-                await update.message.reply_text(f"🖥️ {res}")
+                await msg_target.reply_text(f"🖥️ {res}")
         else:
-            await update.message.reply_text("❌ Fungsi open_application tidak tersedia.")
+            await msg_target.reply_text("❌ Fungsi open_application tidak tersedia.")
 
     def _build_volume_markup(self) -> InlineKeyboardMarkup:
         return InlineKeyboardMarkup(
@@ -1411,6 +1666,27 @@ class TelegramAgentGateway:
         if not user_text:
             return
 
+        u_clean = user_text.lower().strip()
+
+        # Deteksi langsung: Pertanyaan seputar tab browser
+        if any(w in u_clean for w in ["berapa tab", "daftar tab", "list tab", "tab browser", "tab chrome", "tab edge", "buka tab"]):
+            text, markup = self._build_browser_tabs_markup()
+            await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+            return
+
+        # Deteksi langsung: Pencarian / Pemutaran YouTube
+        if ("youtube" in u_clean or "yt" in u_clean or "lagu" in u_clean) and any(w in u_clean for w in ["cari", "putar", "play", "dengarkan", "stel", "setel"]):
+            cleaned_query = re.sub(
+                r"\b(buka|open|chrome|lalu|didalam|dan|youtube|yt|tolong|coba|cari|carikan|putar|putarkan|play|lagu|video|setel|musik)\b",
+                "",
+                user_text,
+                flags=re.IGNORECASE,
+            ).strip()
+            if not cleaned_query:
+                cleaned_query = user_text
+            await self.search_and_send_youtube(update.message, cleaned_query)
+            return
+
         status_msg = await update.message.reply_text("⏳ *Memproses instruksi di laptop...*", parse_mode=ParseMode.MARKDOWN)
         loop = asyncio.get_running_loop()
 
@@ -1532,7 +1808,8 @@ class TelegramAgentGateway:
             BotCommand("capture", "Ambil tangkapan layar laptop (Screenshot)"),
             BotCommand("speed", "Uji kecepatan respon AI & kirim Telegram"),
             BotCommand("kamera", "Ambil foto dari webcam laptop"),
-            BotCommand("buka", "Buka aplikasi/Chrome/YouTube (misal: /buka youtube lagu hindia)"),
+            BotCommand("buka", "Pusat Media, YouTube, Cari Lagu & Peluncur Aplikasi"),
+            BotCommand("tabs", "Pantau & kontrol tab browser terbuka di laptop"),
             BotCommand("tutup", "Tutup aplikasi desktop (contoh: /tutup chrome)"),
             BotCommand("volume", "Atur volume laptop & kontrol lagu"),
             BotCommand("play", "Putar/Jeda lagu atau video YouTube/Spotify"),
@@ -1606,6 +1883,8 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("close", self.close_app_cmd))
         app.add_handler(CommandHandler("buka", self.open_app_cmd))
         app.add_handler(CommandHandler("open", self.open_app_cmd))
+        app.add_handler(CommandHandler("tabs", self.tabs_cmd))
+        app.add_handler(CommandHandler("tab", self.tabs_cmd))
         app.add_handler(CommandHandler("volume", self.volume_cmd))
         app.add_handler(CommandHandler("vol", self.volume_cmd))
         app.add_handler(CommandHandler("mute", self.mute_cmd))

@@ -577,6 +577,34 @@ kelas AgenGemini {
             kembalikan hasil
         }
 
+        # 4b. Tindakan Cek Tab Browser
+        jika any([k dalam msg_lower untuk k dalam ["berapa tab", "daftar tab", "list tab", "tab browser", "tab chrome", "tab edge"]]) {
+            jika on_tool_call {
+                on_tool_call("get_open_browser_tabs", {})
+            }
+            fn_tabs = ALAT_TERSEDIA.get("get_open_browser_tabs")
+            tabs = fn_tabs() jika fn_tabs selain []
+            jika tabs {
+                baris = [f"📑 TAB & JENDELA BROWSER AKTIF ({len(tabs)} Ditemukan):", "─" * 45]
+                untuk idx, t dalam enumerate(tabs, 1) {
+                    icon = "🎬" jika t.get("is_youtube") selain ("🎧" jika t.get("is_media") selain "🌐")
+                    baris.append(f"{idx}. {icon} {t.get('clean_title')} ({t.get('process_name')}) [HWND: {t.get('hwnd')}]")
+                }
+                hasil = "\n".join(baris)
+            } selain {
+                hasil = "ℹ️ Tidak ada jendela Google Chrome atau Microsoft Edge yang sedang terbuka di laptop."
+            }
+            jika on_tool_result {
+                on_tool_result("get_open_browser_tabs", hasil)
+            }
+            jika on_chunk {
+                on_chunk(hasil)
+            }
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil))
+            pengelola_sesi.simpan_sesi(diri.session)
+            kembalikan hasil
+        }
+
         # 5. Tindakan Buka Aplikasi / Browser / YouTube / URL
         jika (msg_lower.startswith("buka ") atau msg_lower.startswith("open ") atau "buka chrome" dalam msg_lower atau "buka youtube" dalam msg_lower) dan tidak ("kamera" dalam msg_lower atau "webcam" dalam msg_lower) {
             jika on_tool_call {

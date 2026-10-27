@@ -918,6 +918,253 @@ fungsi open_application(app_or_query: str, query: str = "") -> str {
 buka_aplikasi = open_application
 
 
+fungsi search_youtube_videos(query: str, limit: int = 4) -> list {
+    """Mencari video di YouTube dan mengembalikan daftar judul, durasi, channel, dan URL video."""
+    coba {
+        impor urllib.request
+        impor urllib.parse
+        impor re
+        impor json
+
+        url = f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(query)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        html = urllib.request.urlopen(req, timeout=7).read().decode("utf-8", errors="ignore")
+
+        hasil = []
+        m = re.search(r"var ytInitialData\s*=\s*({.*?});</script>", html)
+        jika m {
+            coba {
+                data = json.loads(m.group(1))
+                contents = data.get("contents", {}).get("twoColumnSearchResultsRenderer", {}).get("primaryContents", {}).get("sectionListRenderer", {}).get("contents", [])
+                untuk section dalam contents {
+                    items = section.get("itemSectionRenderer", {}).get("contents", [])
+                    untuk it dalam items {
+                        v = it.get("videoRenderer")
+                        jika v dan "videoId" dalam v {
+                            vid = v["videoId"]
+                            title_runs = v.get("title", {}).get("runs", [])
+                            raw_title = "".join(r.get("text", "") untuk r dalam title_runs) jika title_runs selain "Video YouTube"
+                            clean_title = re.sub(r"[\u200b-\u200f\ufeff]", "", raw_title).strip()
+                            owner_runs = v.get("ownerText", {}).get("runs", [])
+                            channel = "".join(r.get("text", "") untuk r dalam owner_runs) jika owner_runs selain ""
+                            dur = v.get("lengthText", {}).get("simpleText", "")
+                            hasil.append({
+                                "video_id": vid,
+                                "title": clean_title,
+                                "channel": channel,
+                                "duration": dur,
+                                "url": f"https://www.youtube.com/watch?v={vid}"
+                            })
+                            jika len(hasil) >= limit {
+                                berhenti
+                            }
+                        }
+                    }
+                    jika len(hasil) >= limit {
+                        berhenti
+                    }
+                }
+            } kecuali Exception {
+                lewati
+            }
+        }
+
+        jika tidak hasil {
+            vids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+            seen = set()
+            untuk vid dalam vids {
+                jika vid tidak dalam seen dan len(hasil) < limit {
+                    seen.add(vid)
+                    hasil.append({
+                        "video_id": vid,
+                        "title": f"YouTube Video ({vid})",
+                        "channel": "",
+                        "duration": "",
+                        "url": f"https://www.youtube.com/watch?v={vid}"
+                    })
+                }
+            }
+        }
+        kembalikan hasil
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.search_youtube_videos", f"Gagal mencari video YouTube: {exc}")
+        kembalikan []
+    }
+}
+
+cari_video_youtube = search_youtube_videos
+
+
+fungsi play_youtube_video(video_id_or_url: str) -> str {
+    """Membuka video YouTube di browser Chrome dan langsung memutarnya secara otomatis."""
+    coba {
+        impor os
+        impor subprocess
+
+        target = video_id_or_url.strip()
+        jika target.startswith("http://") atau target.startswith("https://") {
+            final_url = target
+        } selain {
+            final_url = f"https://www.youtube.com/watch?v={target}&autoplay=1"
+        }
+
+        chrome_candidates = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ]
+        chrome_exe = kosong
+        untuk c dalam chrome_candidates {
+            jika os.path.exists(c) {
+                chrome_exe = c
+                berhenti
+            }
+        }
+
+        jika chrome_exe {
+            subprocess.Popen([chrome_exe, final_url])
+        } selain {
+            os.startfile(final_url)
+        }
+
+        pesan = f"[SUKSES] Membuka dan memutar video di Chrome: {final_url}"
+        agent_logger.log_info("perkakas.play_youtube_video", pesan)
+        kembalikan pesan
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.play_youtube_video", f"Gagal memutar video: {exc}")
+        kembalikan f"[GAGAL] Gagal memutar video YouTube: {exc}"
+    }
+}
+
+putar_video_youtube = play_youtube_video
+
+
+fungsi get_open_browser_tabs() -> list {
+    """Mendeteksi seluruh jendela dan tab browser aktif di laptop (Chrome, Edge, Firefox, Brave, Opera)."""
+    coba {
+        impor ctypes
+        dari ctypes impor wintypes
+        impor psutil
+
+        user32 = ctypes.windll.user32
+        browsers = []
+
+        fungsi enum_callback(hwnd, lparam) {
+            jika tidak user32.IsWindowVisible(hwnd) {
+                kembalikan benar
+            }
+            length = user32.GetWindowTextLengthW(hwnd)
+            jika length <= 0 {
+                kembalikan benar
+            }
+            buff = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buff, length + 1)
+            title = buff.value.strip()
+            jika tidak title {
+                kembalikan benar
+            }
+
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            pname = ""
+            coba {
+                pname = psutil.Process(pid.value).name().lower()
+            } kecuali Exception {
+                lewati
+            }
+
+            browser_exes = ["chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe"]
+            is_browser = pname dalam browser_exes atau any(b dalam title.lower() untuk b dalam [" - google chrome", " - microsoft edge", " - edge", " - mozilla firefox"])
+
+            jika is_browser {
+                clean_title = title
+                untuk sfx dalam [" - Google Chrome", " - Microsoft​ Edge", " - Microsoft Edge", " - Mozilla Firefox", " - Brave"] {
+                    clean_title = clean_title.replace(sfx, "")
+                }
+                is_youtube = "youtube" dalam title.lower() atau "youtu.be" dalam title.lower()
+                is_media = is_youtube atau any(m dalam title.lower() untuk m dalam ["spotify", "music", "audio", "video", "soundcloud"])
+
+                browsers.append({
+                    "hwnd": int(hwnd),
+                    "pid": int(pid.value),
+                    "process_name": pname,
+                    "full_title": title,
+                    "clean_title": clean_title,
+                    "is_youtube": is_youtube,
+                    "is_media": is_media,
+                })
+            }
+            kembalikan benar
+        }
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        user32.EnumWindows(WNDENUMPROC(enum_callback), 0)
+        kembalikan browsers
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.get_open_browser_tabs", f"Gagal membaca tab browser: {exc}")
+        kembalikan []
+    }
+}
+
+ambil_tab_browser = get_open_browser_tabs
+
+
+fungsi focus_window(hwnd: int) -> str {
+    """Membawa jendela aplikasi atau tab browser tertentu ke layar depan laptop."""
+    coba {
+        impor ctypes
+        user32 = ctypes.windll.user32
+        user32.ShowWindow(hwnd, 9)
+        user32.SetForegroundWindow(hwnd)
+        pesan = f"[SUKSES] Jendela (HWND: {hwnd}) berhasil dibawa ke depan."
+        agent_logger.log_info("perkakas.focus_window", pesan)
+        kembalikan pesan
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.focus_window", f"Gagal fokus jendela: {exc}")
+        kembalikan f"[GAGAL] Gagal membawa jendela ke depan: {exc}"
+    }
+}
+
+fokus_jendela = focus_window
+
+
+fungsi close_window_tab(hwnd: int) -> str {
+    """Menutup jendela aplikasi atau tab browser tertentu berdasarkan HWND."""
+    coba {
+        impor ctypes
+        user32 = ctypes.windll.user32
+        user32.PostMessageW(hwnd, 0x0010, 0, 0)
+        pesan = f"[SUKSES] Perintah tutup dikirim ke jendela (HWND: {hwnd})."
+        agent_logger.log_info("perkakas.close_window_tab", pesan)
+        kembalikan pesan
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.close_window_tab", f"Gagal menutup jendela: {exc}")
+        kembalikan f"[GAGAL] Gagal menutup jendela: {exc}"
+    }
+}
+
+tutup_jendela = close_window_tab
+
+
+fungsi control_browser_media(hwnd: int = 0, action: str = "play_pause") -> str {
+    """Mengontrol pemutaran musik/video di browser (Play/Pause, Next, Prev)."""
+    coba {
+        impor ctypes
+        user32 = ctypes.windll.user32
+        jika hwnd > 0 {
+            user32.ShowWindow(hwnd, 9)
+            user32.SetForegroundWindow(hwnd)
+        }
+        kembalikan media_control(action)
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.control_browser_media", f"Gagal kontrol media browser: {exc}")
+        kembalikan f"[GAGAL] Gagal mengontrol media: {exc}"
+    }
+}
+
+kontrol_media_browser = control_browser_media
+
+
 fungsi set_volume(level: str = "status") -> str {
     """Mengatur volume suara master laptop (0-100%, +10, -10, mute, unmute, status).
 
@@ -1096,6 +1343,18 @@ ALAT_TERSEDIA = {
     "capture_screen": capture_screen,
     "ambil_tangkapan_layar": ambil_tangkapan_layar,
     "screenshot": capture_screen,
+    "search_youtube_videos": search_youtube_videos,
+    "cari_video_youtube": cari_video_youtube,
+    "play_youtube_video": play_youtube_video,
+    "putar_video_youtube": putar_video_youtube,
+    "get_open_browser_tabs": get_open_browser_tabs,
+    "ambil_tab_browser": ambil_tab_browser,
+    "focus_window": focus_window,
+    "fokus_jendela": fokus_jendela,
+    "close_window_tab": close_window_tab,
+    "tutup_jendela": tutup_jendela,
+    "control_browser_media": control_browser_media,
+    "kontrol_media_browser": kontrol_media_browser,
 }
 
 DAFTAR_PANGGILAN_ALAT = [
@@ -1116,6 +1375,12 @@ DAFTAR_PANGGILAN_ALAT = [
     set_volume,
     media_control,
     capture_screen,
+    search_youtube_videos,
+    play_youtube_video,
+    get_open_browser_tabs,
+    focus_window,
+    close_window_tab,
+    control_browser_media,
 ]
 
 AVAILABLE_TOOLS = ALAT_TERSEDIA
