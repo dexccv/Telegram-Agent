@@ -362,12 +362,12 @@ class TelegramAgentGateway:
     def run(self) -> None:
         """Menjalankan bot Telegram polling daemon."""
         print("=" * 60)
-        print("  GEMINI LAPTOP AGENT ─ TELEGRAM MOBILE GATEWAY")
+        print("  GEMINI LAPTOP AGENT - TELEGRAM MOBILE GATEWAY")
         print("=" * 60)
-        print(f"• Bot Token: {self.bot_token[:10]}... (Aman)")
-        print(f"• Whitelist User ID: {self.allowed_user_id}")
-        print("• Status: Sedang mendengarkan pesan dari HP Anda...")
-        print("• Tekan Ctrl+C di terminal ini untuk berhenti.\n")
+        print(f"* Bot Token: {self.bot_token[:10]}... (Aman)")
+        print(f"* Whitelist User ID: {self.allowed_user_id}")
+        print("* Status: Sedang mendengarkan pesan dari HP Anda...")
+        print("* Tekan Ctrl+C di terminal ini untuk berhenti.\n")
 
         app = Application.builder().token(self.bot_token).build()
 
