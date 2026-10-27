@@ -29,10 +29,11 @@ from telegram.ext import (
     filters,
 )
 
-import agen
-import konfigurasi
-import memori
-import pengelola_sesi
+# Modul logika ditulis dalam Indonesiaku-Lang (.idk) dan dimuat dinamis via hook penerjemah_idk
+import agen  # type: ignore[import-not-found]
+import konfigurasi  # type: ignore[import-not-found]
+import memori  # type: ignore[import-not-found]
+import pengelola_sesi  # type: ignore[import-not-found]
 from logger import agent_logger
 
 

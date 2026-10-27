@@ -1,0 +1,6 @@
+"""Type stub untuk modul aplikasi (aplikasi.idk)."""
+from typing import Any
+
+class GeminiAgentApp:
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+    def run(self, *args: Any, **kwargs: Any) -> Any: ...
