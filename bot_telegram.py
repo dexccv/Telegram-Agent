@@ -840,14 +840,20 @@ class TelegramAgentGateway:
             return
 
         out_name = "screen_capture.png"
+        ss_path = Path(out_name).resolve()
+        try:
+            if ss_path.exists():
+                ss_path.unlink()
+        except Exception:
+            pass
+
         res = await asyncio.to_thread(fn_ss, out_name)
         try:
             await status_msg.delete()
         except Exception:
             pass
 
-        ss_path = Path(out_name).resolve()
-        if ss_path.exists():
+        if ss_path.exists() and ss_path.stat().st_size > 500:
             m = ambil_metrik_realtime()
             caption = (
                 f"🖥️ **Tangkapan Layar (Screenshot) Laptop**\n"

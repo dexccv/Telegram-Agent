@@ -526,11 +526,28 @@ fungsi capture_screen(output_path: str = "screen_capture.png") -> str {
     coba {
         impor ctypes
         impor os
+        impor sys
+        impor subprocess
         dari pathlib impor Path
         dari PIL impor ImageGrab
 
+        out_p = Path(output_path).resolve()
+        coba {
+            jika out_p.exists() {
+                out_p.unlink()
+            }
+        } kecuali Exception {
+            lewati
+        }
+
         user32 = ctypes.windll.user32
-        # Hubungkan thread ke active input desktop Windows agar screen grab BitBlt berhasil
+        user32.OpenInputDesktop.restype = ctypes.c_void_p
+        user32.OpenInputDesktop.argtypes = [ctypes.c_uint, ctypes.c_bool, ctypes.c_uint]
+        user32.SetThreadDesktop.restype = ctypes.c_bool
+        user32.SetThreadDesktop.argtypes = [ctypes.c_void_p]
+        user32.CloseDesktop.restype = ctypes.c_bool
+        user32.CloseDesktop.argtypes = [ctypes.c_void_p]
+
         coba {
             hdesk = user32.OpenInputDesktop(0, salah, 0x01FF)
             jika hdesk {
@@ -540,12 +557,68 @@ fungsi capture_screen(output_path: str = "screen_capture.png") -> str {
             lewati
         }
 
-        im = ImageGrab.grab(all_screens=benar)
-        out_p = Path(output_path).resolve()
-        im.save(str(out_p))
+        berhasil = salah
 
-        agent_logger.log_info("perkakas.capture_screen", f"Screenshot berhasil disimpan: {out_p}")
-        kembalikan f"[SUKSES] Tangkapan layar laptop berhasil diambil ({im.size[0]}x{im.size[1]} px): {out_p.name}"
+        # Level 1: ImageGrab all_screens
+        coba {
+            im = ImageGrab.grab(all_screens=benar)
+            im.save(str(out_p))
+            jika out_p.exists() dan out_p.stat().st_size > 500 {
+                berhasil = benar
+            }
+        } kecuali Exception {
+            lewati
+        }
+
+        # Level 2: ImageGrab primary screen
+        jika tidak berhasil {
+            coba {
+                im = ImageGrab.grab(all_screens=salah)
+                im.save(str(out_p))
+                jika out_p.exists() dan out_p.stat().st_size > 500 {
+                    berhasil = benar
+                }
+            } kecuali Exception {
+                lewati
+            }
+        }
+
+        # Level 3: Isolated subprocess worker (fresh GUI thread context)
+        jika tidak berhasil {
+            coba {
+                sub_code = (
+                    "import ctypes, sys\n"
+                    "user32 = ctypes.windll.user32\n"
+                    "user32.OpenInputDesktop.restype = ctypes.c_void_p\n"
+                    "user32.OpenInputDesktop.argtypes = [ctypes.c_uint, ctypes.c_bool, ctypes.c_uint]\n"
+                    "user32.SetThreadDesktop.restype = ctypes.c_bool\n"
+                    "user32.SetThreadDesktop.argtypes = [ctypes.c_void_p]\n"
+                    "hdesk = user32.OpenInputDesktop(0, False, 0x01FF)\n"
+                    "if hdesk:\n"
+                    "    user32.SetThreadDesktop(hdesk)\n"
+                    "from PIL import ImageGrab\n"
+                    "try:\n"
+                    "    im = ImageGrab.grab(all_screens=True)\n"
+                    "except Exception:\n"
+                    "    im = ImageGrab.grab(all_screens=False)\n"
+                    f"im.save(r'{out_p}')\n"
+                )
+                subprocess.run([sys.executable, "-c", sub_code], capture_output=benar, text=benar, timeout=8)
+                jika out_p.exists() dan out_p.stat().st_size > 500 {
+                    berhasil = benar
+                }
+            } kecuali Exception {
+                lewati
+            }
+        }
+
+        jika berhasil {
+            agent_logger.log_info("perkakas.capture_screen", f"Screenshot berhasil disimpan: {out_p}")
+            kembalikan f"[SUKSES] Tangkapan layar laptop berhasil diambil: {out_p.name}"
+        } selain {
+            agent_logger.log_error("perkakas.capture_screen", "Gagal tangkap layar: screen grab failed")
+            kembalikan "[GAGAL] Gagal mengambil screenshot layar (screen grab failed)."
+        }
     } kecuali Exception sebagai exc {
         agent_logger.log_error("perkakas.capture_screen", f"Gagal tangkap layar: {exc}")
         kembalikan f"[GAGAL] Gagal mengambil screenshot layar: {exc}"
