@@ -5,6 +5,7 @@
 
 impor datetime
 impor json
+impor re
 impor urllib.request
 dari pathlib impor Path
 dari typing impor Any, Callable, Optional
@@ -497,6 +498,132 @@ kelas AgenGemini {
         }
 
         diri.provider = pengelola_konfigurasi.ambil_provider()
+
+        msg_lower = message.strip().lower()
+
+        # 1. Tindakan Menutup Aplikasi Terbuka jika diminta
+        jika msg_lower.startswith("tutup aplikasi ") atau msg_lower.startswith("tutup ") atau msg_lower.startswith("close ") {
+            bagian = message.strip().split(maxsplit=2 jika msg_lower.startswith("tutup aplikasi ") selain 1)
+            target_app = bagian[-1].strip().strip('"').strip("'")
+            jika target_app {
+                jika on_tool_call {
+                    on_tool_call("close_application", {"app_name_or_pid": target_app})
+                }
+                fn_tutup = ALAT_TERSEDIA.get("close_application")
+                hasil = fn_tutup(target_app) jika fn_tutup selain "Alat close_application tidak ditemukan."
+                jika on_tool_result {
+                    on_tool_result("close_application", hasil)
+                }
+                jika on_chunk {
+                    on_chunk(hasil)
+                }
+                diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil))
+                pengelola_sesi.simpan_sesi(diri.session)
+                kembalikan hasil
+            }
+        }
+
+        # 2. Tindakan Membuka Kamera & Mengambil Foto
+        jika any([k dalam msg_lower untuk k dalam ["buka kamera", "ambil foto", "foto kamera", "capture kamera", "foto webcam", "kamera laptop"]]) {
+            jika on_tool_call {
+                on_tool_call("capture_camera", {"output_path": "kamera_capture.jpg"})
+            }
+            fn_kamera = ALAT_TERSEDIA.get("capture_camera")
+            hasil = fn_kamera("kamera_capture.jpg") jika fn_kamera selain "Alat capture_camera tidak ditemukan."
+            jika on_tool_result {
+                on_tool_result("capture_camera", hasil)
+            }
+            jika on_chunk {
+                on_chunk(hasil)
+            }
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil))
+            pengelola_sesi.simpan_sesi(diri.session)
+            kembalikan hasil
+        }
+
+        # 3. Tindakan Membaca Persentase Sistem & Penyimpanan
+        jika any([k dalam msg_lower untuk k dalam ["status sistem", "persentase sistem", "persentase penyimpanan", "persentase baterai", "cek baterai", "cek penyimpanan", "cek ram", "cek cpu", "cek storage"]]) {
+            jika on_tool_call {
+                on_tool_call("get_system_status", {})
+            }
+            fn_status = ALAT_TERSEDIA.get("get_system_status")
+            hasil = fn_status() jika fn_status selain "Alat get_system_status tidak ditemukan."
+            jika on_tool_result {
+                on_tool_result("get_system_status", hasil)
+            }
+            jika on_chunk {
+                on_chunk(hasil)
+            }
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil))
+            pengelola_sesi.simpan_sesi(diri.session)
+            kembalikan hasil
+        }
+
+        # 4. Tindakan Cek Kecepatan / Speed Test
+        jika any([k dalam msg_lower untuk k dalam ["cek speed", "tes speed", "speed test", "kecepatan kirim", "kecepatan agent", "kecepatan respon", "speed agent", "tes latency", "cek latency", "ping agent"]]) {
+            jika on_tool_call {
+                on_tool_call("check_speed", {})
+            }
+            fn_speed = ALAT_TERSEDIA.get("check_speed")
+            hasil = fn_speed() jika fn_speed selain "Alat check_speed tidak ditemukan."
+            jika on_tool_result {
+                on_tool_result("check_speed", hasil)
+            }
+            jika on_chunk {
+                on_chunk(hasil)
+            }
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil))
+            pengelola_sesi.simpan_sesi(diri.session)
+            kembalikan hasil
+        }
+
+        # 5. Tindakan Buka Aplikasi / Browser / YouTube / URL
+        jika (msg_lower.startswith("buka ") atau msg_lower.startswith("open ") atau "buka chrome" dalam msg_lower atau "buka youtube" dalam msg_lower) dan tidak ("kamera" dalam msg_lower atau "webcam" dalam msg_lower) {
+            jika on_tool_call {
+                on_tool_call("open_application", {"app_or_query": message.strip()})
+            }
+            fn_open = ALAT_TERSEDIA.get("open_application")
+            hasil = fn_open(message.strip()) jika fn_open selain "Alat open_application tidak ditemukan."
+            jika on_tool_result {
+                on_tool_result("open_application", hasil)
+            }
+            jika on_chunk {
+                on_chunk(hasil)
+            }
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil))
+            pengelola_sesi.simpan_sesi(diri.session)
+            kembalikan hasil
+        }
+
+        # 6. Tindakan Atur Volume Laptop / Mute / Unmute
+        jika any([k dalam msg_lower untuk k dalam ["atur volume", "set volume", "ganti volume", "ubah volume", "volume laptop", "besarkan volume", "naikkan volume", "kecilkan volume", "turunkan volume", "mute", "unmute", "senyap"]]) {
+            m_vol = re.search(r"(\+?\-?\d+%?|mute|unmute|senyap)", msg_lower)
+            vol_arg = m_vol.group(1) jika m_vol selain "status"
+            jika "naik" dalam msg_lower atau "besar" dalam msg_lower {
+                vol_arg = "+10"
+            } jika_lain "turun" dalam msg_lower atau "kecil" dalam msg_lower {
+                vol_arg = "-10"
+            } jika_lain "unmute" dalam msg_lower atau "nyalakan suara" dalam msg_lower atau "hidupkan suara" dalam msg_lower {
+                vol_arg = "unmute"
+            } jika_lain "mute" dalam msg_lower atau "senyap" dalam msg_lower atau "matikan suara" dalam msg_lower {
+                vol_arg = "mute"
+            }
+            jika on_tool_call {
+                on_tool_call("set_volume", {"level": vol_arg})
+            }
+            fn_vol = ALAT_TERSEDIA.get("set_volume")
+            hasil = fn_vol(vol_arg) jika fn_vol selain "Alat set_volume tidak ditemukan."
+            jika on_tool_result {
+                on_tool_result("set_volume", hasil)
+            }
+            jika on_chunk {
+                on_chunk(hasil)
+            }
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil))
+            pengelola_sesi.simpan_sesi(diri.session)
+            kembalikan hasil
+        }
+
         jika diri.provider == "omniroute" {
             kembalikan diri._kirim_pesan_omniroute(message, on_tool_call, on_tool_result, on_chunk)
         } jika_lain diri.provider == "ollama" {

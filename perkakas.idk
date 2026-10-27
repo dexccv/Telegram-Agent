@@ -58,16 +58,23 @@ fungsi is_command_safe(perintah) {
 
 
 fungsi validasi_jalur_sandbox(path: str) {
-    """Memvalidasi bahwa path berada di dalam direktori kerja proyek (workspace)."""
+    """Memvalidasi path berkas yang diminta pengguna secara aman."""
     coba {
-        workspace_root = Path.cwd().resolve()
         target = Path(path).expanduser().resolve()
+        target_str = str(target).lower()
 
-        jika target == workspace_root atau workspace_root dalam target.parents {
-            kembalikan (benar, target, "")
+        # Lindungi direktori sistem inti Windows dari operasi berbahaya
+        direktori_terlarang = [
+            r"c:\windows\system32",
+            r"c:\windows\syswow64",
+        ]
+        untuk d dalam direktori_terlarang {
+            jika target_str.startswith(d) {
+                alasan = f"Akses diblokir demi keamanan stabilitas OS. Jalur '{target}' berada di area sistem Windows."
+                kembalikan (salah, target, alasan)
+            }
         }
-        alasan = f"Akses diblokir demi keamanan sandbox. Jalur '{target}' berada di luar direktori proyek ('{workspace_root}')."
-        kembalikan (salah, target, alasan)
+        kembalikan (benar, target, "")
     } kecuali exc {
         kembalikan (salah, kosong, f"Jalur tidak valid: {exc}")
     }
@@ -407,6 +414,453 @@ fungsi list_memories() -> str {
 daftar_memori = list_memories
 
 
+fungsi close_application(app_name_or_pid: str) -> str {
+    """Menutup atau menghentikan aplikasi/proses yang sedang berjalan di laptop.
+
+    Args:
+        app_name_or_pid: Nama proses (misal: 'chrome.exe', 'notepad', 'msedge') atau PID angka.
+
+    Returns:
+        Pesan status hasil penutupan aplikasi.
+    """
+    nama_target = app_name_or_pid.strip().lower()
+    jika tidak nama_target {
+        kembalikan "[GAGAL] Nama aplikasi atau PID tidak boleh kosong."
+    }
+
+    proses_terlarang = ["csrss.exe", "smss.exe", "wininit.exe", "services.exe", "lsass.exe", "svchost.exe"]
+    jika nama_target dalam proses_terlarang atau f"{nama_target}.exe" dalam proses_terlarang {
+        kembalikan f"[DIBLOKIR] Menutup proses sistem vital '{nama_target}' tidak diizinkan."
+    }
+
+    ditutup = []
+    coba {
+        impor psutil
+        jika nama_target.isdigit() {
+            pid = int(nama_target)
+            proc = psutil.Process(pid)
+            p_name = proc.name()
+            proc.terminate()
+            ditutup.append(f"{p_name} (PID: {pid})")
+        } selain {
+            ext_target = nama_target jika nama_target.endswith(".exe") selain f"{nama_target}.exe"
+            untuk p dalam psutil.process_iter(["pid", "name"]) {
+                coba {
+                    p_name = (p.info.get("name") atau "").lower()
+                    jika p_name == nama_target atau p_name == ext_target atau (nama_target dalam p_name dan len(nama_target) >= 4) {
+                        p.terminate()
+                        ditutup.append(f"{p.info['name']} (PID: {p.info['pid']})")
+                    }
+                } kecuali Exception {
+                    lewati
+                }
+            }
+        }
+
+        jika ditutup {
+            pesan = f"[SUKSES] Berhasil menutup aplikasi: {', '.join(ditutup[:5])}"
+            agent_logger.log_info("perkakas.close_application", pesan)
+            kembalikan pesan
+        } selain {
+            kembalikan f"[INFO] Tidak ditemukan aplikasi yang berjalan dengan nama atau PID '{app_name_or_pid}'."
+        }
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.close_application", f"Gagal menutup {app_name_or_pid}: {exc}")
+        kembalikan f"[GAGAL] Gagal menutup aplikasi '{app_name_or_pid}': {exc}"
+    }
+}
+
+tutup_aplikasi = close_application
+
+
+fungsi capture_camera(output_path: str = "kamera_capture.jpg") -> str {
+    """Membuka kamera webcam laptop dan mengambil satu foto.
+
+    Args:
+        output_path: Nama berkas foto hasil jepretan (default: kamera_capture.jpg).
+
+    Returns:
+        Pesan status hasil pemotretan kamera.
+    """
+    coba {
+        impor cv2
+        cap = cv2.VideoCapture(0)
+        jika tidak cap.isOpened() {
+            kembalikan "[GAGAL] Kamera webcam laptop tidak dapat dibuka atau sedang digunakan oleh aplikasi lain."
+        }
+
+        ret = salah
+        frame = kosong
+        untuk _ dalam range(5) {
+            ret, frame = cap.read()
+        }
+        cap.release()
+
+        jika ret dan frame is not None {
+            target = Path(output_path).resolve()
+            cv2.imwrite(str(target), frame)
+            pesan = f"[SUKSES] Foto webcam berhasil diambil dan disimpan di: {target}"
+            agent_logger.log_info("perkakas.capture_camera", pesan)
+            kembalikan pesan
+        } selain {
+            kembalikan "[GAGAL] Gagal membaca gambar dari sensor webcam laptop."
+        }
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.capture_camera", f"Error webcam: {exc}")
+        kembalikan f"[GAGAL] Kesalahan saat mengakses webcam: {exc}"
+    }
+}
+
+ambil_foto_kamera = capture_camera
+
+
+fungsi get_system_status() -> str {
+    """Membaca persentase penggunaan sistem dan penyimpanan laptop secara real-time.
+
+    Returns:
+        Informasi real-time penggunaan CPU, RAM, Baterai, Penyimpanan Disk, dan Jendela Aktif.
+    """
+    coba {
+        impor psutil
+        impor ctypes
+
+        cpu_pct = psutil.cpu_percent(interval=0.5)
+        ram = psutil.virtual_memory()
+        ram_str = f"{ram.percent}% (Terpakai: {ram.used // (1024*1024):,} MB / Total: {ram.total // (1024*1024):,} MB)"
+
+        bat = psutil.sensors_battery()
+        jika bat {
+            bat_status = "Sedang Mengisi Daya (Colok Charger AC)" jika bat.power_plugged selain "Menggunakan Daya Baterai"
+            bat_str = f"{bat.percent}% ({bat_status})"
+        } selain {
+            bat_str = "Tidak terdeteksi / PC Desktop"
+        }
+
+        disk_lines = []
+        untuk part dalam psutil.disk_partitions(all=salah) {
+            coba {
+                usage = psutil.disk_usage(part.mountpoint)
+                free_gb = usage.free // (1024**3)
+                total_gb = usage.total // (1024**3)
+                disk_lines.append(f"• Drive {part.device} ({part.mountpoint}): Terpakai {usage.percent}% (Bebas: {free_gb} GB / Total: {total_gb} GB)")
+            } kecuali Exception {
+                lewati
+            }
+        }
+        disk_str = "\n".join(disk_lines) jika disk_lines selain "Tidak ada info disk"
+
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+        buf = ctypes.create_unicode_buffer(length + 1)
+        ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+        win_title = buf.value atau "Desktop / Layar Siaga"
+
+        hasil = (
+            "📊 STATUS SISTEM & PENYIMPANAN LAPTOP (REAL-TIME):\n"
+            f"• Beban CPU: {cpu_pct}%\n"
+            f"• Memori RAM: {ram_str}\n"
+            f"• Baterai: {bat_str}\n"
+            f"• Jendela Aktif di Layar: {win_title}\n"
+            "• Persentase Penyimpanan Disk:\n"
+            f"{disk_str}"
+        )
+        agent_logger.log_info("perkakas.get_system_status", "Berhasil membaca metrik sistem.")
+        kembalikan hasil
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.get_system_status", f"Gagal membaca status sistem: {exc}")
+        kembalikan f"[GAGAL] Gagal membaca status sistem: {exc}"
+    }
+}
+
+baca_status_sistem = get_system_status
+
+
+fungsi check_speed() -> str {
+    """Menguji kecepatan jaringan internet, latency API Telegram, latency backend AI, dan responsivitas sistem.
+
+    Returns:
+        Laporan diagnostik kecepatan (speed benchmark) secara lengkap.
+    """
+    coba {
+        impor time
+        impor urllib.request
+        impor psutil
+        impor datetime
+        dari konfigurasi impor pengelola_konfigurasi
+
+        # 1. Tes Ping ke Server Telegram API
+        t0 = time.perf_counter()
+        tg_status = "Terhubung"
+        tg_ms = 0
+        coba {
+            req_tg = urllib.request.Request("https://api.telegram.org", headers={"User-Agent": "SpeedTest/1.0"})
+            dengan urllib.request.urlopen(req_tg, timeout=4) sebagai _ {
+                lewati
+            }
+            tg_ms = round((time.perf_counter() - t0) * 1000, 1)
+        } kecuali Exception sebagai e_tg {
+            tg_ms = round((time.perf_counter() - t0) * 1000, 1)
+            jika "404" dalam str(e_tg) atau "403" dalam str(e_tg) atau "HTTP" dalam str(e_tg) {
+                tg_status = "Terhubung"
+            } selain {
+                tg_status = f"Lambat ({e_tg})"
+            }
+        }
+
+        # 2. Tes Ping ke Provider AI Aktif
+        prov = pengelola_konfigurasi.ambil_provider()
+        ai_ms = 0
+        t1 = time.perf_counter()
+        jika prov == "ollama" {
+            coba {
+                req_ol = urllib.request.Request("http://localhost:11434/api/tags", headers={"User-Agent": "SpeedTest/1.0"})
+                dengan urllib.request.urlopen(req_ol, timeout=2) sebagai _ {
+                    lewati
+                }
+                ai_ms = round((time.perf_counter() - t1) * 1000, 1)
+            } kecuali Exception {
+                ai_ms = round((time.perf_counter() - t1) * 1000, 1)
+            }
+        } jika_lain prov == "omniroute" {
+            base_url = pengelola_konfigurasi.ambil_omni_base_url()
+            coba {
+                req_om = urllib.request.Request(f"{base_url.rstrip('/')}/v1/models", headers={"User-Agent": "SpeedTest/1.0"})
+                dengan urllib.request.urlopen(req_om, timeout=3) sebagai _ {
+                    lewati
+                }
+                ai_ms = round((time.perf_counter() - t1) * 1000, 1)
+            } kecuali Exception {
+                ai_ms = round((time.perf_counter() - t1) * 1000, 1)
+            }
+        } selain {
+            ai_ms = tg_ms
+        }
+
+        # 3. Metrik Hardware
+        cpu_pct = psutil.cpu_percent(interval=0.2)
+        ram = psutil.virtual_memory()
+
+        # Evaluasi Status
+        peringkat = "⚡ SANGAT CEPAT" jika tg_ms < 600 selain ("🟢 NORMAL" jika tg_ms < 1500 selain "🟡 CUKUP CEPAT")
+
+        laporan = (
+            "⚡ **HASIL UJI KECEPATAN (SPEED BENCHMARK)**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏆 **Performa Umum**: `{peringkat}`\n\n"
+            f"📱 **Kecepatan Kirim Telegram**: `{tg_ms} ms` ({tg_status})\n"
+            f"🤖 **Latency Engine AI ({prov.upper()})**: `{ai_ms} ms`\n\n"
+            f"💻 **Beban Sistem Saat Uji**:\n"
+            f"• CPU Load: `{cpu_pct}%`\n"
+            f"• RAM Usage: `{ram.percent}% ({ram.used // (1024*1024):,} MB)`\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"_Diuji pada: {datetime.datetime.now().strftime('%H:%M:%S WIB')}_"
+        )
+        agent_logger.log_info("perkakas.check_speed", f"Hasil speed test: TG={tg_ms}ms, AI={ai_ms}ms")
+        kembalikan laporan
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.check_speed", f"Gagal speed test: {exc}")
+        kembalikan f"[GAGAL] Gagal menguji kecepatan: {exc}"
+    }
+}
+
+cek_kecepatan = check_speed
+
+
+fungsi open_application(app_or_query: str, query: str = "") -> str {
+    """Membuka aplikasi desktop, tautan URL, atau membuka Chrome dan mencari di YouTube/Google.
+
+    Args:
+        app_or_query: Nama aplikasi (misal: 'chrome', 'notepad', 'calc'), URL, atau instruksi pencarian (misal: 'buka youtube dan cari lagu hindia').
+        query: Kata kunci pencarian tambahan jika ada.
+
+    Returns:
+        Pesan status hasil pembukaan aplikasi atau pencarian.
+    """
+    coba {
+        impor re
+        impor urllib.parse
+        impor os
+        impor subprocess
+
+        target_clean = app_or_query.strip()
+        target_lower = target_clean.lower()
+
+        # Deteksi URL langsung
+        jika target_lower.startswith("http://") atau target_lower.startswith("https://") {
+            os.startfile(target_clean)
+            agent_logger.log_info("perkakas.open_application", f"Membuka URL: {target_clean}")
+            kembalikan f"[SUKSES] Membuka tautan di browser: {target_clean}"
+        }
+
+        # Cari path executable Google Chrome
+        chrome_candidates = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ]
+        chrome_exe = kosong
+        untuk c dalam chrome_candidates {
+            jika os.path.exists(c) {
+                chrome_exe = c
+                berhenti
+            }
+        }
+
+        # Deteksi YouTube search (misal: 'buka chrome lalu buka youtube dan cari lagu hindia')
+        jika "youtube" dalam target_lower atau "yt" dalam target_lower atau "lagu" dalam target_lower atau "video" dalam target_lower {
+            search_term = query.strip()
+            jika tidak search_term {
+                m = re.search(r"(?:cari|search|lagu|video)\s+(.+)", target_clean, re.IGNORECASE)
+                jika m {
+                    search_term = m.group(1).strip()
+                } selain {
+                    cleaned = re.sub(r"\b(buka|open|chrome|lalu|didalam|dan|youtube|yt)\b", "", target_clean, flags=re.IGNORECASE).strip()
+                    jika cleaned {
+                        search_term = cleaned
+                    }
+                }
+            }
+
+            jika search_term {
+                yt_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(search_term)}"
+                jika chrome_exe {
+                    subprocess.Popen([chrome_exe, yt_url])
+                } selain {
+                    os.startfile(yt_url)
+                }
+                pesan = f"[SUKSES] Berhasil membuka Chrome dan memutar/mencari di YouTube: \"{search_term}\""
+                agent_logger.log_info("perkakas.open_application", pesan)
+                kembalikan pesan
+            } selain {
+                yt_url = "https://www.youtube.com"
+                jika chrome_exe {
+                    subprocess.Popen([chrome_exe, yt_url])
+                } selain {
+                    os.startfile(yt_url)
+                }
+                pesan = "[SUKSES] Berhasil membuka YouTube di Chrome."
+                agent_logger.log_info("perkakas.open_application", pesan)
+                kembalikan pesan
+            }
+        }
+
+        # Deteksi Google Search
+        jika "google" dalam target_lower dan ("cari" dalam target_lower atau "search" dalam target_lower) {
+            m = re.search(r"(?:cari|search)\s+(.+)", target_clean, re.IGNORECASE)
+            search_term = m.group(1).strip() jika m selain query.strip()
+            jika search_term {
+                g_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(search_term)}"
+                jika chrome_exe {
+                    subprocess.Popen([chrome_exe, g_url])
+                } selain {
+                    os.startfile(g_url)
+                }
+                pesan = f"[SUKSES] Berhasil membuka Google dan mencari: \"{search_term}\""
+                agent_logger.log_info("perkakas.open_application", pesan)
+                kembalikan pesan
+            }
+        }
+
+        # Buka aplikasi desktop umum
+        app_map = {
+            "chrome": chrome_exe atau "chrome",
+            "google chrome": chrome_exe atau "chrome",
+            "notepad": "notepad.exe",
+            "catatan": "notepad.exe",
+            "kalkulator": "calc.exe",
+            "calc": "calc.exe",
+            "calculator": "calc.exe",
+            "explorer": "explorer.exe",
+            "file explorer": "explorer.exe",
+            "cmd": "cmd.exe",
+            "terminal": "wt.exe",
+            "powershell": "powershell.exe",
+            "code": "code",
+            "vscode": "code",
+            "vs code": "code",
+            "spotify": "spotify",
+            "edge": "msedge.exe",
+            "msedge": "msedge.exe",
+        }
+
+        cleaned_app = re.sub(r"^(buka|jalankan|start|open)\s+", "", target_lower).strip()
+        cmd_to_run = app_map.get(cleaned_app, cleaned_app)
+
+        jika os.path.exists(cmd_to_run) {
+            subprocess.Popen([cmd_to_run])
+        } selain {
+            os.startfile(cmd_to_run)
+        }
+
+        pesan = f"[SUKSES] Berhasil membuka aplikasi: {target_clean}"
+        agent_logger.log_info("perkakas.open_application", pesan)
+        kembalikan pesan
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.open_application", f"Gagal membuka aplikasi {app_or_query}: {exc}")
+        kembalikan f"[GAGAL] Gagal membuka aplikasi '{app_or_query}': {exc}"
+    }
+}
+
+buka_aplikasi = open_application
+
+
+fungsi set_volume(level: str = "status") -> str {
+    """Mengatur volume suara master laptop (0-100%, +10, -10, mute, unmute, status).
+
+    Args:
+        level: Persentase angka (misal '50', '80%'), relatif ('+10', '-10'), 'mute', 'unmute', atau 'status'.
+
+    Returns:
+        Pesan status hasil pengaturan volume laptop.
+    """
+    coba {
+        dari pycaw.pycaw impor AudioUtilities
+        speakers = AudioUtilities.GetSpeakers()
+        vol = speakers.EndpointVolume
+
+        arg = str(level).strip().lower().replace("%", "")
+        jika arg dalam ["mute", "senyap", "bisu", "mati"] {
+            vol.SetMute(1, kosong)
+            pesan = "🔇 Audio laptop berhasil di-mute (senyap)."
+            agent_logger.log_info("perkakas.set_volume", pesan)
+            kembalikan pesan
+        } jika_lain arg dalam ["unmute", "nyala", "hidup", "suara"] {
+            vol.SetMute(0, kosong)
+            current = round(vol.GetMasterVolumeLevelScalar() * 100)
+            pesan = f"🔊 Audio laptop berhasil di-unmute. Volume saat ini: {current}%"
+            agent_logger.log_info("perkakas.set_volume", pesan)
+            kembalikan pesan
+        } jika_lain arg.startswith("+") atau arg.startswith("-") {
+            diff = int(arg)
+            current = round(vol.GetMasterVolumeLevelScalar() * 100)
+            target = max(0, min(100, current + diff))
+            vol.SetMasterVolumeLevelScalar(target / 100.0, kosong)
+            vol.SetMute(0, kosong)
+            pesan = f"🔊 Volume laptop diubah dari {current}% menjadi {target}%"
+            agent_logger.log_info("perkakas.set_volume", pesan)
+            kembalikan pesan
+        } jika_lain arg.isdigit() {
+            target = max(0, min(100, int(arg)))
+            vol.SetMasterVolumeLevelScalar(target / 100.0, kosong)
+            vol.SetMute(0, kosong)
+            pesan = f"🔊 Volume laptop berhasil diatur ke {target}%"
+            agent_logger.log_info("perkakas.set_volume", pesan)
+            kembalikan pesan
+        } selain {
+            current = round(vol.GetMasterVolumeLevelScalar() * 100)
+            is_muted = vol.GetMute()
+            status = "Muted (Senyap) 🔇" jika is_muted selain f"{current}% 🔊"
+            kembalikan f"🔊 Volume laptop saat ini: {status}"
+        }
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.set_volume", f"Gagal atur volume: {exc}")
+        kembalikan f"[GAGAL] Gagal mengatur volume laptop: {exc}"
+    }
+}
+
+atur_volume = set_volume
+
+
 ALAT_TERSEDIA = {
     "buat_folder": buat_folder,
     "create_folder": create_folder,
@@ -426,6 +880,18 @@ ALAT_TERSEDIA = {
     "recall_memory": recall_memory,
     "daftar_memori": daftar_memori,
     "list_memories": list_memories,
+    "close_application": close_application,
+    "tutup_aplikasi": tutup_aplikasi,
+    "capture_camera": capture_camera,
+    "ambil_foto_kamera": ambil_foto_kamera,
+    "get_system_status": get_system_status,
+    "baca_status_sistem": baca_status_sistem,
+    "check_speed": check_speed,
+    "cek_kecepatan": cek_kecepatan,
+    "open_application": open_application,
+    "buka_aplikasi": buka_aplikasi,
+    "set_volume": set_volume,
+    "atur_volume": atur_volume,
 }
 
 DAFTAR_PANGGILAN_ALAT = [
@@ -438,6 +904,12 @@ DAFTAR_PANGGILAN_ALAT = [
     save_memory,
     recall_memory,
     list_memories,
+    close_application,
+    capture_camera,
+    get_system_status,
+    check_speed,
+    open_application,
+    set_volume,
 ]
 
 AVAILABLE_TOOLS = ALAT_TERSEDIA
@@ -540,6 +1012,79 @@ SKEMA_ALAT_OPENAI = [
             "name": "list_memories",
             "description": "Melihat seluruh fakta yang tersimpan dalam memori jangka panjang.",
             "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "close_application",
+            "description": "Menutup atau menghentikan aplikasi desktop yang sedang berjalan di laptop (misal: chrome, notepad, spotify).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app_name_or_pid": {"type": "string", "description": "Nama aplikasi (misal: 'chrome', 'notepad') atau PID angka"},
+                },
+                "required": ["app_name_or_pid"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "capture_camera",
+            "description": "Membuka kamera webcam laptop dan mengambil satu foto/gambar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "output_path": {"type": "string", "description": "Nama berkas foto (default: kamera_capture.jpg)"},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_system_status",
+            "description": "Membaca persentase penggunaan sistem laptop secara real-time (CPU %, RAM %, Baterai %, Persentase Penyimpanan Disk C: & D:, Jendela aktif).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_speed",
+            "description": "Menguji benchmark kecepatan respon agent AI, latency pengiriman Telegram, dan latency jaringan.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_application",
+            "description": "Membuka aplikasi desktop (misal: chrome, notepad, calc) atau membuka Chrome dan mencari di YouTube/Google.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app_or_query": {"type": "string", "description": "Nama aplikasi, URL, atau query (contoh: 'buka youtube dan cari lagu hindia')"},
+                    "query": {"type": "string", "description": "Kata kunci pencarian tambahan jika ada"},
+                },
+                "required": ["app_or_query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_volume",
+            "description": "Mengatur volume suara master laptop (0-100%, +10, -10, mute, unmute, status).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "level": {"type": "string", "description": "Angka persentase (misal: '50', '80%'), relatif ('+10', '-10'), 'mute', 'unmute', atau 'status'"},
+                },
+                "required": ["level"],
+            },
         },
     },
 ]

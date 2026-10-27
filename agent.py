@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import urllib.request
+from pathlib import Path
 from typing import Any, Callable, Optional
 from google import genai
 from google.genai import types
@@ -222,7 +224,7 @@ def fetch_available_models(api_key: Optional[str] = None) -> list[dict[str, Any]
 
 
 def pindai_model_ollama(base_url: Optional[str] = None) -> list[str]:
-    """Memindai daftar model lokal yang tersedia di server Ollama (dengan fallback disk D:\.ollama)."""
+    r"""Memindai daftar model lokal yang tersedia di server Ollama (dengan fallback disk D:\.ollama)."""
     url_base = (base_url or config_manager.get_ollama_base_url()).rstrip("/")
     url_native = url_base[:-3] if url_base.endswith("/v1") else url_base
     endpoint = f"{url_native}/api/tags"

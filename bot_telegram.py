@@ -25,7 +25,7 @@ from penerjemah_idk import aktifkan_hook_idk
 aktifkan_hook_idk()
 
 import telegram.error
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -289,13 +289,20 @@ class TelegramAgentGateway:
             "📋 **Panduan Perintah Telegram Gateway (Real-Time Monitor)**\n\n"
             "• **Kirim Pesan Biasa**: Instruksi langsung ke AI Agent untuk eksekusi perintah di laptop.\n"
             "• `/status` : Dashboard real-time laptop (baterai, wifi, jendela aktif, CPU, RAM).\n"
+            "• `/speed` : Uji kecepatan respon agent AI & pengiriman Telegram (latency & token/s).\n"
             "• `/wifi` : Pantau SSID dan kekuatan sinyal Wi-Fi laptop secara instan.\n"
             "• `/baterai` : Pantau persentase baterai & status pengisian charger.\n"
             "• `/jendela` : Pantau jendela yang sedang dibuka di layar & daftar aplikasi aktif.\n"
+            "• `/kamera` : Ambil foto langsung dari webcam laptop dan kirimkan ke sini.\n"
+            "• `/buka <target>` : Buka aplikasi, link, atau cari lagu di YouTube (misal: `/buka youtube lagu hindia`).\n"
+            "• `/tutup <nama>` : Tutup aplikasi desktop tertentu (misal: `/tutup chrome` atau `/tutup notepad`).\n"
+            "• `/volume [level]` : Atur volume master laptop (0-100, +10, -10, mute, unmute) atau buka panel volume.\n"
+            "• `/mute` / `/unmute` : Matikan atau nyalakan suara speaker laptop.\n"
+            "• `/baca <file>` : Baca isi file teks dari laptop langsung di Telegram.\n"
+            "• `/get <nama_berkas>` : Unduh berkas dari laptop langsung ke Telegram HP Anda.\n"
             "• `/provider [gemini/omniroute/ollama]` : Cek atau ganti provider AI aktif.\n"
             "• `/models` : Pindai & tampilkan daftar model AI yang tersedia.\n"
             "• `/model <nama>` : Ganti model aktif (misal: `/model qwen2.5-coder:7b`).\n"
-            "• `/get <nama_berkas>` : Unduh berkas dari laptop langsung ke Telegram HP Anda.\n"
             "• `/new [judul]` : Mulai sesi percakapan baru yang bersih.\n"
             "• `/sessions` : Lihat daftar sesi yang tersimpan di laptop.\n"
             "• `/load <no/id>` : Beralih ke sesi percakapan lama.\n"
@@ -358,6 +365,10 @@ class TelegramAgentGateway:
                 [
                     InlineKeyboardButton("📶 Info Wi-Fi", callback_data="btn_wifi"),
                     InlineKeyboardButton("🪟 Jendela & Apps", callback_data="btn_window"),
+                ],
+                [
+                    InlineKeyboardButton("⚡ Uji Kecepatan (Speed Test)", callback_data="btn_speed_test"),
+                    InlineKeyboardButton("🔊 Atur Volume", callback_data="btn_volume_panel"),
                 ],
             ]
         )
@@ -474,6 +485,331 @@ class TelegramAgentGateway:
             )
             if query.message:
                 await query.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        elif data == "btn_speed_test":
+            await query.answer("⚡ Menjalankan uji kecepatan...")
+            await self.speed_cmd(update, context)
+        elif data == "btn_volume_panel":
+            import perkakas
+            fn_vol = getattr(perkakas, "set_volume", None)
+            cur_status = fn_vol("status") if fn_vol else "Volume tidak tersedia"
+            msg = (
+                f"🎛️ **PENGATUR VOLUME LAPTOP**\n\n"
+                f"{cur_status}\n\n"
+                "Pilih tingkat volume atau kontrol suara:"
+            )
+            if query.message:
+                await query.message.reply_text(
+                    msg,
+                    reply_markup=self._build_volume_markup(),
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+        elif data.startswith("vol_"):
+            action = data.replace("vol_", "")
+            import perkakas
+            fn_vol = getattr(perkakas, "set_volume", None)
+            if fn_vol:
+                if action == "down_10":
+                    msg_res = fn_vol("-10")
+                elif action == "up_10":
+                    msg_res = fn_vol("+10")
+                elif action == "mute":
+                    msg_res = fn_vol("mute")
+                elif action == "unmute":
+                    msg_res = fn_vol("unmute")
+                elif action == "status":
+                    msg_res = fn_vol("status")
+                else:
+                    msg_res = fn_vol(action)
+
+                cur_status = fn_vol("status")
+                new_text = (
+                    f"🎛️ **PENGATUR VOLUME LAPTOP**\n\n"
+                    f"👉 {msg_res}\n"
+                    f"{cur_status}\n\n"
+                    "Gunakan tombol di bawah untuk mengubah volume:"
+                )
+                try:
+                    await query.edit_message_text(
+                        text=new_text,
+                        reply_markup=self._build_volume_markup(),
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                except Exception:
+                    pass
+
+    async def speed_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Menguji kecepatan pengiriman bot Telegram dan kecepatan respon model AI."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        import time as _time
+        import urllib.request as _urllib_req
+        import psutil as _psutil
+
+        msg_target = update.message or (update.callback_query.message if update.callback_query else None)
+        if not msg_target:
+            return
+
+        t0 = _time.perf_counter()
+        probe_msg = await msg_target.reply_text("⚡ *Menguji kecepatan pengiriman Telegram & respon AI...*", parse_mode=ParseMode.MARKDOWN)
+        tg_roundtrip_ms = int((_time.perf_counter() - t0) * 1000)
+
+        # 1. Tes latency HTTP Telegram Server
+        t_net = _time.perf_counter()
+        try:
+            req_tg = _urllib_req.Request("https://api.telegram.org", headers={"User-Agent": "SpeedCheck/1.0"})
+            with _urllib_req.urlopen(req_tg, timeout=5) as _:
+                pass
+            tg_server_ping = int((_time.perf_counter() - t_net) * 1000)
+        except Exception:
+            tg_server_ping = int((_time.perf_counter() - t_net) * 1000)
+
+        # 2. Tes kecepatan respon Agent AI (benchmark probe)
+        prov = self.config.ambil_provider().upper()
+        model = self.agent.model_name
+        t_ai_start = _time.perf_counter()
+
+        def _probe_ai() -> str:
+            return self.agent.send_message("Tes koneksi dan kecepatan agen.")
+
+        ai_resp = await asyncio.to_thread(_probe_ai)
+        ai_duration = _time.perf_counter() - t_ai_start
+        ai_duration_sec = round(ai_duration, 2)
+
+        # Hitung perkiraan tokens & tokens/sec
+        word_count = len(ai_resp.split())
+        est_tokens = max(1, int(word_count * 1.3))
+        tokens_per_sec = round(est_tokens / ai_duration, 1) if ai_duration > 0 else 0
+
+        # Metrik sistem hardware saat pengujian
+        cpu_load = _psutil.cpu_percent(interval=0.1)
+        ram = _psutil.virtual_memory()
+
+        # Klasifikasi Kecepatan
+        rating = "⚡ SANGAT CEPAT" if tg_roundtrip_ms < 600 else ("🟢 NORMAL" if tg_roundtrip_ms < 1500 else "🟡 CUKUP BAIK")
+
+        speed_report = (
+            "⚡ **LAPORAN KECEPATAN (SPEED & LATENCY TEST)**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏆 **Status Performa**: `{rating}`\n\n"
+            f"📱 **Kecepatan Kirim Telegram**:\n"
+            f"• Roundtrip Kirim Pesan: `{tg_roundtrip_ms} ms`\n"
+            f"• Ping Server Telegram: `{tg_server_ping} ms`\n\n"
+            f"🤖 **Kecepatan Respon Agent AI**:\n"
+            f"• Provider: `{prov}` (Model: `{model}`)\n"
+            f"• Waktu Respon Model: `{ai_duration_sec} detik`\n"
+            f"• Kecepatan Generate: ~`{tokens_per_sec} token/detik`\n\n"
+            f"💻 **Kondisi Hardware Laptop**:\n"
+            f"• Beban CPU: `{cpu_load}%`\n"
+            f"• Beban RAM: `{ram.percent}% ({ram.used // (1024*1024):,} MB)`\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"_Waktu tes: {datetime.datetime.now().strftime('%H:%M:%S WIB')}_"
+        )
+
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🔄 Tes Ulang Speed", callback_data="btn_speed_test"),
+                    InlineKeyboardButton("📊 Status Lengkap", callback_data="refresh_status"),
+                ]
+            ]
+        )
+
+        try:
+            await probe_msg.edit_text(speed_report, reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            await msg_target.reply_text(speed_report, reply_markup=keyboard)
+
+    async def camera_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Mengambil foto dari kamera webcam laptop dan langsung mengirimkannya ke Telegram."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        status_msg = await update.message.reply_text("📸 *Mengaktifkan kamera laptop & mengambil foto...*", parse_mode=ParseMode.MARKDOWN)
+
+        def _take_photo() -> tuple[bool, str, Path | None]:
+            try:
+                import cv2
+                cap = cv2.VideoCapture(0)
+                if not cap.isOpened():
+                    return False, "Kamera webcam laptop tidak dapat dibuka atau sedang dipakai aplikasi lain.", None
+
+                ret = False
+                frame = None
+                for _ in range(5):
+                    ret, frame = cap.read()
+                cap.release()
+
+                if ret and frame is not None:
+                    out_path = Path("kamera_capture.jpg").resolve()
+                    cv2.imwrite(str(out_path), frame)
+                    return True, "Foto berhasil diambil.", out_path
+                return False, "Sensor kamera tidak menghasilkan gambar.", None
+            except Exception as e:
+                return False, str(e), None
+
+        sukses, pesan, out_path = await asyncio.to_thread(_take_photo)
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        if sukses and out_path and out_path.exists():
+            with open(out_path, "rb") as pf:
+                await update.message.reply_photo(
+                    photo=pf,
+                    caption=f"📸 **Foto Kamera Laptop**\nWaktu: `{datetime.datetime.now().strftime('%H:%M:%S WIB')}`",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+        else:
+            await update.message.reply_text(f"❌ Gagal mengambil foto: {pesan}")
+
+    async def close_app_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Menutup aplikasi tertentu di laptop (misal: /tutup chrome atau /tutup notepad)."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                "⚠️ Masukkan nama aplikasi yang ingin ditutup. Contoh:\n• `/tutup chrome`\n• `/tutup notepad`\n• `/tutup msedge`"
+            )
+            return
+
+        target_app = " ".join(context.args).strip()
+        import perkakas
+        fn_close = getattr(perkakas, "close_application", None)
+        if fn_close:
+            res = fn_close(target_app)
+            await update.message.reply_text(f"🖥️ {res}")
+        else:
+            await update.message.reply_text("❌ Fungsi close_application tidak tersedia.")
+
+    async def open_app_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Membuka aplikasi desktop, link URL, atau mencari di YouTube / Google."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                "⚠️ Masukkan nama aplikasi, link, atau pencarian YouTube. Contoh:\n"
+                "• `/buka chrome`\n"
+                "• `/buka youtube lagu hindia`\n"
+                "• `/buka spotify`\n"
+                "• `/buka https://google.com`"
+            )
+            return
+
+        target_query = " ".join(context.args).strip()
+        import perkakas
+        fn_open = getattr(perkakas, "open_application", None)
+        if fn_open:
+            status_msg = await update.message.reply_text(f"⏳ Membuka `{target_query}` di laptop...")
+            res = await asyncio.to_thread(fn_open, target_query)
+            try:
+                await status_msg.edit_text(f"🖥️ {res}")
+            except Exception:
+                await update.message.reply_text(f"🖥️ {res}")
+        else:
+            await update.message.reply_text("❌ Fungsi open_application tidak tersedia.")
+
+    def _build_volume_markup(self) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("🔉 -10%", callback_data="vol_down_10"),
+                    InlineKeyboardButton("🔊 +10%", callback_data="vol_up_10"),
+                ],
+                [
+                    InlineKeyboardButton("🔇 Mute", callback_data="vol_mute"),
+                    InlineKeyboardButton("🔈 Unmute", callback_data="vol_unmute"),
+                ],
+                [
+                    InlineKeyboardButton("20%", callback_data="vol_20"),
+                    InlineKeyboardButton("40%", callback_data="vol_40"),
+                    InlineKeyboardButton("60%", callback_data="vol_60"),
+                    InlineKeyboardButton("80%", callback_data="vol_80"),
+                    InlineKeyboardButton("100%", callback_data="vol_100"),
+                ],
+                [
+                    InlineKeyboardButton("🔄 Refresh Volume", callback_data="vol_status"),
+                ],
+            ]
+        )
+
+    async def volume_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Mengatur atau melihat volume master laptop."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        import perkakas
+        fn_vol = getattr(perkakas, "set_volume", None)
+        if not fn_vol:
+            await update.message.reply_text("❌ Fungsi set_volume tidak tersedia.")
+            return
+
+        if context.args:
+            arg = " ".join(context.args).strip()
+            res = fn_vol(arg)
+            await update.message.reply_text(f"{res}", reply_markup=self._build_volume_markup())
+        else:
+            status_text = fn_vol("status")
+            msg = (
+                f"🎛️ **PENGATUR VOLUME LAPTOP**\n\n"
+                f"{status_text}\n\n"
+                "Gunakan tombol di bawah atau ketik:\n"
+                "• `/volume 50` (set 50%)\n"
+                "• `/volume +10` atau `/volume -10`\n"
+                "• `/mute` atau `/unmute`"
+            )
+            await update.message.reply_text(
+                msg,
+                reply_markup=self._build_volume_markup(),
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+    async def mute_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+        import perkakas
+        fn_vol = getattr(perkakas, "set_volume", None)
+        res = fn_vol("mute") if fn_vol else "Fungsi tidak tersedia"
+        await update.message.reply_text(f"{res}", reply_markup=self._build_volume_markup())
+
+    async def unmute_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+        import perkakas
+        fn_vol = getattr(perkakas, "set_volume", None)
+        res = fn_vol("unmute") if fn_vol else "Fungsi tidak tersedia"
+        await update.message.reply_text(f"{res}", reply_markup=self._build_volume_markup())
+
+    async def read_file_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Membaca isi teks dari berkas lokal di laptop."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        if not context.args:
+            await update.message.reply_text("⚠️ Masukkan nama berkas. Contoh: `/baca README.md`")
+            return
+
+        file_path = " ".join(context.args).strip()
+        import perkakas
+        fn_read = getattr(perkakas, "read_file", None)
+        if fn_read:
+            res = fn_read(file_path)
+            chunks = split_message(res)
+            for c in chunks:
+                await update.message.reply_text(c)
+        else:
+            await update.message.reply_text("❌ Fungsi read_file tidak tersedia.")
 
     async def get_file_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Mengirim berkas dari laptop ke HP pengguna via Telegram document."""
@@ -694,15 +1030,31 @@ class TelegramAgentGateway:
         status_msg = await update.message.reply_text("⏳ *Memproses instruksi di laptop...*", parse_mode=ParseMode.MARKDOWN)
         loop = asyncio.get_running_loop()
 
+        # Sinkronkan sesi aktif dengan disk agar sinkron 100% dengan apa yang ada di laptop
+        try:
+            active_id = pengelola_sesi.pengelola_sesi.ambil_sesi_aktif_id()
+            if active_id:
+                if not self.agent.session or self.agent.session.session_id != active_id:
+                    sess = pengelola_sesi.pengelola_sesi.ambil_sesi(active_id)
+                    if sess:
+                        self.agent.switch_session(sess)
+                else:
+                    disk_sess = pengelola_sesi.pengelola_sesi.ambil_sesi(active_id)
+                    if disk_sess:
+                        self.agent.session = disk_sess
+        except Exception:
+            pass
+
         def _on_tool_call(tool_name: str, args: dict) -> None:
             brief = ", ".join([f"{k}={v}" for k, v in args.items()])[:50]
             try:
-                loop.create_task(
+                asyncio.run_coroutine_threadsafe(
                     context.bot.send_message(
                         chat_id=update.effective_chat.id,
                         text=f"⚙️ `[Alat]` Menjalankan **{tool_name}**({brief})...",
                         parse_mode=ParseMode.MARKDOWN,
-                    )
+                    ),
+                    loop,
                 )
             except Exception:
                 pass
@@ -714,18 +1066,49 @@ class TelegramAgentGateway:
             )
 
         try:
+            import time as _time
+            t_ai_start = _time.perf_counter()
             # Jalankan di background worker thread agar event loop Telegram tidak terblokir
             response_text = await asyncio.to_thread(_run_agent)
-            await status_msg.delete()
+            ai_duration = _time.perf_counter() - t_ai_start
+
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+
+            if not response_text or not response_text.strip():
+                response_text = "✅ Perintah telah diproses oleh Agen di laptop."
+
+            # Tambahkan footer indikator latency kecepatan eksekusi
+            footer_latency = f"\n\n_⏱ Respon: {ai_duration:.2f}s_"
+            response_with_footer = response_text + footer_latency
 
             # Kirim balasan respon (pecah jika panjang)
-            chunks = split_message(response_text)
+            chunks = split_message(response_with_footer)
             for idx, chunk in enumerate(chunks):
                 try:
                     await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
                 except Exception:
                     # Fallback ke plain text jika Markdown mengandung karakter unescaped
                     await update.message.reply_text(chunk)
+
+            # Cek apakah ada foto webcam baru yang dihasilkan dalam 45 detik terakhir
+            for foto_name in ["kamera_capture.jpg", "capture_kamera.jpg"]:
+                foto_path = Path(foto_name)
+                if foto_path.exists():
+                    try:
+                        mtime = foto_path.stat().st_mtime
+                        if (datetime.datetime.now().timestamp() - mtime) < 45:
+                            with open(foto_path, "rb") as pf:
+                                await update.message.reply_photo(
+                                    photo=pf,
+                                    caption="📸 *Foto Kamera Webcam Laptop*",
+                                    parse_mode=ParseMode.MARKDOWN,
+                                )
+                            break
+                    except Exception:
+                        pass
 
         except Exception as exc:
             err_msg = f"❌ Terjadi kesalahan saat memproses di laptop: {exc}"
@@ -734,6 +1117,35 @@ class TelegramAgentGateway:
                 await status_msg.edit_text(err_msg)
             except Exception:
                 await update.message.reply_text(err_msg)
+
+    async def post_init(self, application: Application) -> None:
+        """Mendaftarkan menu tombol command interaktif di aplikasi Telegram."""
+        commands = [
+            BotCommand("status", "Dashboard monitoring laptop real-time"),
+            BotCommand("speed", "Uji kecepatan respon AI & kirim Telegram"),
+            BotCommand("kamera", "Ambil foto dari webcam laptop"),
+            BotCommand("buka", "Buka aplikasi/Chrome/YouTube (misal: /buka youtube lagu hindia)"),
+            BotCommand("tutup", "Tutup aplikasi desktop (contoh: /tutup chrome)"),
+            BotCommand("volume", "Atur volume laptop (0-100, +10, -10, mute, unmute)"),
+            BotCommand("mute", "Matikan suara laptop (Mute)"),
+            BotCommand("unmute", "Nyalakan suara laptop (Unmute)"),
+            BotCommand("baterai", "Pantau daya baterai & charger"),
+            BotCommand("wifi", "Cek koneksi Wi-Fi & kekuatan sinyal"),
+            BotCommand("jendela", "Cek jendela aktif & aplikasi terbuka"),
+            BotCommand("baca", "Baca isi file teks di laptop"),
+            BotCommand("get", "Unduh berkas dari laptop ke HP"),
+            BotCommand("help", "Panduan lengkap fitur & perintah"),
+            BotCommand("new", "Mulai sesi percakapan baru"),
+            BotCommand("sessions", "Daftar riwayat sesi di laptop"),
+            BotCommand("load", "Beralih ke nomor/id sesi tertentu"),
+            BotCommand("models", "Daftar model AI yang tersedia"),
+            BotCommand("model", "Ganti model AI aktif"),
+            BotCommand("provider", "Ganti provider (gemini/ollama)"),
+        ]
+        try:
+            await application.bot.set_my_commands(commands)
+        except Exception:
+            pass
 
     def run(self) -> None:
         """Menjalankan bot Telegram polling daemon."""
@@ -746,7 +1158,7 @@ class TelegramAgentGateway:
         print("* Status: Sedang mendengarkan pesan dari HP Anda...")
         print("* Tekan Ctrl+C di terminal ini untuk berhenti.\n")
 
-        app = Application.builder().token(self.bot_token).build()
+        app = Application.builder().token(self.bot_token).post_init(self.post_init).build()
 
         app.add_handler(CommandHandler("start", self.start_cmd))
         app.add_handler(CommandHandler("help", self.help_cmd))
@@ -756,12 +1168,27 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("status", self.status_cmd))
         app.add_handler(CommandHandler("laptop", self.status_cmd))
         app.add_handler(CommandHandler("pantau", self.status_cmd))
+        app.add_handler(CommandHandler("speed", self.speed_cmd))
+        app.add_handler(CommandHandler("ping", self.speed_cmd))
         app.add_handler(CommandHandler("wifi", self.wifi_cmd))
         app.add_handler(CommandHandler("baterai", self.battery_cmd))
         app.add_handler(CommandHandler("battery", self.battery_cmd))
         app.add_handler(CommandHandler("jendela", self.window_cmd))
         app.add_handler(CommandHandler("window", self.window_cmd))
         app.add_handler(CommandHandler("apps", self.window_cmd))
+        app.add_handler(CommandHandler("kamera", self.camera_cmd))
+        app.add_handler(CommandHandler("foto", self.camera_cmd))
+        app.add_handler(CommandHandler("webcam", self.camera_cmd))
+        app.add_handler(CommandHandler("tutup", self.close_app_cmd))
+        app.add_handler(CommandHandler("close", self.close_app_cmd))
+        app.add_handler(CommandHandler("buka", self.open_app_cmd))
+        app.add_handler(CommandHandler("open", self.open_app_cmd))
+        app.add_handler(CommandHandler("volume", self.volume_cmd))
+        app.add_handler(CommandHandler("vol", self.volume_cmd))
+        app.add_handler(CommandHandler("mute", self.mute_cmd))
+        app.add_handler(CommandHandler("unmute", self.unmute_cmd))
+        app.add_handler(CommandHandler("baca", self.read_file_cmd))
+        app.add_handler(CommandHandler("read", self.read_file_cmd))
         app.add_handler(CommandHandler("get", self.get_file_cmd))
         app.add_handler(CommandHandler("new", self.new_session_cmd))
         app.add_handler(CommandHandler("sessions", self.list_sessions_cmd))
