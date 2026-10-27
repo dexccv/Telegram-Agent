@@ -23,7 +23,7 @@ Kendalikan dan pantau laptop Anda kapan pun dan di mana pun melalui aplikasi Tel
 - **Peluncur Aplikasi Interaktif (`/buka`)**: Menu tombol inline untuk membuka aplikasi desktop seperti Google Chrome, YouTube, Spotify, VS Code, Notepad, Kalkulator, File Explorer, atau Terminal.
 - **Pencarian YouTube & Browser Otomatis**: Perintah seperti `buka chrome lalu buka youtube dan cari lagu hindia` secara cerdas mengurai kata kunci dan memutar pencarian di browser.
 - **Penjelajah Berkas & Pengunduh Berkas (`/get`)**: File picker interaktif dengan navigasi folder (Project, Downloads, Documents, Desktop, Drive C/D) untuk mengunduh berkas apa saja dari laptop ke Telegram ponsel dalam 1 ketukan.
-- **Pengatur Suara Master (`/volume`, `/mute`, `/unmute`)**: Panel tombol inline untuk mengatur volume laptop (0–100%, +10%, -10%, Mute/Unmute) secara instan via Windows Core Audio.
+- **Pengatur Suara Master & Kontrol Musik (`/volume`, `/play`, `/pause`, `/next`, `/prev`)**: Panel tombol inline untuk mengatur volume laptop (0–100%, +10%, -10%, Mute/Unmute) dan mengontrol pemutaran lagu YouTube atau Spotify (Play/Pause, Next Track, Previous Track) via Windows Core Audio.
 - **Webcam Snapshot (`/kamera`)**: Ambil foto langsung dari kamera webcam laptop dan kirimkan secara aman ke Telegram.
 - **Manajemen Proses (`/tutup`)**: Tutup aplikasi yang sedang berjalan dari jarak jauh (misal: `/tutup chrome`).
 - **Benchmark Latensi & Kecepatan (`/speed`)**: Uji kecepatan roundtrip server Telegram dan kecepatan token/detik pemrosesan AI.
@@ -146,7 +146,9 @@ TELEGRAM_ALLOWED_USER_ID=user_id_angka_anda
 | `/buka <target>` | Buka aplikasi, tautan URL, atau cari YouTube langsung (misal: `/buka youtube lagu hindia`). |
 | `/get` | Membuka Penjelajah Berkas (File Picker) interaktif untuk mengunduh file laptop ke ponsel. |
 | `/get <path>` | Mengunduh file tertentu dari laptop (mendukung path di dalam maupun di luar workspace). |
-| `/volume` | Membuka panel tombol kontrol volume laptop (0–100%, +10%, -10%, Mute/Unmute). |
+| `/volume` | Membuka panel kontrol volume laptop & tombol pemutar lagu (Play/Pause, Next, Prev). |
+| `/play` / `/pause` | Memutar atau menjeda pemutaran lagu/video di YouTube atau Spotify. |
+| `/next` / `/prev` | Memutar lagu berikutnya atau sebelumnya di pemutar musik/YouTube. |
 | `/mute` / `/unmute` | Mematikan atau menghidupkan kembali suara speaker laptop secara instan. |
 | `/kamera` | Mengambil foto langsung dari webcam laptop dan mengirimkannya ke chat. |
 | `/tutup <nama>` | Menutup aplikasi desktop tertentu yang sedang berjalan di laptop. |

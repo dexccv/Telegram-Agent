@@ -624,6 +624,36 @@ kelas AgenGemini {
             kembalikan hasil
         }
 
+        # 7. Tindakan Kontrol Pemutar Media (Play, Pause, Next, Prev, Stop)
+        jika any([k dalam msg_lower untuk k dalam ["pause lagu", "jeda lagu", "play lagu", "putar lagu", "lanjut lagu", "stop lagu", "berhenti lagu", "next lagu", "lagu berikutnya", "prev lagu", "lagu sebelumnya", "next track", "prev track", "pause musik", "play musik", "jeda musik", "putar musik"]]) {
+            act_media = "play_pause"
+            jika "next" dalam msg_lower atau "berikutnya" dalam msg_lower {
+                act_media = "next"
+            } jika_lain "prev" dalam msg_lower atau "sebelumnya" dalam msg_lower {
+                act_media = "prev"
+            } jika_lain "stop" dalam msg_lower atau "berhenti" dalam msg_lower {
+                act_media = "stop"
+            } jika_lain "pause" dalam msg_lower atau "jeda" dalam msg_lower {
+                act_media = "pause"
+            } jika_lain "play" dalam msg_lower atau "putar" dalam msg_lower atau "lanjut" dalam msg_lower {
+                act_media = "play"
+            }
+            jika on_tool_call {
+                on_tool_call("media_control", {"action": act_media})
+            }
+            fn_media = ALAT_TERSEDIA.get("media_control")
+            hasil = fn_media(act_media) jika fn_media selain "Alat media_control tidak ditemukan."
+            jika on_tool_result {
+                on_tool_result("media_control", hasil)
+            }
+            jika on_chunk {
+                on_chunk(hasil)
+            }
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil))
+            pengelola_sesi.simpan_sesi(diri.session)
+            kembalikan hasil
+        }
+
         jika diri.provider == "omniroute" {
             kembalikan diri._kirim_pesan_omniroute(message, on_tool_call, on_tool_result, on_chunk)
         } jika_lain diri.provider == "ollama" {

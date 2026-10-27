@@ -861,6 +861,59 @@ fungsi set_volume(level: str = "status") -> str {
 atur_volume = set_volume
 
 
+fungsi media_control(action: str = "play_pause") -> str {
+    """Mengendalikan pemutar media laptop (Play/Pause, Next Track, Previous Track, Stop) untuk YouTube, Spotify, dll.
+
+    Args:
+        action: 'play_pause', 'play', 'pause', 'next', 'prev', 'previous', atau 'stop'.
+
+    Returns:
+        Pesan konfirmasi hasil pengendalian pemutar media.
+    """
+    coba {
+        impor ctypes
+
+        VK_MEDIA_NEXT_TRACK = 0xB0
+        VK_MEDIA_PREV_TRACK = 0xB1
+        VK_MEDIA_STOP = 0xB2
+        VK_MEDIA_PLAY_PAUSE = 0xB3
+        KEYEVENTF_KEYUP = 0x0002
+
+        act = str(action).strip().lower()
+        key_code = kosong
+        deskripsi = ""
+
+        jika act dalam ["play", "pause", "play_pause", "jeda", "putar", "lanjut"] {
+            key_code = VK_MEDIA_PLAY_PAUSE
+            deskripsi = "⏯️ Play / Pause telah ditekan di laptop (YouTube / Spotify)."
+        } jika_lain act dalam ["next", "berikutnya", "lanjut_lagu", "next_track"] {
+            key_code = VK_MEDIA_NEXT_TRACK
+            deskripsi = "⏭️ Lagu berikutnya (Next Track) telah diputar."
+        } jika_lain act dalam ["prev", "previous", "sebelumnya", "prev_track"] {
+            key_code = VK_MEDIA_PREV_TRACK
+            deskripsi = "⏮️ Lagu sebelumnya (Previous Track) telah diputar."
+        } jika_lain act dalam ["stop", "berhenti"] {
+            key_code = VK_MEDIA_STOP
+            deskripsi = "⏹️ Pemutaran media telah dihentikan."
+        } selain {
+            key_code = VK_MEDIA_PLAY_PAUSE
+            deskripsi = "⏯️ Play / Pause telah ditekan di laptop."
+        }
+
+        ctypes.windll.user32.keybd_event(key_code, 0, 0, 0)
+        ctypes.windll.user32.keybd_event(key_code, 0, KEYEVENTF_KEYUP, 0)
+
+        agent_logger.log_info("perkakas.media_control", deskripsi)
+        kembalikan deskripsi
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.media_control", f"Gagal kontrol media: {exc}")
+        kembalikan f"[GAGAL] Gagal mengontrol pemutar media: {exc}"
+    }
+}
+
+kontrol_media = media_control
+
+
 ALAT_TERSEDIA = {
     "buat_folder": buat_folder,
     "create_folder": create_folder,
@@ -892,6 +945,8 @@ ALAT_TERSEDIA = {
     "buka_aplikasi": buka_aplikasi,
     "set_volume": set_volume,
     "atur_volume": atur_volume,
+    "media_control": media_control,
+    "kontrol_media": kontrol_media,
 }
 
 DAFTAR_PANGGILAN_ALAT = [
@@ -910,6 +965,7 @@ DAFTAR_PANGGILAN_ALAT = [
     check_speed,
     open_application,
     set_volume,
+    media_control,
 ]
 
 AVAILABLE_TOOLS = ALAT_TERSEDIA
@@ -1084,6 +1140,20 @@ SKEMA_ALAT_OPENAI = [
                     "level": {"type": "string", "description": "Angka persentase (misal: '50', '80%'), relatif ('+10', '-10'), 'mute', 'unmute', atau 'status'"},
                 },
                 "required": ["level"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_control",
+            "description": "Mengendalikan tombol media playback di laptop (Play/Pause, Next Track, Previous Track, Stop) untuk YouTube, Spotify, dll.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "description": "'play_pause', 'play', 'pause', 'next', 'prev', 'stop'"},
+                },
+                "required": ["action"],
             },
         },
     },

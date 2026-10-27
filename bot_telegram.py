@@ -546,6 +546,29 @@ class TelegramAgentGateway:
                     )
                 except Exception:
                     pass
+        elif data.startswith("media_"):
+            action = data.replace("media_", "")
+            import perkakas
+            fn_media = getattr(perkakas, "media_control", None)
+            if fn_media:
+                msg_res = fn_media(action)
+                await query.answer(msg_res[:45])
+                fn_vol = getattr(perkakas, "set_volume", None)
+                cur_status = fn_vol("status") if fn_vol else ""
+                new_text = (
+                    f"🎛️ **KONTROL SUARA & PEMUTAR MUSIK LAPTOP**\n\n"
+                    f"👉 {msg_res}\n"
+                    f"{cur_status}\n\n"
+                    "Gunakan tombol di bawah untuk kontrol pemutar lagu & volume:"
+                )
+                try:
+                    await query.edit_message_text(
+                        text=new_text,
+                        reply_markup=self._build_volume_markup(),
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                except Exception:
+                    pass
         elif data.startswith("open_app:"):
             target_key = data.split(":", 1)[1]
             mapping = {
@@ -869,6 +892,11 @@ class TelegramAgentGateway:
         return InlineKeyboardMarkup(
             [
                 [
+                    InlineKeyboardButton("⏮️ Prev", callback_data="media_prev"),
+                    InlineKeyboardButton("⏯️ Play / Pause", callback_data="media_play_pause"),
+                    InlineKeyboardButton("⏭️ Next", callback_data="media_next"),
+                ],
+                [
                     InlineKeyboardButton("🔉 -10%", callback_data="vol_down_10"),
                     InlineKeyboardButton("🔊 +10%", callback_data="vol_up_10"),
                 ],
@@ -884,7 +912,7 @@ class TelegramAgentGateway:
                     InlineKeyboardButton("100%", callback_data="vol_100"),
                 ],
                 [
-                    InlineKeyboardButton("🔄 Refresh Volume", callback_data="vol_status"),
+                    InlineKeyboardButton("🔄 Refresh Status", callback_data="vol_status"),
                 ],
             ]
         )
@@ -937,6 +965,36 @@ class TelegramAgentGateway:
         import perkakas
         fn_vol = getattr(perkakas, "set_volume", None)
         res = fn_vol("unmute") if fn_vol else "Fungsi tidak tersedia"
+        await update.message.reply_text(f"{res}", reply_markup=self._build_volume_markup())
+
+    async def play_pause_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Memutar atau menjeda lagu/video di YouTube atau Spotify."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+        import perkakas
+        fn_media = getattr(perkakas, "media_control", None)
+        res = fn_media("play_pause") if fn_media else "Fungsi media_control tidak tersedia"
+        await update.message.reply_text(f"{res}", reply_markup=self._build_volume_markup())
+
+    async def next_track_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Memutar lagu berikutnya di YouTube atau Spotify."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+        import perkakas
+        fn_media = getattr(perkakas, "media_control", None)
+        res = fn_media("next") if fn_media else "Fungsi media_control tidak tersedia"
+        await update.message.reply_text(f"{res}", reply_markup=self._build_volume_markup())
+
+    async def prev_track_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Memutar lagu sebelumnya di YouTube atau Spotify."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+        import perkakas
+        fn_media = getattr(perkakas, "media_control", None)
+        res = fn_media("prev") if fn_media else "Fungsi media_control tidak tersedia"
         await update.message.reply_text(f"{res}", reply_markup=self._build_volume_markup())
 
     async def read_file_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1390,7 +1448,10 @@ class TelegramAgentGateway:
             BotCommand("kamera", "Ambil foto dari webcam laptop"),
             BotCommand("buka", "Buka aplikasi/Chrome/YouTube (misal: /buka youtube lagu hindia)"),
             BotCommand("tutup", "Tutup aplikasi desktop (contoh: /tutup chrome)"),
-            BotCommand("volume", "Atur volume laptop (0-100, +10, -10, mute, unmute)"),
+            BotCommand("volume", "Atur volume laptop & kontrol lagu"),
+            BotCommand("play", "Putar/Jeda lagu atau video YouTube/Spotify"),
+            BotCommand("next", "Putar lagu berikutnya (Next Track)"),
+            BotCommand("prev", "Putar lagu sebelumnya (Prev Track)"),
             BotCommand("mute", "Matikan suara laptop (Mute)"),
             BotCommand("unmute", "Nyalakan suara laptop (Unmute)"),
             BotCommand("baterai", "Pantau daya baterai & charger"),
@@ -1460,6 +1521,10 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("vol", self.volume_cmd))
         app.add_handler(CommandHandler("mute", self.mute_cmd))
         app.add_handler(CommandHandler("unmute", self.unmute_cmd))
+        app.add_handler(CommandHandler("play", self.play_pause_cmd))
+        app.add_handler(CommandHandler("pause", self.play_pause_cmd))
+        app.add_handler(CommandHandler("next", self.next_track_cmd))
+        app.add_handler(CommandHandler("prev", self.prev_track_cmd))
         app.add_handler(CommandHandler("baca", self.read_file_cmd))
         app.add_handler(CommandHandler("read", self.read_file_cmd))
         app.add_handler(CommandHandler("get", self.get_file_cmd))
