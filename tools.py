@@ -384,3 +384,18 @@ OPENAI_TOOLS_SCHEMA = [
     },
 ]
 
+# Muat seluruh perkakas sistem lengkap dari perkakas.idk jika tersedia
+try:
+    from penerjemah_idk import aktifkan_hook_idk
+    aktifkan_hook_idk()
+    import perkakas
+    if hasattr(perkakas, "ALAT_TERSEDIA") or hasattr(perkakas, "AVAILABLE_TOOLS"):
+        AVAILABLE_TOOLS = getattr(perkakas, "ALAT_TERSEDIA", getattr(perkakas, "AVAILABLE_TOOLS", AVAILABLE_TOOLS))
+        TOOL_CALLABLES = getattr(perkakas, "DAFTAR_PANGGILAN_ALAT", getattr(perkakas, "TOOL_CALLABLES", TOOL_CALLABLES))
+        OPENAI_TOOLS_SCHEMA = getattr(perkakas, "SKEMA_ALAT_OPENAI", getattr(perkakas, "OPENAI_TOOLS_SCHEMA", OPENAI_TOOLS_SCHEMA))
+        for _name, _func in AVAILABLE_TOOLS.items():
+            if _name not in globals():
+                globals()[_name] = _func
+except Exception as _exc:
+    agent_logger.log_warning("tools.load_perkakas", f"Gagal sinkronisasi perkakas.idk: {_exc}")
+

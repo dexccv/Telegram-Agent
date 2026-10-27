@@ -882,6 +882,195 @@ kelas AgenGemini {
         kembalikan teks_akhir
     }
 
+    fungsi _kirim_pesan_openai_kompatibel(url_target, headers_dict, nama_model, message, nama_provider, timeout_sec=45, on_tool_call=kosong, on_tool_result=kosong, on_chunk=kosong) {
+        memori_sistem = pengelola_memori.format_instruksi_sistem()
+        instruksi_sistem = (
+            f"Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis {nama_provider}). "
+            "Anda memiliki akses PENUH ke sistem laptop pengguna. "
+            "Gunakan tool/fungsi yang tersedia untuk mengeksekusi perintah kontrol laptop pengguna seperti: "
+            "mengatur volume (set_volume), kontrol musik/lagu/YouTube/Spotify (media_control), "
+            "membuka aplikasi desktop atau browser (open_application), "
+            "menutup aplikasi atau proses (close_application), "
+            "mencari dan memutar video di YouTube (search_youtube_videos, play_youtube_video), "
+            "mengambil screenshot layar laptop (capture_screen), mengambil foto webcam (capture_camera), "
+            "melihat tab browser yang terbuka (get_open_browser_tabs), "
+            "membaca status CPU/RAM/Baterai/Storage (get_system_status), "
+            "membaca/menulis berkas, menjalankan perintah terminal aman (run_command), atau menyimpan memori. "
+            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis.\n"
+            f"{memori_sistem}"
+        )
+
+        pesan_list = [{"role": "system", "content": instruksi_sistem}]
+        untuk m dalam diri.session.ui_messages[-10:] {
+            role = "user" jika m.msg_type == "user" selain "assistant"
+            jika m.text {
+                pesan_list.append({"role": role, "content": m.text})
+            }
+        }
+        jika tidak pesan_list atau pesan_list[-1].get("content") != message {
+            pesan_list.append({"role": "user", "content": message})
+        }
+
+        iterasi = 0
+        maks_iterasi = 10
+        teks_akhir = ""
+
+        selagi iterasi < maks_iterasi {
+            jika diri.interrupted {
+                agent_logger.log_info(f"agen.{nama_provider.lower()}", "Eksekusi dihentikan oleh pengguna.")
+                teks_akhir = "[Interupsi] Respon agen dihentikan oleh pengguna."
+                berhenti
+            }
+            iterasi += 1
+
+            payload = {
+                "model": nama_model,
+                "messages": pesan_list,
+                "tools": SKEMA_ALAT_OPENAI,
+                "tool_choice": "auto",
+                "stream": salah,
+            }
+
+            coba {
+                req = urllib.request.Request(
+                    url_target,
+                    headers=headers_dict,
+                    data=json.dumps(payload).encode("utf-8"),
+                )
+                dengan urllib.request.urlopen(req, timeout=timeout_sec) sebagai resp {
+                    data = json.loads(resp.read().decode())
+                }
+
+                jika "error" dalam data {
+                    err_obj = data["error"]
+                    err_msg = err_obj.get("message", str(err_obj)) jika isinstance(err_obj, dict) selain str(err_obj)
+                    teks_akhir = f"[Galat {nama_provider}]: {err_msg}"
+                    berhenti
+                }
+
+                pilihan = data.get("choices", [])
+                jika tidak pilihan {
+                    teks_akhir = f"[Galat {nama_provider}]: Tidak ada respon dari model."
+                    berhenti
+                }
+
+                pesan_resp = pilihan[0].get("message", {})
+                panggilan_alat = pesan_resp.get("tool_calls")
+
+                jika panggilan_alat {
+                    pesan_list.append(pesan_resp)
+                    untuk tc dalam panggilan_alat {
+                        tc_id = tc.get("id", f"call_{iterasi}")
+                        fn_info = tc.get("function", {})
+                        nama_alat = fn_info.get("name", "")
+                        raw_args = fn_info.get("arguments", "{}")
+                        coba {
+                            args_dict = json.loads(raw_args) jika isinstance(raw_args, str) selain (raw_args atau {})
+                        } kecuali exc_p {
+                            args_dict = {}
+                        }
+
+                        agent_logger.log_info(f"agen.{nama_provider.lower()}", f"Tool call: {nama_alat} args={args_dict}")
+                        jika on_tool_call {
+                            on_tool_call(nama_alat, args_dict)
+                        }
+
+                        jika nama_alat dalam ALAT_TERSEDIA {
+                            coba {
+                                fn = ALAT_TERSEDIA[nama_alat]
+                                hasil_alat = str(fn(**args_dict))
+                            } kecuali Exception sebagai exc_f {
+                                hasil_alat = f"[GAGAL] Eksekusi {nama_alat}: {exc_f}"
+                            }
+                        } selain {
+                            hasil_alat = f"[GAGAL] Tool '{nama_alat}' tidak ditemukan."
+                        }
+
+                        preview = hasil_alat[:120].replace("\n", " ") + "..." jika len(hasil_alat) > 120 selain hasil_alat.replace("\n", " ")
+                        jika on_tool_result {
+                            on_tool_result(nama_alat, preview)
+                        }
+
+                        diri.session.ui_messages.append(
+                            PesanSesi(
+                                msg_type="tool",
+                                tool_name=nama_alat,
+                                tool_args=args_dict,
+                                tool_preview=preview,
+                            )
+                        )
+
+                        pesan_list.append({
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "content": hasil_alat,
+                        })
+                    }
+                    lanjut
+                } selain {
+                    teks_akhir = pesan_resp.get("content", "")
+                    berhenti
+                }
+            } kecuali urllib.error.HTTPError sebagai exc_http {
+                detail_err = ""
+                coba {
+                    body_str = exc_http.read().decode("utf-8", errors="ignore")
+                    jika body_str {
+                        coba {
+                            body_json = json.loads(body_str)
+                            detail_err = body_json.get("error", {}).get("message", body_str[:120])
+                        } kecuali exc_j {
+                            detail_err = body_str[:120]
+                        }
+                    }
+                } kecuali exc_r {
+                    detail_err = str(exc_http)
+                }
+
+                jika "tools" dalam detail_err.lower() atau "tool_choice" dalam detail_err.lower() {
+                    coba {
+                        fb_payload = {
+                            "model": nama_model,
+                            "messages": pesan_list,
+                            "stream": salah,
+                        }
+                        req_fb = urllib.request.Request(
+                            url_target,
+                            headers=headers_dict,
+                            data=json.dumps(fb_payload).encode("utf-8"),
+                        )
+                        dengan urllib.request.urlopen(req_fb, timeout=timeout_sec) sebagai resp_fb {
+                            data_fb = json.loads(resp_fb.read().decode())
+                            teks_akhir = data_fb.get("choices", [{}])[0].get("message", {}).get("content", "")
+                            berhenti
+                        }
+                    } kecuali exc_fb {
+                        detail_err = f"{detail_err} | Fallback gagal: {exc_fb}"
+                    }
+                }
+
+                agent_logger.log_error(f"agen.{nama_provider.lower()}", f"Galat HTTP: {exc_http} - Detail: {detail_err}")
+                teks_akhir = f"[Galat {nama_provider} HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err atau exc_http}"
+                berhenti
+            } kecuali Exception sebagai exc_all {
+                agent_logger.log_error(f"agen.{nama_provider.lower()}", f"Galat: {exc_all}")
+                teks_akhir = f"[Galat {nama_provider}]: {exc_all}"
+                berhenti
+            }
+        }
+
+        jika tidak teks_akhir.strip() {
+            teks_akhir = f"[Galat {nama_provider}]: Tidak ada respon teks dari model '{nama_model}'."
+        }
+
+        jika on_chunk {
+            on_chunk(teks_akhir)
+        }
+        diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=teks_akhir))
+        pengelola_sesi.simpan_sesi(diri.session)
+        kembalikan teks_akhir
+    }
+
     fungsi _kirim_pesan_groq(message, on_tool_call=kosong, on_tool_result=kosong, on_chunk=kosong) {
         agent_logger.log_info(
             "agen.groq",
@@ -897,89 +1086,23 @@ kelas AgenGemini {
         }
 
         url_target = "https://api.groq.com/openai/v1/chat/completions"
-        memori_sistem = pengelola_memori.format_instruksi_sistem()
-        instruksi_sistem = (
-            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis Groq). "
-            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
-            "Dilarang keras menggunakan emoji apapun. "
-            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
-            f"{memori_sistem}"
-        )
-
-        pesan_list = [{"role": "system", "content": instruksi_sistem}]
-        untuk m dalam diri.session.ui_messages[-10:] {
-            role = "user" jika m.msg_type == "user" selain "assistant"
-            jika m.text {
-                pesan_list.append({"role": role, "content": m.text})
-            }
-        }
-        jika tidak pesan_list atau pesan_list[-1].get("content") != message {
-            pesan_list.append({"role": "user", "content": message})
-        }
-
         nama_model = diri.model_name atau "openai/gpt-oss-120b"
-        payload = {
-            "model": nama_model,
-            "messages": pesan_list,
-            "stream": salah,
+        headers_dict = {
+            "Authorization": f"Bearer {kunci}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         }
-
-        teks_akumulasi = ""
-        coba {
-            req = urllib.request.Request(
-                url_target,
-                headers={
-                    "Authorization": f"Bearer {kunci}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                },
-                data=json.dumps(payload).encode("utf-8"),
-            )
-            dengan urllib.request.urlopen(req, timeout=30) sebagai resp {
-                data = json.loads(resp.read().decode())
-                jika "error" dalam data {
-                    err_obj = data["error"]
-                    err_msg = err_obj.get("message", str(err_obj)) jika isinstance(err_obj, dict) selain str(err_obj)
-                    teks_akumulasi = f"[Galat Groq]: {err_msg}"
-                } selain {
-                    pilihan = data.get("choices", [])
-                    jika pilihan {
-                        teks_akumulasi = pilihan[0].get("message", {}).get("content", "")
-                    }
-                }
-            }
-        } kecuali urllib.error.HTTPError sebagai exc_http {
-            detail_err = ""
-            coba {
-                body_str = exc_http.read().decode("utf-8", errors="ignore")
-                jika body_str {
-                    coba {
-                        body_json = json.loads(body_str)
-                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
-                    } kecuali exc_j {
-                        detail_err = body_str[:120]
-                    }
-                }
-            } kecuali exc_r {
-                detail_err = str(exc_http)
-            }
-            agent_logger.log_error("agen.groq", f"Galat Groq HTTP: {exc_http} - Detail: {detail_err}")
-            teks_akumulasi = f"[Galat Groq HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err atau exc_http}"
-        } kecuali Exception sebagai exc {
-            agent_logger.log_error("agen.groq", f"Galat Groq: {exc}")
-            teks_akumulasi = f"[Galat Groq]: {exc}"
-        }
-
-        jika tidak teks_akumulasi.strip() {
-            teks_akumulasi = f"[Galat Groq]: Tidak ada respon teks dari model '{nama_model}'."
-        }
-
-        jika teks_akumulasi {
-            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=teks_akumulasi))
-            pengelola_sesi.simpan_sesi(diri.session)
-        }
-
-        kembalikan teks_akumulasi
+        kembalikan diri._kirim_pesan_openai_kompatibel(
+            url_target=url_target,
+            headers_dict=headers_dict,
+            nama_model=nama_model,
+            message=message,
+            nama_provider="Groq",
+            timeout_sec=35,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+            on_chunk=on_chunk,
+        )
     }
 
     fungsi _kirim_pesan_omniroute(message, on_tool_call=kosong, on_tool_result=kosong, on_chunk=kosong) {
@@ -991,122 +1114,21 @@ kelas AgenGemini {
         base_url = pengelola_konfigurasi.ambil_omni_base_url().rstrip("/")
         kunci = pengelola_konfigurasi.ambil_omni_api_key() atau diri.api_key
         url_target = (base_url jika base_url.endswith("/v1") selain f"{base_url}/v1") + "/chat/completions"
-
-        memori_sistem = pengelola_memori.format_instruksi_sistem()
-        instruksi_sistem = (
-            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent. "
-            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
-            "Dilarang keras menggunakan emoji apapun. "
-            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
-            f"{memori_sistem}"
+        headers_dict = {
+            "Authorization": f"Bearer {kunci}",
+            "Content-Type": "application/json",
+        }
+        kembalikan diri._kirim_pesan_openai_kompatibel(
+            url_target=url_target,
+            headers_dict=headers_dict,
+            nama_model=diri.model_name,
+            message=message,
+            nama_provider="Omniroute",
+            timeout_sec=60,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+            on_chunk=on_chunk,
         )
-
-        pesan_list = [{"role": "system", "content": instruksi_sistem}]
-        untuk m dalam diri.session.ui_messages[-10:] {
-            role = "user" jika m.msg_type == "user" selain "assistant"
-            jika m.text {
-                pesan_list.append({"role": role, "content": m.text})
-            }
-        }
-        jika tidak pesan_list atau pesan_list[-1].get("content") != message {
-            pesan_list.append({"role": "user", "content": message})
-        }
-
-        payload = {
-            "model": diri.model_name,
-            "messages": pesan_list,
-            "stream": benar,
-        }
-
-        teks_akumulasi = ""
-        coba {
-            req = urllib.request.Request(
-                url_target,
-                headers={
-                    "Authorization": f"Bearer {kunci}",
-                    "Content-Type": "application/json",
-                },
-                data=json.dumps(payload).encode("utf-8"),
-            )
-            dengan urllib.request.urlopen(req, timeout=60) sebagai resp {
-                untuk baris_mentah dalam resp {
-                    jika diri.interrupted {
-                        berhenti
-                    }
-                    baris = baris_mentah.decode("utf-8", errors="replace").strip()
-                    jika baris.startswith("data: ") dan baris != "data: [DONE]" {
-                        coba {
-                            data_chunk = json.loads(baris[6:])
-                            jika "error" dalam data_chunk {
-                                err_obj = data_chunk["error"]
-                                err_msg = err_obj.get("message", str(err_obj)) jika isinstance(err_obj, dict) selain str(err_obj)
-                                pesan_galat = f"[Galat Omniroute]: {err_msg}"
-                                teks_akumulasi += pesan_galat
-                                jika on_chunk {
-                                    on_chunk(pesan_galat)
-                                }
-                                berhenti
-                            }
-                            pilihan = data_chunk.get("choices", [])
-                            jika pilihan {
-                                delta = pilihan[0].get("delta", {})
-                                token = delta.get("content", "")
-                                jika token {
-                                    teks_akumulasi += token
-                                    jika on_chunk {
-                                        on_chunk(token)
-                                    }
-                                }
-                            }
-                        } kecuali exc_parse {
-                            lewati
-                        }
-                    }
-                }
-            }
-        } kecuali urllib.error.HTTPError sebagai exc_http {
-            detail_err = ""
-            coba {
-                body_str = exc_http.read().decode("utf-8", errors="ignore")
-                jika body_str {
-                    coba {
-                        body_json = json.loads(body_str)
-                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
-                    } kecuali exc_j {
-                        detail_err = body_str[:120]
-                    }
-                }
-            } kecuali exc_r {
-                detail_err = str(exc_http)
-            }
-            agent_logger.log_error("agen.omniroute", f"Galat Omniroute: {exc_http} - Detail: {detail_err}")
-            pesan_galat = f"[Galat Omniroute {getattr(exc_http, 'code', 'Error')}]: {detail_err atau exc_http}\nPeriksa server di {base_url} dan model '{diri.model_name}'."
-            teks_akumulasi += pesan_galat
-            jika on_chunk {
-                on_chunk(pesan_galat)
-            }
-        } kecuali Exception sebagai exc_all {
-            agent_logger.log_error("agen.omniroute", f"Galat Omniroute: {exc_all}")
-            pesan_galat = f"[Galat Omniroute]: {exc_all}\nPeriksa server Omniroute di {base_url}."
-            teks_akumulasi += pesan_galat
-            jika on_chunk {
-                on_chunk(pesan_galat)
-            }
-        }
-
-        jika tidak teks_akumulasi.strip() {
-            pesan_kosong = f"[Galat Omniroute]: Tidak ada respon teks dari model '{diri.model_name}'. Provider upstream (Felo/Opencode) di Omniroute sedang limit (429) atau belum terkonfigurasi. Beralihlah ke Gemini dengan `/provider gemini` atau periksa dashboard Omniroute di {base_url}."
-            teks_akumulasi = pesan_kosong
-            jika on_chunk {
-                on_chunk(pesan_kosong)
-            }
-        }
-
-        jika teks_akumulasi {
-            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=teks_akumulasi))
-            pengelola_sesi.simpan_sesi(diri.session)
-        }
-        kembalikan teks_akumulasi
     }
 
     fungsi _pastikan_ollama_aktif(base_url) {
@@ -1174,130 +1196,23 @@ kelas AgenGemini {
         )
 
         base_url = pengelola_konfigurasi.ambil_ollama_base_url().rstrip("/")
-        # Pastikan server Ollama aktif (auto-start di latar belakang jika belum jalan)
         diri._pastikan_ollama_aktif(base_url)
 
         url_target = (base_url jika base_url.endswith("/v1") selain f"{base_url}/v1") + "/chat/completions"
-
-        memori_sistem = pengelola_memori.format_instruksi_sistem()
-        instruksi_sistem = (
-            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis Ollama). "
-            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
-            "Dilarang keras menggunakan emoji apapun. "
-            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
-            f"{memori_sistem}"
+        headers_dict = {
+            "Content-Type": "application/json",
+        }
+        kembalikan diri._kirim_pesan_openai_kompatibel(
+            url_target=url_target,
+            headers_dict=headers_dict,
+            nama_model=diri.model_name,
+            message=message,
+            nama_provider="Ollama",
+            timeout_sec=120,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+            on_chunk=on_chunk,
         )
-
-        pesan_list = [{"role": "system", "content": instruksi_sistem}]
-        untuk m dalam diri.session.ui_messages[-10:] {
-            role = "user" jika m.msg_type == "user" selain "assistant"
-            jika m.text {
-                pesan_list.append({"role": role, "content": m.text})
-            }
-        }
-        jika tidak pesan_list atau pesan_list[-1].get("content") != message {
-            pesan_list.append({"role": "user", "content": message})
-        }
-
-        payload = {
-            "model": diri.model_name,
-            "messages": pesan_list,
-            "stream": benar,
-        }
-
-        teks_akumulasi = ""
-        coba {
-            req = urllib.request.Request(
-                url_target,
-                headers={
-                    "Content-Type": "application/json",
-                },
-                data=json.dumps(payload).encode("utf-8"),
-            )
-            dengan urllib.request.urlopen(req, timeout=120) sebagai resp {
-                untuk baris_mentah dalam resp {
-                    jika diri.interrupted {
-                        berhenti
-                    }
-                    baris = baris_mentah.decode("utf-8", errors="replace").strip()
-                    jika baris.startswith("data: ") dan baris != "data: [DONE]" {
-                        coba {
-                            data_chunk = json.loads(baris[6:])
-                            jika "error" dalam data_chunk {
-                                err_obj = data_chunk["error"]
-                                err_msg = err_obj.get("message", str(err_obj)) jika isinstance(err_obj, dict) selain str(err_obj)
-                                pesan_galat = f"[Galat Ollama]: {err_msg}"
-                                teks_akumulasi += pesan_galat
-                                jika on_chunk {
-                                    on_chunk(pesan_galat)
-                                }
-                                berhenti
-                            }
-                            pilihan = data_chunk.get("choices", [])
-                            jika pilihan {
-                                delta = pilihan[0].get("delta", {})
-                                token = delta.get("content", "")
-                                jika token {
-                                    teks_akumulasi += token
-                                    jika on_chunk {
-                                        on_chunk(token)
-                                    }
-                                }
-                            }
-                        } kecuali exc_parse {
-                            lewati
-                        }
-                    }
-                }
-            }
-        } kecuali urllib.error.HTTPError sebagai exc_http {
-            detail_err = ""
-            coba {
-                body_str = exc_http.read().decode("utf-8", errors="ignore")
-                jika body_str {
-                    coba {
-                        body_json = json.loads(body_str)
-                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
-                    } kecuali exc_j {
-                        detail_err = body_str[:120]
-                    }
-                }
-            } kecuali exc_r {
-                detail_err = str(exc_http)
-            }
-            agent_logger.log_error("agen.ollama", f"Galat Ollama HTTP: {exc_http} - Detail: {detail_err}")
-            pesan_galat = f"[Galat Ollama HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err atau exc_http}\nPastikan model '{diri.model_name}' sudah diunduh ('ollama pull {diri.model_name}')."
-            teks_akumulasi += pesan_galat
-            jika on_chunk {
-                on_chunk(pesan_galat)
-            }
-        } kecuali Exception sebagai exc_all {
-            agent_logger.log_error("agen.ollama", f"Galat Koneksi Ollama: {exc_all}")
-            pesan_galat = (
-                f"[Galat Koneksi Ollama]: Tidak dapat terhubung ke server Ollama di {base_url}.\n"
-                "- Pastikan aplikasi Ollama sudah berjalan ('ollama serve' di terminal).\n"
-                f"- Pastikan model '{diri.model_name}' sudah diunduh ('ollama pull {diri.model_name}').\n"
-                f"- Detail: {exc_all}"
-            )
-            teks_akumulasi += pesan_galat
-            jika on_chunk {
-                on_chunk(pesan_galat)
-            }
-        }
-
-        jika tidak teks_akumulasi.strip() {
-            pesan_kosong = f"[Peringatan Ollama]: Tidak ada respon teks dari model '{diri.model_name}'. Periksa apakah model sudah diunduh ('ollama list')."
-            teks_akumulasi = pesan_kosong
-            jika on_chunk {
-                on_chunk(pesan_kosong)
-            }
-        }
-
-        jika teks_akumulasi {
-            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=teks_akumulasi))
-            pengelola_sesi.simpan_sesi(diri.session)
-        }
-        kembalikan teks_akumulasi
     }
 }
 

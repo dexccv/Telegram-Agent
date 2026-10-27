@@ -1586,5 +1586,86 @@ SKEMA_ALAT_OPENAI = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_youtube_videos",
+            "description": "Mencari video di YouTube berdasarkan kata kunci/judul dan mengembalikan daftar judul, durasi, channel, dan URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Kata kunci judul lagu/video YouTube yang dicari"},
+                    "limit": {"type": "integer", "description": "Jumlah maksimal video yang dikembalikan (default: 4)"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "play_youtube_video",
+            "description": "Membuka browser dan langsung memutar video YouTube berdasarkan URL atau ID video atau judul video.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "video_id_or_url": {"type": "string", "description": "URL YouTube atau video ID yang ingin diputar"},
+                },
+                "required": ["video_id_or_url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_open_browser_tabs",
+            "description": "Mendeteksi seluruh jendela dan tab browser yang aktif di laptop (Chrome, Edge, Firefox, Brave).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "focus_window",
+            "description": "Membawa jendela aplikasi atau tab browser tertentu ke layar depan laptop berdasarkan nomor HWND.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hwnd": {"type": "integer", "description": "Handle window (HWND) dari jendela yang ingin difokuskan"},
+                },
+                "required": ["hwnd"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "close_window_tab",
+            "description": "Menutup jendela aplikasi atau tab browser tertentu berdasarkan nomor HWND.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hwnd": {"type": "integer", "description": "Handle window (HWND) dari jendela yang ingin ditutup"},
+                },
+                "required": ["hwnd"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "control_browser_media",
+            "description": "Mengontrol pemutaran media di browser laptop (play_pause, next, prev) dengan fokus opsional ke jendela HWND.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "hwnd": {"type": "integer", "description": "HWND jendela browser (default: 0 untuk global)"},
+                    "action": {"type": "string", "description": "'play_pause', 'play', 'pause', 'next', 'prev', 'stop'"},
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 OPENAI_TOOLS_SCHEMA = SKEMA_ALAT_OPENAI
+

@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import subprocess
 import time
 import urllib.request
@@ -301,7 +302,52 @@ def pindai_model_ollama(base_url: Optional[str] = None) -> list[str]:
     return daftar if daftar else ["qwen2.5-coder:7b", "llama3.2"]
 
 
-fetch_available_models_ollama = pindai_model_ollama
+def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: float = 6.0) -> bool:
+    """Memeriksa apakah server Ollama aktif; jika belum, otomatis menyalakan server Ollama di latar belakang."""
+    check_url = base_url.replace("/v1", "").rstrip("/") + "/api/tags"
+    try:
+        req = urllib.request.Request(check_url, headers={"User-Agent": "Terminal-Agent/HealthCheck"})
+        with urllib.request.urlopen(req, timeout=1.0) as _:
+            return True
+    except Exception:
+        pass
+
+    try:
+        models_path = getattr(config_manager, "get_ollama_models_path", lambda: r"D:\.ollama\models")() or r"D:\.ollama\models"
+        env = os.environ.copy()
+        env["OLLAMA_MODELS"] = str(models_path)
+        env["OLLAMA_HOST"] = "127.0.0.1:11434"
+
+        ollama_bin = "ollama"
+        custom_bin = r"C:\Users\HP\AppData\Local\Programs\Ollama\ollama.exe"
+        if os.path.exists(custom_bin):
+            ollama_bin = custom_bin
+
+        flags = 0
+        if os.name == "nt":
+            flags = 0x00000008 | 0x00000200 | 0x08000000
+        subprocess.Popen(
+            [ollama_bin, "serve"],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            creationflags=flags,
+            close_fds=True,
+        )
+
+        t_start = time.time()
+        while time.time() - t_start < timeout:
+            try:
+                req = urllib.request.Request(check_url, headers={"User-Agent": "Terminal-Agent/HealthCheck"})
+                with urllib.request.urlopen(req, timeout=1.0) as _:
+                    agent_logger.log_info("agent.ollama", f"Server Ollama berhasil dinyalakan otomatis ({round(time.time() - t_start, 2)}s).")
+                    return True
+            except Exception:
+                time.sleep(0.5)
+    except Exception as exc:
+        agent_logger.log_error("agent.ollama", f"Gagal menjalankan server Ollama otomatis: {exc}")
+    return False
 
 
 class GeminiAgent:
@@ -470,6 +516,127 @@ class GeminiAgent:
             or self.session.title in ["Sesi Baru", "Sesi Perdana", "Percakapan Baru"]
         ) and len(self.session.ui_messages) <= 2:
             auto_title = message.strip().replace("\n", " ")[:36]
+            if auto_title:
+                self.session.title = auto_title
+
+        # Fast path intent detection untuk perintah kontrol laptop langsung
+        msg_lower = message.strip().lower()
+
+        # 1. Menutup aplikasi
+        if msg_lower.startswith("tutup aplikasi ") or msg_lower.startswith("tutup ") or msg_lower.startswith("close "):
+            parts = message.strip().split(maxsplit=2 if msg_lower.startswith("tutup aplikasi ") else 1)
+            target_app = parts[-1].strip().strip('"').strip("'")
+            if target_app:
+                fn_tutup = AVAILABLE_TOOLS.get("close_application")
+                if fn_tutup:
+                    if on_tool_call:
+                        on_tool_call("close_application", {"app_name_or_pid": target_app})
+                    res = str(fn_tutup(target_app))
+                    if on_tool_result:
+                        on_tool_result("close_application", res)
+                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                    session_manager.save_session(self.session)
+                    return res
+
+        # 2. Buka kamera webcam & foto
+        if any(k in msg_lower for k in ["buka kamera", "ambil foto", "foto kamera", "capture kamera", "foto webcam", "kamera laptop"]):
+            fn_cam = AVAILABLE_TOOLS.get("capture_camera")
+            if fn_cam:
+                if on_tool_call:
+                    on_tool_call("capture_camera", {"output_path": "kamera_capture.jpg"})
+                res = str(fn_cam("kamera_capture.jpg"))
+                if on_tool_result:
+                    on_tool_result("capture_camera", res)
+                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                session_manager.save_session(self.session)
+                return res
+
+        # 3. Status sistem / hardware
+        if any(k in msg_lower for k in ["status sistem", "persentase sistem", "persentase penyimpanan", "persentase baterai", "cek baterai", "cek penyimpanan", "cek ram", "cek cpu", "cek storage"]):
+            fn_stat = AVAILABLE_TOOLS.get("get_system_status")
+            if fn_stat:
+                if on_tool_call:
+                    on_tool_call("get_system_status", {})
+                res = str(fn_stat())
+                if on_tool_result:
+                    on_tool_result("get_system_status", res)
+                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                session_manager.save_session(self.session)
+                return res
+
+        # 4. Buka aplikasi desktop / YouTube / URL
+        if (msg_lower.startswith("buka ") or msg_lower.startswith("open ") or "buka chrome" in msg_lower or "buka youtube" in msg_lower) and not ("kamera" in msg_lower or "webcam" in msg_lower):
+            fn_open = AVAILABLE_TOOLS.get("open_application")
+            if fn_open:
+                if on_tool_call:
+                    on_tool_call("open_application", {"app_or_query": message.strip()})
+                res = str(fn_open(message.strip()))
+                if on_tool_result:
+                    on_tool_result("open_application", res)
+                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                session_manager.save_session(self.session)
+                return res
+
+        # 5. Atur volume laptop
+        if any(k in msg_lower for k in ["atur volume", "set volume", "ganti volume", "ubah volume", "volume laptop", "besarkan volume", "naikkan volume", "kecilkan volume", "turunkan volume", "mute", "unmute", "senyap"]):
+            m_vol = re.search(r"(\+?\-?\d+%?|mute|unmute|senyap)", msg_lower)
+            vol_arg = m_vol.group(1) if m_vol else "status"
+            if "naik" in msg_lower or "besar" in msg_lower:
+                vol_arg = "+10"
+            elif "turun" in msg_lower or "kecil" in msg_lower:
+                vol_arg = "-10"
+            elif any(w in msg_lower for w in ["unmute", "nyalakan suara", "hidupkan suara"]):
+                vol_arg = "unmute"
+            elif any(w in msg_lower for w in ["mute", "senyap", "matikan suara"]):
+                vol_arg = "mute"
+            fn_vol = AVAILABLE_TOOLS.get("set_volume")
+            if fn_vol:
+                if on_tool_call:
+                    on_tool_call("set_volume", {"level": vol_arg})
+                res = str(fn_vol(vol_arg))
+                if on_tool_result:
+                    on_tool_result("set_volume", res)
+                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                session_manager.save_session(self.session)
+                return res
+
+        # 6. Kontrol musik / pemutar lagu (Play, Pause, Next, Prev, Stop)
+        if any(k in msg_lower for k in ["pause lagu", "jeda lagu", "play lagu", "putar lagu", "lanjut lagu", "stop lagu", "berhenti lagu", "next lagu", "lagu berikutnya", "prev lagu", "lagu sebelumnya", "pause musik", "play musik"]):
+            act_media = "play_pause"
+            if "next" in msg_lower or "berikutnya" in msg_lower:
+                act_media = "next"
+            elif "prev" in msg_lower or "sebelumnya" in msg_lower:
+                act_media = "prev"
+            elif "stop" in msg_lower or "berhenti" in msg_lower:
+                act_media = "stop"
+            elif "pause" in msg_lower or "jeda" in msg_lower:
+                act_media = "pause"
+            elif "play" in msg_lower or "putar" in msg_lower or "lanjut" in msg_lower:
+                act_media = "play"
+            fn_med = AVAILABLE_TOOLS.get("media_control")
+            if fn_med:
+                if on_tool_call:
+                    on_tool_call("media_control", {"action": act_media})
+                res = str(fn_med(act_media))
+                if on_tool_result:
+                    on_tool_result("media_control", res)
+                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                session_manager.save_session(self.session)
+                return res
+
+        # 7. Screenshot
+        if any(k in msg_lower for k in ["screenshot", "screen capture", "capture layar", "tangkapan layar", "foto layar", "ss laptop", "ss layar"]):
+            fn_ss = AVAILABLE_TOOLS.get("capture_screen")
+            if fn_ss:
+                if on_tool_call:
+                    on_tool_call("capture_screen", {"output_path": "screen_capture.png"})
+                res = str(fn_ss("screen_capture.png"))
+                if on_tool_result:
+                    on_tool_result("capture_screen", res)
+                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                session_manager.save_session(self.session)
+                return res
+
         self.provider = config_manager.get_provider()
         if self.provider == "groq":
             return self._send_message_groq(message, on_tool_call, on_tool_result)
@@ -559,6 +726,164 @@ class GeminiAgent:
 
         return final_text
 
+    def _send_message_openai_compatible(
+        self,
+        target_url: str,
+        headers: dict[str, str],
+        model_name: str,
+        message: str,
+        provider_label: str,
+        timeout: int = 45,
+        on_tool_call: Optional[Callable[[str, dict[str, Any]], None]] = None,
+        on_tool_result: Optional[Callable[[str, str], None]] = None,
+    ) -> str:
+        persistent_memory = memory_manager.format_for_system_instruction()
+        system_instruction = (
+            f"Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis {provider_label}). "
+            "Anda memiliki akses PENUH ke sistem laptop pengguna. "
+            "Gunakan tool/fungsi yang tersedia untuk mengeksekusi perintah kontrol laptop pengguna seperti: "
+            "mengatur volume (set_volume), kontrol musik/lagu/YouTube/Spotify (media_control), "
+            "membuka aplikasi desktop atau browser (open_application), "
+            "menutup aplikasi atau proses (close_application), "
+            "mencari dan memutar video di YouTube (search_youtube_videos, play_youtube_video), "
+            "mengambil screenshot layar laptop (capture_screen), mengambil foto webcam (capture_camera), "
+            "melihat tab browser yang terbuka (get_open_browser_tabs), "
+            "membaca status CPU/RAM/Baterai/Storage (get_system_status), "
+            "membaca/menulis berkas, menjalankan perintah terminal aman (run_command), atau menyimpan memori. "
+            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis.\n"
+            f"{persistent_memory}"
+        )
+
+        messages = [{"role": "system", "content": system_instruction}]
+        for m in self.session.ui_messages[-10:]:
+            role = "user" if m.msg_type == "user" else "assistant"
+            if m.text:
+                messages.append({"role": role, "content": m.text})
+        if not messages or messages[-1].get("content") != message:
+            messages.append({"role": "user", "content": message})
+
+        max_iterations = 10
+        iteration = 0
+        final_text = ""
+
+        while iteration < max_iterations:
+            iteration += 1
+            payload = {
+                "model": model_name,
+                "messages": messages,
+                "tools": OPENAI_TOOLS_SCHEMA,
+                "tool_choice": "auto",
+                "stream": False,
+            }
+            try:
+                req = urllib.request.Request(
+                    target_url,
+                    headers=headers,
+                    data=json.dumps(payload).encode("utf-8"),
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode())
+
+                choices = data.get("choices", [])
+                if not choices:
+                    err = data.get("error", "Tidak ada respon.")
+                    final_text = f"[Galat {provider_label}]: {err}"
+                    break
+
+                choice = choices[0]
+                resp_msg = choice.get("message", {})
+                tool_calls = resp_msg.get("tool_calls")
+
+                if tool_calls:
+                    messages.append(resp_msg)
+                    for tc in tool_calls:
+                        tc_id = tc.get("id", f"call_{iteration}")
+                        fn_info = tc.get("function", {})
+                        fn_name = fn_info.get("name", "")
+                        raw_args = fn_info.get("arguments", "{}")
+                        try:
+                            fn_args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                        except Exception:
+                            fn_args = {}
+
+                        agent_logger.log_info(f"agent.{provider_label.lower()}", f"Tool call: {fn_name} args={fn_args}")
+                        if on_tool_call:
+                            on_tool_call(fn_name, fn_args)
+
+                        if fn_name in AVAILABLE_TOOLS:
+                            try:
+                                func = AVAILABLE_TOOLS[fn_name]
+                                result_str = str(func(**fn_args))
+                            except Exception as exc:
+                                result_str = f"[GAGAL] Eksekusi {fn_name}: {exc}"
+                        else:
+                            result_str = f"[GAGAL] Tool '{fn_name}' tidak ditemukan."
+
+                        preview = result_str[:120].replace("\n", " ") + "..." if len(result_str) > 120 else result_str.replace("\n", " ")
+                        if on_tool_result:
+                            on_tool_result(fn_name, preview)
+
+                        self.session.ui_messages.append(
+                            SessionMessage(
+                                msg_type="tool",
+                                tool_name=fn_name,
+                                tool_args=fn_args,
+                                tool_preview=preview,
+                            )
+                        )
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "content": result_str,
+                        })
+                    continue
+                else:
+                    final_text = resp_msg.get("content", "")
+                    break
+            except urllib.error.HTTPError as exc_http:
+                detail_err = ""
+                try:
+                    body_str = exc_http.read().decode("utf-8", errors="ignore")
+                    if body_str:
+                        try:
+                            body_json = json.loads(body_str)
+                            detail_err = body_json.get("error", {}).get("message", body_str[:120])
+                        except Exception:
+                            detail_err = body_str[:120]
+                except Exception:
+                    detail_err = str(exc_http)
+
+                if "tools" in detail_err.lower() or "tool_choice" in detail_err.lower():
+                    try:
+                        fallback_payload = {
+                            "model": model_name,
+                            "messages": messages,
+                            "stream": False,
+                        }
+                        req_fb = urllib.request.Request(
+                            target_url,
+                            headers=headers,
+                            data=json.dumps(fallback_payload).encode("utf-8"),
+                        )
+                        with urllib.request.urlopen(req_fb, timeout=timeout) as resp_fb:
+                            data_fb = json.loads(resp_fb.read().decode())
+                            final_text = data_fb.get("choices", [{}])[0].get("message", {}).get("content", "")
+                            break
+                    except Exception as fb_exc:
+                        detail_err = f"{detail_err} | Fallback gagal: {fb_exc}"
+                final_text = f"[Galat {provider_label} HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err or exc_http}"
+                break
+            except Exception as exc:
+                final_text = f"[Galat {provider_label}]: {exc}"
+                break
+
+        if not final_text.strip():
+            final_text = f"[Galat {provider_label}]: Tidak ada respon teks dari model '{model_name}'."
+
+        self.session.ui_messages.append(SessionMessage(msg_type="agent", text=final_text))
+        session_manager.save_session(self.session)
+        return final_text
+
     def _send_message_groq(
         self,
         message: str,
@@ -578,77 +903,22 @@ class GeminiAgent:
             return err
 
         target_url = "https://api.groq.com/openai/v1/chat/completions"
-        persistent_memory = memory_manager.format_for_system_instruction()
-        system_instruction = (
-            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis Groq). "
-            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
-            "Dilarang keras menggunakan emoji apapun. "
-            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
-            f"{persistent_memory}"
-        )
-
-        messages = [{"role": "system", "content": system_instruction}]
-        for m in self.session.ui_messages[-10:]:
-            role = "user" if m.msg_type == "user" else "assistant"
-            if m.text:
-                messages.append({"role": role, "content": m.text})
-        if not messages or messages[-1].get("content") != message:
-            messages.append({"role": "user", "content": message})
-
         model_name = self.model_name or "openai/gpt-oss-120b"
-        payload = {
-            "model": model_name,
-            "messages": messages,
-            "stream": False,
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         }
-
-        accumulated_text = ""
-        try:
-            req = urllib.request.Request(
-                target_url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                },
-                data=json.dumps(payload).encode("utf-8"),
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = json.loads(resp.read().decode())
-                if "error" in data:
-                    err_obj = data["error"]
-                    err_msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
-                    accumulated_text = f"[Galat Groq]: {err_msg}"
-                else:
-                    choices = data.get("choices", [])
-                    if choices:
-                        accumulated_text = choices[0].get("message", {}).get("content", "")
-        except urllib.error.HTTPError as exc_http:
-            detail_err = ""
-            try:
-                body_str = exc_http.read().decode("utf-8", errors="ignore")
-                if body_str:
-                    try:
-                        body_json = json.loads(body_str)
-                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
-                    except Exception:
-                        detail_err = body_str[:120]
-            except Exception:
-                detail_err = str(exc_http)
-            agent_logger.log_error("agent.groq", f"Galat Groq HTTP: {exc_http} - Detail: {detail_err}")
-            accumulated_text = f"[Galat Groq HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err or exc_http}"
-        except Exception as exc:
-            agent_logger.log_error("agent.groq", f"Galat Groq: {exc}")
-            accumulated_text = f"[Galat Groq]: {exc}"
-
-        if not accumulated_text.strip():
-            accumulated_text = f"[Galat Groq]: Tidak ada respon teks dari model '{model_name}'."
-
-        if accumulated_text:
-            self.session.ui_messages.append(SessionMessage(msg_type="agent", text=accumulated_text))
-            session_manager.save_session(self.session)
-
-        return accumulated_text
+        return self._send_message_openai_compatible(
+            target_url=target_url,
+            headers=headers,
+            model_name=model_name,
+            message=message,
+            provider_label="Groq",
+            timeout=35,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+        )
 
     def _send_message_omniroute(
         self,
@@ -664,122 +934,20 @@ class GeminiAgent:
         base_url = config_manager.get_omni_base_url().rstrip("/")
         api_key = config_manager.get_omni_api_key() or self.api_key
         target_url = (base_url if base_url.endswith("/v1") else f"{base_url}/v1") + "/chat/completions"
-
-        persistent_memory = memory_manager.format_for_system_instruction()
-        system_instruction = (
-            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent. "
-            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
-            "Dilarang keras menggunakan emoji apapun. "
-            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
-            f"{persistent_memory}"
-        )
-
-        messages = [{"role": "system", "content": system_instruction}]
-        for m in self.session.ui_messages[-10:]:
-            role = "user" if m.msg_type == "user" else "assistant"
-            if m.text:
-                messages.append({"role": role, "content": m.text})
-        if not messages or messages[-1].get("content") != message:
-            messages.append({"role": "user", "content": message})
-
-        payload = {
-            "model": self.model_name,
-            "messages": messages,
-            "stream": False,
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
         }
-
-        accumulated_text = ""
-        try:
-            req = urllib.request.Request(
-                target_url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                data=json.dumps(payload).encode("utf-8"),
-            )
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                data = json.loads(resp.read().decode())
-                if "error" in data:
-                    err_obj = data["error"]
-                    err_msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
-                    accumulated_text = f"[Galat Omniroute]: {err_msg}"
-                else:
-                    choices = data.get("choices", [])
-                    if choices:
-                        accumulated_text = choices[0].get("message", {}).get("content", "")
-        except urllib.error.HTTPError as exc_http:
-            detail_err = ""
-            try:
-                body_str = exc_http.read().decode("utf-8", errors="ignore")
-                if body_str:
-                    try:
-                        body_json = json.loads(body_str)
-                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
-                    except Exception:
-                        detail_err = body_str[:120]
-            except Exception:
-                detail_err = str(exc_http)
-            agent_logger.log_error("agent.omniroute", f"Galat Omniroute: {exc_http} - Detail: {detail_err}")
-            accumulated_text = f"[Galat Omniroute HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err or exc_http}\nPeriksa server di {base_url} dan model '{self.model_name}'."
-        except Exception as exc:
-            agent_logger.log_error("agent.omniroute", f"Galat Omniroute: {exc}")
-            accumulated_text = f"[Galat Omniroute]: {exc}\nPastikan server Omniroute aktif di {base_url} dan model '{self.model_name}' tersedia."
-
-        if not accumulated_text.strip():
-            accumulated_text = f"[Galat Omniroute]: Tidak ada respon teks dari model '{self.model_name}'. Provider upstream (Felo/Opencode) di Omniroute sedang limit (429) atau belum terkonfigurasi. Beralihlah ke Gemini dengan `/provider gemini` atau periksa dashboard Omniroute di {base_url}."
-
-        if accumulated_text:
-            self.session.ui_messages.append(SessionMessage(msg_type="agent", text=accumulated_text))
-            session_manager.save_session(self.session)
-
-def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: float = 6.0) -> bool:
-    """Memeriksa apakah server Ollama aktif; jika belum, otomatis menyalakan server Ollama di latar belakang."""
-    check_url = base_url.replace("/v1", "").rstrip("/") + "/api/tags"
-    try:
-        req = urllib.request.Request(check_url, headers={"User-Agent": "Terminal-Agent/HealthCheck"})
-        with urllib.request.urlopen(req, timeout=1.0) as _:
-            return True
-    except Exception:
-        pass
-
-    try:
-        models_path = getattr(config_manager, "get_ollama_models_path", lambda: r"D:\.ollama\models")() or r"D:\.ollama\models"
-        env = os.environ.copy()
-        env["OLLAMA_MODELS"] = str(models_path)
-        env["OLLAMA_HOST"] = "127.0.0.1:11434"
-
-        ollama_bin = "ollama"
-        custom_bin = r"C:\Users\HP\AppData\Local\Programs\Ollama\ollama.exe"
-        if os.path.exists(custom_bin):
-            ollama_bin = custom_bin
-
-        flags = 0
-        if os.name == "nt":
-            flags = 0x00000008 | 0x00000200 | 0x08000000
-        subprocess.Popen(
-            [ollama_bin, "serve"],
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags,
-            close_fds=True,
+        return self._send_message_openai_compatible(
+            target_url=target_url,
+            headers=headers,
+            model_name=self.model_name,
+            message=message,
+            provider_label="Omniroute",
+            timeout=60,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
         )
-
-        t_start = time.time()
-        while time.time() - t_start < timeout:
-            try:
-                req = urllib.request.Request(check_url, headers={"User-Agent": "Terminal-Agent/HealthCheck"})
-                with urllib.request.urlopen(req, timeout=1.0) as _:
-                    agent_logger.log_info("agent.ollama", f"Server Ollama berhasil dinyalakan otomatis ({round(time.time() - t_start, 2)}s).")
-                    return True
-            except Exception:
-                time.sleep(0.5)
-    except Exception as exc:
-        agent_logger.log_error("agent.ollama", f"Gagal menjalankan server Ollama otomatis: {exc}")
-    return False
-
 
     def _send_message_ollama(
         self,
@@ -793,84 +961,23 @@ def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: flo
         )
 
         base_url = config_manager.get_ollama_base_url().rstrip("/")
-        # Pastikan server Ollama aktif (auto-start di latar belakang jika belum jalan)
         ensure_ollama_running(base_url)
 
         target_url = (base_url if base_url.endswith("/v1") else f"{base_url}/v1") + "/chat/completions"
-
-        persistent_memory = memory_manager.format_for_system_instruction()
-        system_instruction = (
-            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis Ollama). "
-            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
-            "Dilarang keras menggunakan emoji apapun. "
-            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
-            f"{persistent_memory}"
-        )
-
-        messages = [{"role": "system", "content": system_instruction}]
-        for m in self.session.ui_messages[-10:]:
-            role = "user" if m.msg_type == "user" else "assistant"
-            if m.text:
-                messages.append({"role": role, "content": m.text})
-        if not messages or messages[-1].get("content") != message:
-            messages.append({"role": "user", "content": message})
-
-        payload = {
-            "model": self.model_name,
-            "messages": messages,
-            "stream": False,
+        headers = {
+            "Content-Type": "application/json",
         }
-
-        accumulated_text = ""
-        try:
-            req = urllib.request.Request(
-                target_url,
-                headers={
-                    "Content-Type": "application/json",
-                },
-                data=json.dumps(payload).encode("utf-8"),
-            )
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = json.loads(resp.read().decode())
-                if "error" in data:
-                    err_obj = data["error"]
-                    err_msg = err_obj.get("message", str(err_obj)) if isinstance(err_obj, dict) else str(err_obj)
-                    accumulated_text = f"[Galat Ollama]: {err_msg}"
-                else:
-                    choices = data.get("choices", [])
-                    if choices:
-                        accumulated_text = choices[0].get("message", {}).get("content", "")
-        except urllib.error.HTTPError as exc_http:
-            detail_err = ""
-            try:
-                body_str = exc_http.read().decode("utf-8", errors="ignore")
-                if body_str:
-                    try:
-                        body_json = json.loads(body_str)
-                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
-                    except Exception:
-                        detail_err = body_str[:120]
-            except Exception:
-                detail_err = str(exc_http)
-            agent_logger.log_error("agent.ollama", f"Galat Ollama HTTP: {exc_http} - Detail: {detail_err}")
-            accumulated_text = f"[Galat Ollama HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err or exc_http}\nPastikan model '{self.model_name}' sudah diunduh ('ollama pull {self.model_name}')."
-        except Exception as exc:
-            agent_logger.log_error("agent.ollama", f"Galat Koneksi Ollama: {exc}")
-            accumulated_text = (
-                f"[Galat Koneksi Ollama]: Tidak dapat terhubung ke server Ollama di {base_url}.\n"
-                "- Pastikan aplikasi Ollama sudah berjalan ('ollama serve' di terminal).\n"
-                f"- Pastikan model '{self.model_name}' sudah diunduh ('ollama pull {self.model_name}').\n"
-                f"- Detail: {exc}"
-            )
-
-        if not accumulated_text.strip():
-            accumulated_text = f"[Peringatan Ollama]: Tidak ada respon teks dari model '{self.model_name}'. Periksa apakah model sudah diunduh ('ollama list')."
-
-        if accumulated_text:
-            self.session.ui_messages.append(SessionMessage(msg_type="agent", text=accumulated_text))
-            session_manager.save_session(self.session)
-
-        return accumulated_text
+        return self._send_message_openai_compatible(
+            target_url=target_url,
+            headers=headers,
+            model_name=self.model_name,
+            message=message,
+            provider_label="Ollama",
+            timeout=120,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+        )
 
 
 TerminalAgent = GeminiAgent
+
