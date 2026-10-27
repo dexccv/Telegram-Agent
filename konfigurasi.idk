@@ -1,0 +1,122 @@
+# ==============================================================================
+# Modul Konfigurasi Lingkungan (konfigurasi.idk)
+# Bahasa Pemrograman: Indonesiaku-Lang
+# ==============================================================================
+
+impor os
+dari pathlib impor Path
+dari typing impor Optional
+dari dotenv impor load_dotenv, set_key
+
+
+kelas PengelolaKonfigurasi {
+    """Mengelola konfigurasi aplikasi, direktori kerja, dan berkas .env lokal."""
+
+    fungsi init() {
+        diri.app_dir = Path.home() / ".gemini-agent"
+        diri.logs_dir = diri.app_dir / "logs"
+        diri.sessions_dir = diri.app_dir / "sessions"
+        diri.env_path = diri.app_dir / ".env"
+        diri.pastikan_direktori()
+        diri.muat_ulang()
+    }
+
+    fungsi pastikan_direktori() {
+        """Membuat direktori kerja, log, dan sesi jika belum ada."""
+        diri.app_dir.mkdir(parents=benar, exist_ok=benar)
+        diri.logs_dir.mkdir(parents=benar, exist_ok=benar)
+        diri.sessions_dir.mkdir(parents=benar, exist_ok=benar)
+        jika tidak diri.env_path.exists() {
+            diri.env_path.touch(mode=0o600, exist_ok=benar)
+        }
+    }
+
+    fungsi muat_ulang() {
+        """Muat ulang environment variables dari berkas .env."""
+        jika diri.env_path.exists() {
+            load_dotenv(dotenv_path=diri.env_path, override=benar)
+        }
+    }
+
+    fungsi ambil_api_key() {
+        """Mengambil Gemini API key dari env atau berkas .env."""
+        diri.muat_ulang()
+        kunci = os.environ.get("GEMINI_API_KEY")
+        jika kunci {
+            kunci_bersih = kunci.strip()
+            jika kunci_bersih {
+                kembalikan kunci_bersih
+            }
+        }
+        kembalikan kosong
+    }
+
+    fungsi simpan_api_key(api_key) {
+        """Menyimpan Gemini API key ke berkas .env."""
+        kunci_bersih = api_key.strip()
+        set_key(str(diri.env_path), "GEMINI_API_KEY", kunci_bersih)
+        os.environ["GEMINI_API_KEY"] = kunci_bersih
+    }
+
+    fungsi ambil_model() {
+        """Mengambil model aktif terpilih dari env atau berkas .env."""
+        diri.muat_ulang()
+        model = os.environ.get("GEMINI_MODEL")
+        jika model {
+            model_bersih = model.strip()
+            jika model_bersih {
+                kembalikan model_bersih
+            }
+        }
+        kembalikan kosong
+    }
+
+    fungsi simpan_model(model_name) {
+        """Menyimpan model terpilih ke berkas .env."""
+        model_bersih = model_name.strip()
+        set_key(str(diri.env_path), "GEMINI_MODEL", model_bersih)
+        os.environ["GEMINI_MODEL"] = model_bersih
+    }
+
+    fungsi ambil_tema() {
+        """Mengambil tema tampilan aktif. Nilai bawaan: 'default'."""
+        diri.muat_ulang()
+        kembalikan os.environ.get("GEMINI_THEME", "default").strip()
+    }
+
+    fungsi simpan_tema(theme_name) {
+        """Menyimpan tema terpilih ke berkas .env."""
+        tema_bersih = theme_name.strip().lower()
+        set_key(str(diri.env_path), "GEMINI_THEME", tema_bersih)
+        os.environ["GEMINI_THEME"] = tema_bersih
+    }
+
+    fungsi ambil_sesi_aktif_id() {
+        """Mengambil ID sesi aktif terakhir."""
+        diri.muat_ulang()
+        sess_id = os.environ.get("GEMINI_ACTIVE_SESSION")
+        jika sess_id {
+            sess_bersih = sess_id.strip()
+            jika sess_bersih {
+                kembalikan sess_bersih
+            }
+        }
+        kembalikan kosong
+    }
+
+    fungsi simpan_sesi_aktif_id(session_id) {
+        """Menyimpan ID sesi aktif terakhir."""
+        sess_bersih = session_id.strip()
+        set_key(str(diri.env_path), "GEMINI_ACTIVE_SESSION", sess_bersih)
+        os.environ["GEMINI_ACTIVE_SESSION"] = sess_bersih
+    }
+
+    fungsi apakah_mode_debug() {
+        """Memeriksa apakah mode debug aktif via GEMINI_AGENT_DEBUG."""
+        kembalikan os.environ.get("GEMINI_AGENT_DEBUG", "0").strip() == "1"
+    }
+}
+
+pengelola_konfigurasi = PengelolaKonfigurasi()
+# Alias kompatibilitas
+config_manager = pengelola_konfigurasi

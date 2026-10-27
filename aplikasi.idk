@@ -1,0 +1,1707 @@
+# ==============================================================================
+# Aplikasi Terminal Agent TUI (aplikasi.idk)
+# Bahasa Pemrograman: Indonesiaku-Lang
+# ==============================================================================
+
+impor asyncio
+impor datetime
+impor json
+impor os
+impor re
+impor sys
+dari pathlib impor Path
+dari typing impor Any, Optional
+
+dari rich.markdown impor Markdown
+dari textual impor on, work
+dari textual.app impor App, ComposeResult
+dari textual.binding impor Binding
+dari textual.containers impor Container, Horizontal, Vertical, VerticalScroll
+dari textual.screen impor ModalScreen, Screen
+dari textual.widgets impor Button, Input, Label, ListItem, ListView, LoadingIndicator, Static
+
+dari agen impor AgenGemini, GeminiAgent, pindai_model_tersedia, fetch_available_models
+dari konfigurasi impor pengelola_konfigurasi, config_manager
+dari logger impor agent_logger
+dari memori impor pengelola_memori, memory_manager
+dari pengelola_sesi impor pengelola_sesi, session_manager, Sesi, Session, PesanSesi, SessionMessage
+
+
+TEMA_WARNA = {
+    "default": {
+        "accent": "#388bfd",
+        "accent_light": "#58a6ff",
+        "success": "#238636",
+        "success_light": "#3fb950",
+        "warning": "#d29922",
+        "error": "#f85149",
+        "bg": "#0d1117",
+        "bg_panel": "#161b22",
+    },
+    "emerald": {
+        "accent": "#2ea043",
+        "accent_light": "#3fb950",
+        "success": "#238636",
+        "success_light": "#3fb950",
+        "warning": "#d29922",
+        "error": "#f85149",
+        "bg": "#0a100d",
+        "bg_panel": "#121a16",
+    },
+    "crimson": {
+        "accent": "#f85149",
+        "accent_light": "#ff7b72",
+        "success": "#238636",
+        "success_light": "#3fb950",
+        "warning": "#d29922",
+        "error": "#f85149",
+        "bg": "#120d0d",
+        "bg_panel": "#1a1414",
+    },
+    "amber": {
+        "accent": "#d29922",
+        "accent_light": "#e3b341",
+        "success": "#238636",
+        "success_light": "#3fb950",
+        "warning": "#d29922",
+        "error": "#f85149",
+        "bg": "#100e0a",
+        "bg_panel": "#1a1712",
+    },
+    "purple": {
+        "accent": "#8957e5",
+        "accent_light": "#a371f7",
+        "success": "#238636",
+        "success_light": "#3fb950",
+        "warning": "#d29922",
+        "error": "#f85149",
+        "bg": "#0d0d17",
+        "bg_panel": "#14141f",
+    },
+}
+
+THEMES = TEMA_WARNA
+
+BASE_CSS = """
+Screen {
+    background: #0d1117;
+    color: #c9d1d9;
+}
+
+#app_header {
+    height: 1;
+    background: #161b22;
+    border-bottom: solid #30363d;
+    padding: 0 1;
+}
+
+#header_title {
+    color: #58a6ff;
+    text-style: bold;
+    width: 70%;
+}
+
+#header_clock {
+    color: #8b949e;
+    text-align: right;
+    width: 30%;
+}
+
+#chat_messages {
+    height: 1fr;
+    padding: 1 2;
+    background: #0d1117;
+    overflow-y: auto;
+}
+
+.msg-user-box {
+    background: transparent;
+    border-left: solid #388bfd;
+    padding: 0 1;
+    margin: 1 0;
+}
+
+.msg-user-title {
+    color: #58a6ff;
+    text-style: bold;
+}
+
+.msg-agent-box {
+    background: transparent;
+    border-left: solid #238636;
+    padding: 0 1;
+    margin: 1 0;
+}
+
+.msg-agent-title {
+    color: #3fb950;
+    text-style: bold;
+}
+
+.msg-system-box {
+    background: transparent;
+    border-left: solid #d29922;
+    padding: 0 1;
+    margin: 1 0;
+}
+
+.msg-error-box {
+    background: transparent;
+    border-left: solid #f85149;
+    padding: 0 1;
+    margin: 1 0;
+    color: #ff7b72;
+}
+
+.tool-box {
+    height: 1;
+    background: transparent;
+    border: none;
+    padding: 0 1;
+    margin: 0;
+}
+
+.tool-title {
+    color: #58a6ff;
+    text-style: bold;
+}
+
+.tool-args {
+    color: #8b949e;
+}
+
+.tool-status-running {
+    color: #d29922;
+}
+
+.tool-status-done {
+    color: #3fb950;
+}
+
+.tool-preview {
+    color: #8b949e;
+}
+
+#thinking_box {
+    height: 1;
+    padding: 0 1;
+    background: #161b22;
+    color: #d29922;
+    margin: 0;
+    border-left: solid #d29922;
+}
+
+#input_container {
+    height: 3;
+    background: #161b22;
+    border-top: solid #30363d;
+    padding: 0 1;
+    align: left middle;
+}
+
+#chat_prompt_symbol {
+    width: 2;
+    color: #58a6ff;
+    text-style: bold;
+}
+
+#chat_input {
+    width: 1fr;
+    height: 1;
+    border: none;
+    background: transparent;
+    color: #f0f6fc;
+}
+
+#chat_input:focus {
+    border: none;
+}
+
+#btn_send {
+    width: 9;
+    height: 1;
+    border: none;
+    background: #238636;
+    color: #ffffff;
+    text-style: bold;
+    margin-right: 1;
+}
+
+#btn_send:hover {
+    background: #2ea043;
+}
+
+#btn_send:disabled {
+    background: #1b4723;
+    color: #708573;
+}
+
+#btn_interrupt {
+    width: 10;
+    height: 1;
+    border: none;
+    background: #da3633;
+    color: #ffffff;
+    text-style: bold;
+}
+
+#btn_interrupt:hover {
+    background: #f85149;
+}
+
+#status_bar {
+    dock: bottom;
+    height: 1;
+    background: #161b22;
+    color: #8b949e;
+    padding: 0 1;
+    layout: horizontal;
+    border-top: solid #21262d;
+}
+
+.status-model {
+    color: #58a6ff;
+    width: auto;
+    margin-right: 2;
+}
+
+.status-session {
+    color: #e3b341;
+    width: auto;
+    text-style: bold;
+    margin-right: 2;
+}
+
+.status-tokens {
+    color: #a371f7;
+    width: auto;
+    margin-right: 2;
+}
+
+.status-state {
+    color: #3fb950;
+    width: auto;
+    margin-right: 2;
+}
+
+.status-hints {
+    color: #8b949e;
+    width: 1fr;
+    text-align: right;
+}
+
+.status-bar-highlight {
+    background: #1f6feb !important;
+    color: #ffffff !important;
+}
+
+.modal-dialog {
+    width: 82;
+    height: auto;
+    max-height: 85%;
+    background: #161b22;
+    border: heavy #388bfd;
+    padding: 1 2;
+}
+
+.modal-title {
+    color: #58a6ff;
+    text-style: bold;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+.modal-desc {
+    color: #8b949e;
+    margin-bottom: 1;
+}
+
+.model-list-view, .session-list-view {
+    height: 14;
+    border: round #30363d;
+    background: #0d1117;
+    margin-bottom: 1;
+}
+
+.session-action-bar {
+    height: 3;
+    margin-bottom: 1;
+}
+
+.model-item-title, .session-item-title {
+    color: #58a6ff;
+    text-style: bold;
+}
+
+.session-active-title {
+    color: #3fb950;
+    text-style: bold;
+}
+
+.model-item-sub, .session-item-sub {
+    color: #8b949e;
+}
+
+.model-item-desc {
+    color: #c9d1d9;
+}
+"""
+
+
+fungsi buat_semua_css() {
+    potongan = [BASE_CSS]
+    untuk nama, t dalam TEMA_WARNA.items() {
+        blok = f"""
+Screen.theme-{nama} {{
+    background: {t['bg']};
+}}
+Screen.theme-{nama} #app_header {{
+    background: {t['bg_panel']};
+    border-bottom: solid {t['accent']};
+}}
+Screen.theme-{nama} #header_title {{
+    color: {t['accent_light']};
+}}
+Screen.theme-{nama} #chat_messages {{
+    background: {t['bg']};
+}}
+Screen.theme-{nama} .msg-user-box {{
+    border-left: solid {t['accent']};
+}}
+Screen.theme-{nama} .msg-user-title {{
+    color: {t['accent_light']};
+}}
+Screen.theme-{nama} .tool-title {{
+    color: {t['accent_light']};
+}}
+Screen.theme-{nama} #thinking_box {{
+    background: {t['bg_panel']};
+}}
+Screen.theme-{nama} #input_container {{
+    background: {t['bg_panel']};
+}}
+Screen.theme-{nama} #chat_prompt_symbol {{
+    color: {t['accent']};
+}}
+Screen.theme-{nama} #btn_send {{
+    background: {t['success']};
+    color: #ffffff;
+}}
+Screen.theme-{nama} #btn_send:hover {{
+    background: {t['success_light']};
+}}
+Screen.theme-{nama} #btn_send:disabled {{
+    background: #1b4723 !important;
+    color: #708573 !important;
+}}
+Screen.theme-{nama} #btn_interrupt {{
+    background: #da3633 !important;
+    color: #ffffff !important;
+}}
+Screen.theme-{nama} #btn_interrupt:hover {{
+    background: #f85149 !important;
+}}
+Screen.theme-{nama} #status_bar {{
+    background: {t['bg_panel']};
+}}
+Screen.theme-{nama} .status-model {{
+    color: {t['accent_light']};
+}}
+Screen.theme-{nama} .status-session {{
+    color: {t['warning']};
+}}
+Screen.theme-{nama} .status-tokens {{
+    color: {t['accent_light']};
+}}
+Screen.theme-{nama} .status-bar-highlight {{
+    background: {t['accent']} !important;
+}}
+Screen.theme-{nama} .modal-dialog {{
+    background: {t['bg_panel']};
+    border: heavy {t['accent']};
+}}
+Screen.theme-{nama} .modal-title {{
+    color: {t['accent_light']};
+}}
+Screen.theme-{nama} .model-list-view, Screen.theme-{nama} .session-list-view {{
+    background: {t['bg']};
+}}
+Screen.theme-{nama} .model-item-title, Screen.theme-{nama} .session-item-title {{
+    color: {t['accent_light']};
+}}
+Screen.theme-{nama} .session-active-title {{
+    color: {t['success_light']};
+}}
+"""
+        potongan.append(blok)
+    }
+    kembalikan "\n".join(potongan)
+}
+
+APP_CSS = buat_semua_css()
+
+
+kelas ApiKeyModal < ModalScreen {
+    """Layar modal konfigurasi API Key Gemini saat first-run."""
+
+    fungsi compose() {
+        dengan Vertical(classes="modal-dialog") {
+            yield Label("⌬ KONFIGURASI GEMINI API KEY", classes="modal-title")
+            yield Label(
+                "API Key belum terkonfigurasi. Kunci disimpan aman di ~/.gemini-agent/.env.",
+                classes="modal-desc",
+            )
+            yield Input(
+                placeholder="Masukkan API Key (AIzaSy...)",
+                id="api_key_input",
+                password=benar,
+            )
+            dengan Horizontal() {
+                yield Button("Simpan & Lanjutkan ▶", variant="primary", id="btn_save_key")
+                yield Button("Keluar", variant="error", id="btn_exit_key")
+            }
+        }
+    }
+
+    fungsi on_mount() {
+        jika hasattr(diri.app, "active_theme") {
+            diri.add_class(f"theme-{diri.app.active_theme}")
+        }
+        diri.query_one("#api_key_input", Input).focus()
+    }
+
+    @on(Button.Pressed, "#btn_save_key")
+    @on(Input.Submitted, "#api_key_input")
+    fungsi handle_save() {
+        input_widget = diri.query_one("#api_key_input", Input)
+        val = input_widget.value.strip()
+        jika val {
+            pengelola_konfigurasi.simpan_api_key(val)
+            diri.dismiss(val)
+        }
+    }
+
+    @on(Button.Pressed, "#btn_exit_key")
+    fungsi handle_exit() {
+        diri.app.exit()
+    }
+}
+
+
+kelas ModelItem < ListItem {
+    """Item tampilan untuk satu model di ListView."""
+
+    fungsi init(model_info) {
+        super().init()
+        diri.model_info = model_info
+    }
+
+    fungsi compose() {
+        name = diri.model_info.get("display_name", "")
+        m_id = diri.model_info.get("id", "")
+        in_limit = diri.model_info.get("input_token_limit")
+        out_limit = diri.model_info.get("output_token_limit")
+        limit_str = f"In: {in_limit:,} | Out: {out_limit:,}" jika in_limit dan out_limit selain "Token limit: standar"
+        desc = diri.model_info.get("description", "")[:110]
+
+        yield Label(f"▸ {name} ({m_id})", classes="model-item-title")
+        yield Label(f"  Batas Token: {limit_str}", classes="model-item-sub")
+        yield Label(f"  {desc}", classes="model-item-desc")
+    }
+}
+
+
+kelas ModelSelectModal < ModalScreen {
+    """Layar seleksi model otomatis berbasis API Gemini."""
+
+    fungsi init(api_key) {
+        super().init()
+        diri.api_key = api_key
+        diri.models_data = []
+    }
+
+    fungsi compose() {
+        dengan Vertical(classes="modal-dialog") {
+            yield Label("⌬ SELEKSI MODEL GEMINI (AUTO-DETECT)", classes="modal-title")
+            yield Label(
+                "Memindai model resmi yang mendukung generateContent & tool calling...",
+                id="model_status_label",
+                classes="modal-desc",
+            )
+            dengan Vertical(id="loading_container") {
+                yield LoadingIndicator()
+            }
+            yield ListView(id="model_list_view", classes="model-list-view")
+            yield Label("Atau masukkan nama teknis model secara manual:", classes="modal-desc")
+            dengan Horizontal() {
+                yield Input(placeholder="Contoh: gemini-2.5-flash", id="manual_model_input")
+                yield Button("Pilih Manual", id="btn_manual_select")
+            }
+            dengan Horizontal() {
+                yield Button("Gunakan Model Terpilih ▶", variant="primary", id="btn_confirm_model")
+                yield Button("Kembali", id="btn_back")
+            }
+        }
+    }
+
+    fungsi on_mount() {
+        jika hasattr(diri.app, "active_theme") {
+            diri.add_class(f"theme-{diri.app.active_theme}")
+        }
+        list_view = diri.query_one("#model_list_view", ListView)
+        list_view.display = salah
+        diri.query_one("#btn_confirm_model", Button).disabled = benar
+        diri.fetch_models_task()
+    }
+
+    @work(thread=benar)
+    fungsi fetch_models_task() {
+        coba {
+            models = pindai_model_tersedia(diri.api_key)
+            diri.app.call_from_thread(diri._on_models_loaded, models)
+        } kecuali exc {
+            err = agent_logger.diagnose_and_format_error(exc, "fetch_available_models")
+            diri.app.call_from_thread(diri._on_models_error, err.to_cli_string())
+        }
+    }
+
+    fungsi _on_models_loaded(models) {
+        diri.models_data = models
+        diri.query_one("#loading_container").display = salah
+
+        status_lbl = diri.query_one("#model_status_label", Label)
+        list_view = diri.query_one("#model_list_view", ListView)
+
+        jika tidak models {
+            status_lbl.update("[!] Tidak ada model yang kompatibel ditemukan. Silakan masukkan manual.")
+            kembalikan
+        }
+
+        status_lbl.update(f"[●] Ditemukan {len(models)} model yang siap digunakan. Pilih salah satu:")
+        list_view.clear()
+        untuk m dalam models {
+            list_view.append(ModelItem(m))
+        }
+
+        list_view.display = benar
+        diri.query_one("#btn_confirm_model", Button).disabled = salah
+        list_view.focus()
+    }
+
+    fungsi _on_models_error(error_details) {
+        diri.query_one("#loading_container").display = salah
+        status_lbl = diri.query_one("#model_status_label", Label)
+        status_lbl.update("[X] Gagal memindai model dari API. Periksa rincian di bawah:")
+
+        list_view = diri.query_one("#model_list_view", ListView)
+        list_view.display = benar
+        list_view.clear()
+        list_view.append(ListItem(Label(error_details, classes="msg-error-box")))
+
+        manual_input = diri.query_one("#manual_model_input", Input)
+        manual_input.value = "gemini-2.5-flash"
+        manual_input.focus()
+    }
+
+    @on(ListView.Selected, "#model_list_view")
+    fungsi handle_item_selected(event) {
+        jika isinstance(event.item, ModelItem) {
+            selected_id = event.item.model_info.get("id", "")
+            jika selected_id {
+                pengelola_konfigurasi.simpan_model(selected_id)
+                diri.dismiss(selected_id)
+            }
+        }
+    }
+
+    @on(Button.Pressed, "#btn_confirm_model")
+    fungsi handle_confirm_button() {
+        list_view = diri.query_one("#model_list_view", ListView)
+        item = list_view.highlighted_child
+        jika isinstance(item, ModelItem) {
+            selected_id = item.model_info.get("id", "")
+            jika selected_id {
+                pengelola_konfigurasi.simpan_model(selected_id)
+                diri.dismiss(selected_id)
+            }
+        }
+    }
+
+    @on(Button.Pressed, "#btn_manual_select")
+    @on(Input.Submitted, "#manual_model_input")
+    fungsi handle_manual_submit() {
+        manual_input = diri.query_one("#manual_model_input", Input)
+        chosen = manual_input.value.strip()
+        jika chosen {
+            pengelola_konfigurasi.simpan_model(chosen)
+            diri.dismiss(chosen)
+        }
+    }
+
+    @on(Button.Pressed, "#btn_back")
+    fungsi handle_back() {
+        current = pengelola_konfigurasi.ambil_model()
+        jika current {
+            diri.dismiss(current)
+        } selain {
+            diri.app.exit()
+        }
+    }
+}
+
+
+kelas SessionItem < ListItem {
+    """Item tampilan untuk satu sesi di ListView."""
+
+    fungsi init(session_summary, is_active=salah) {
+        super().init()
+        diri.session_summary = session_summary
+        diri.is_active = is_active
+    }
+
+    fungsi compose() {
+        s_id = diri.session_summary.get("session_id", "")
+        title = diri.session_summary.get("title", "Sesi")
+        msgs = diri.session_summary.get("message_count", 0)
+        raw_updated = diri.session_summary.get("updated_at", "")
+        updated = raw_updated[:19].replace("T", " ") jika raw_updated selain "-"
+        model = diri.session_summary.get("model_name", "-")
+
+        badge = " [AKTIF]" jika diri.is_active selain ""
+        title_cls = "session-item-title session-active-title" jika diri.is_active selain "session-item-title"
+        yield Label(f"🗎 {title}{badge}", classes=title_cls)
+        yield Label(f"  ID: {s_id} │ {msgs} Pesan │ Diperbarui: {updated} │ Model: {model}", classes="session-item-sub")
+    }
+}
+
+
+kelas SessionSelectModal < ModalScreen {
+    """Layar manajemen sesi untuk melihat, memulihkan, membuat, atau menghapus sesi."""
+
+    fungsi init(current_session_id) {
+        super().init()
+        diri.current_session_id = current_session_id
+    }
+
+    fungsi compose() {
+        dengan Vertical(classes="modal-dialog") {
+            yield Label("🗎 MANAJEMEN SESI & PEMULIHAN KONTEKS", classes="modal-title")
+            yield Label(
+                "Pilih sesi sebelumnya untuk memulihkan percakapan atau buat sesi baru:",
+                classes="modal-desc",
+            )
+            dengan Horizontal(classes="session-action-bar") {
+                yield Button("+ Sesi Baru", variant="success", id="btn_new_session")
+                yield Button("✕ Hapus Sesi", variant="error", id="btn_delete_session")
+            }
+            yield ListView(id="session_list_view", classes="session-list-view")
+            dengan Horizontal() {
+                yield Button("Buka / Pulihkan Sesi ▶", variant="primary", id="btn_confirm_session")
+                yield Button("Tutup", id="btn_close_session")
+            }
+        }
+    }
+
+    fungsi on_mount() {
+        jika hasattr(diri.app, "active_theme") {
+            diri.add_class(f"theme-{diri.app.active_theme}")
+        }
+        diri._refresh_sessions_list()
+    }
+
+    fungsi _refresh_sessions_list() {
+        list_view = diri.query_one("#session_list_view", ListView)
+        list_view.clear()
+        sessions = pengelola_sesi.daftar_sesi()
+
+        jika tidak sessions {
+            list_view.append(ListItem(Label("Belum ada riwayat sesi tersimpan.", classes="session-item-sub")))
+            diri.query_one("#btn_confirm_session", Button).disabled = benar
+            kembalikan
+        }
+
+        diri.query_one("#btn_confirm_session", Button).disabled = salah
+        target_idx = 0
+        untuk idx, s dalam enumerate(sessions) {
+            is_active = (s["session_id"] == diri.current_session_id)
+            jika is_active {
+                target_idx = idx
+            }
+            list_view.append(SessionItem(s, is_active=is_active))
+        }
+
+        list_view.index = target_idx
+        list_view.focus()
+    }
+
+    fungsi _get_highlighted_session_id() {
+        list_view = diri.query_one("#session_list_view", ListView)
+        item = list_view.highlighted_child
+        jika isinstance(item, SessionItem) {
+            kembalikan item.session_summary.get("session_id")
+        }
+        kembalikan kosong
+    }
+
+    @on(ListView.Selected, "#session_list_view")
+    fungsi handle_item_selected(event) {
+        jika isinstance(event.item, SessionItem) {
+            sess_id = event.item.session_summary.get("session_id")
+            jika sess_id {
+                diri.dismiss(sess_id)
+            }
+        }
+    }
+
+    @on(Button.Pressed, "#btn_confirm_session")
+    fungsi handle_confirm() {
+        sess_id = diri._get_highlighted_session_id()
+        jika sess_id {
+            diri.dismiss(sess_id)
+        }
+    }
+
+    @on(Button.Pressed, "#btn_new_session")
+    fungsi handle_new() {
+        diri.dismiss("__NEW__")
+    }
+
+    @on(Button.Pressed, "#btn_delete_session")
+    fungsi handle_delete() {
+        sess_id = diri._get_highlighted_session_id()
+        jika sess_id {
+            pengelola_sesi.hapus_sesi(sess_id)
+            diri._refresh_sessions_list()
+        }
+    }
+
+    @on(Button.Pressed, "#btn_close_session")
+    fungsi handle_close() {
+        diri.dismiss(kosong)
+    }
+}
+
+
+kelas ToolCallCard < Horizontal {
+    """Widget representasi eksekusi function calling kompak 1 baris."""
+
+    fungsi init(tool_name, args, initial_preview="") {
+        super().init(classes="tool-box")
+        diri.tool_name = tool_name
+        diri.args = args
+        diri.initial_preview = initial_preview
+    }
+
+    fungsi compose() {
+        args_str = ", ".join([f"{k}={v}" untuk k, v dalam diri.args.items()]) jika isinstance(diri.args, dict) selain str(diri.args)
+        jika len(args_str) > 36 {
+            args_str = args_str[:33] + "..."
+        }
+        yield Label(f"⚙ [alat] {diri.tool_name}({args_str}) ", classes="tool-title")
+        jika diri.initial_preview {
+            yield Label(f"─ Selesai: {diri.initial_preview[:45]}", id="status_label", classes="tool-status-done")
+        } selain {
+            yield Label("─ [▒▒▒▒] Menjalankan...", id="status_label", classes="tool-status-running")
+        }
+    }
+
+    fungsi mark_completed(preview_text) {
+        coba {
+            status_lbl = diri.query_one("#status_label", Label)
+            clean_prev = preview_text.replace("\n", " ").strip()
+            jika len(clean_prev) > 50 {
+                clean_prev = clean_prev[:47] + "..."
+            }
+            status_lbl.update(f"─ Selesai: {clean_prev}")
+            status_lbl.remove_class("tool-status-running")
+            status_lbl.add_class("tool-status-done")
+        } kecuali exc {
+            lewati
+        }
+    }
+}
+
+
+kelas TypingMessageCard < Static {
+    """Bubble respon agen dengan live chunk streaming Markdown."""
+
+    fungsi init(full_text="", animate=salah) {
+        super().init(classes="msg-agent-box")
+        diri.full_text = full_text
+    }
+
+    fungsi compose() {
+        yield Label("⌬ GEMINI:", classes="msg-agent-title")
+        yield Static(Markdown(diri.full_text) jika diri.full_text selain "", id="typed_content")
+    }
+
+    fungsi append_delta(delta) {
+        diri.full_text += delta
+        coba {
+            content_widget = diri.query_one("#typed_content", Static)
+            content_widget.update(Markdown(diri.full_text))
+        } kecuali exc {
+            lewati
+        }
+    }
+
+    fungsi finalize(final_text) {
+        diri.full_text = final_text
+        coba {
+            content_widget = diri.query_one("#typed_content", Static)
+            content_widget.update(Markdown(diri.full_text))
+        } kecuali exc {
+            lewati
+        }
+    }
+
+    fungsi stop_animation() {
+        diri.finalize(diri.full_text)
+    }
+}
+
+
+kelas GeminiTerminalAgentApp < App {
+    """Aplikasi TUI Textual utama untuk Gemini Terminal Agent dengan Memori & Sesi."""
+
+    CSS = APP_CSS
+    TITLE = "Gemini Terminal Agent (Indonesiaku-Lang)"
+
+    BINDINGS = [
+        Binding("ctrl+s", "open_session_modal", "Sesi", show=benar),
+        Binding("ctrl+m", "open_model_select", "Pilih Model", show=benar),
+        Binding("ctrl+x", "interrupt_agent", "Hentikan", show=benar),
+        Binding("ctrl+r", "restart_app", "Restart", show=benar),
+        Binding("ctrl+t", "cycle_theme", "Ganti Tema", show=benar),
+        Binding("ctrl+l", "clear_chat", "Bersihkan Chat", show=benar),
+        Binding("ctrl+c", "quit_app", "Keluar", show=benar),
+    ]
+
+    fungsi init() {
+        super().init()
+        diri.agent = kosong
+        diri.active_tool_card = kosong
+        diri.active_typing_card = kosong
+        diri.current_agent_worker = kosong
+        diri.is_thinking = salah
+        diri.active_theme = pengelola_konfigurasi.ambil_tema()
+    }
+
+    fungsi compose() {
+        dengan Horizontal(id="app_header") {
+            yield Label("⌬ GEMINI AGENT", id="header_title")
+            yield Label("LIVE CLOCK", id="header_clock")
+        }
+
+        yield VerticalScroll(id="chat_messages")
+
+        dengan Horizontal(id="thinking_box") {
+            yield LoadingIndicator()
+            yield Label("  [▒▒▒▒] Agen sedang memproses...")
+        }
+
+        dengan Horizontal(id="input_container") {
+            yield Label("❯ ", id="chat_prompt_symbol")
+            yield Input(
+                placeholder="Ketik instruksi, @file untuk lampiran berkas, atau /help...",
+                id="chat_input",
+            )
+            yield Button("Kirim", id="btn_send")
+            yield Button("Stop", id="btn_interrupt")
+        }
+
+        dengan Horizontal(id="status_bar") {
+            yield Label("[⌬ MODEL: Inisialisasi...]", id="status_model", classes="status-model")
+            yield Label("[🗎 SESI: Inisialisasi...]", id="status_session", classes="status-session")
+            yield Label("[Tokens: 0]", id="status_tokens", classes="status-tokens")
+            yield Label("[● READY]", id="status_state", classes="status-state")
+            yield Label("Ctrl+S: Sesi · Ctrl+M: Model · Ctrl+R: Restart · Ctrl+X: Stop · /help", classes="status-hints")
+        }
+    }
+
+    fungsi on_mount() {
+        diri.query_one("#thinking_box").display = salah
+        diri.apply_theme(diri.active_theme)
+        diri.update_live_clock()
+        diri.set_interval(1.0, diri.update_live_clock)
+        diri.check_first_run()
+    }
+
+    fungsi update_live_clock() {
+        now = datetime.datetime.now().strftime("%H:%M:%S")
+        m_name = diri.agent.model_name jika diri.agent selain "Inisialisasi"
+        s_title = diri.agent.session.title jika diri.agent selain "Sesi"
+        diri.query_one("#header_title", Label).update(f"⌬ GEMINI AGENT ─ {m_name} │ {s_title[:24]}")
+        diri.query_one("#header_clock", Label).update(f"│ {now}")
+    }
+
+    fungsi check_first_run() {
+        api_key = pengelola_konfigurasi.ambil_api_key()
+        jika tidak api_key {
+            diri.push_screen(ApiKeyModal(), diri._on_key_configured)
+            kembalikan
+        }
+
+        model_name = pengelola_konfigurasi.ambil_model()
+        jika tidak model_name {
+            diri.push_screen(ModelSelectModal(api_key), diri._on_model_configured)
+            kembalikan
+        }
+
+        diri._start_agent(api_key, model_name)
+    }
+
+    fungsi _on_key_configured(api_key) {
+        model_name = pengelola_konfigurasi.ambil_model()
+        jika tidak model_name {
+            diri.push_screen(ModelSelectModal(api_key), diri._on_model_configured)
+        } selain {
+            diri._start_agent(api_key, model_name)
+        }
+    }
+
+    fungsi _on_model_configured(model_name) {
+        api_key = pengelola_konfigurasi.ambil_api_key() atau ""
+        diri._start_agent(api_key, model_name)
+        diri.flash_model_transition(model_name)
+    }
+
+    fungsi _start_agent(api_key, model_name) {
+        coba {
+            diri.agent = AgenGemini(api_key=api_key, model_name=model_name)
+            diri.update_status_bar(model_name, "ONLINE", diri.agent.session.title)
+
+            jika diri.agent.session.ui_messages {
+                diri.restore_session_ui(diri.agent.session)
+            } selain {
+                welcome_text = (
+                    f"Sistem aktif dengan model `{model_name}` (Engine: Indonesiaku-Lang).\n"
+                    f"Tema saat ini: `{diri.active_theme}`.\n"
+                    f"Sesi aktif: `{diri.agent.session.title}` (ID: `{diri.agent.session.session_id}`).\n\n"
+                    "Fitur AI Agent:\n"
+                    "- Operasi Berkas: `buat_folder`, `daftar_berkas`, `baca_berkas`, `tulis_berkas`, `edit_berkas`\n"
+                    "- Shell Sistem: `jalankan_perintah` (dengan sandbox dan proteksi keamanan)\n"
+                    "- Konteks Cepat: Ketik `@nama_berkas` pada input chat untuk menyertakan isi file\n"
+                    "- Ekspor Sesi: Ketik `/export [nama.md]` untuk mengekspor percakapan ke Markdown\n"
+                    "- Memori Persisten: `simpan_memori`, `ingat_memori`, `daftar_memori`\n\n"
+                    "Pintasan Keyboard:\n"
+                    "- `Ctrl + S` : Buka Manajemen & Pemulihan Sesi\n"
+                    "- `Ctrl + M` : Buka Layar Pemilihan Model\n"
+                    "- `Ctrl + R` : Memulai ulang aplikasi (Restart)\n"
+                    "- `Ctrl + X` : Hentikan respon agen (Stop / Interrupt)\n"
+                    "- `Ctrl + T` : Ganti tema visual\n"
+                    "- `Ctrl + L` : Bersihkan chat / mulai sesi baru\n\n"
+                    "Ketik `/help` untuk panduan lengkap perintah slash."
+                )
+                diri.append_system_message(welcome_text)
+            }
+        } kecuali exc {
+            err = agent_logger.diagnose_and_format_error(exc, "init_agent", model_name)
+            diri.append_error_message(err.to_cli_string())
+        }
+    }
+
+    fungsi update_status_bar(model_name, state, session_title=kosong) {
+        diri.query_one("#status_model", Label).update(f"[⌬ {model_name}]")
+        diri.query_one("#status_state", Label).update(f"[● {state}]")
+        jika session_title tidak kosong {
+            short_title = session_title[:20] + "..." jika len(session_title) > 20 selain session_title
+            diri.query_one("#status_session", Label).update(f"[🗎 {short_title}]")
+        }
+        total_tokens = 0
+        jika diri.agent dan hasattr(diri.agent, "last_usage_metadata") {
+            total_tokens = diri.agent.last_usage_metadata.get("total_tokens", 0)
+        }
+        coba {
+            tok_lbl = f"[Tokens: {total_tokens:,}]" jika total_tokens > 0 selain "[Tokens: 0]"
+            diri.query_one("#status_tokens", Label).update(tok_lbl)
+        } kecuali exc {
+            lewati
+        }
+    }
+
+    fungsi flash_model_transition(new_model) {
+        bar = diri.query_one("#status_bar")
+        bar.add_class("status-bar-highlight")
+        diri.update_status_bar(new_model, "MODEL BERGANTI")
+
+        fungsi _remove_highlight() {
+            bar.remove_class("status-bar-highlight")
+            curr_title = diri.agent.session.title jika diri.agent selain kosong
+            diri.update_status_bar(new_model, "READY", curr_title)
+        }
+
+        diri.set_timer(1.5, _remove_highlight)
+    }
+
+    fungsi append_user_message(text) {
+        scroll = diri.query_one("#chat_messages", VerticalScroll)
+        box = Vertical(Label("❯ ANDA:", classes="msg-user-title"), Label(text), classes="msg-user-box")
+        scroll.mount(box)
+        scroll.scroll_end(animate=benar)
+    }
+
+    fungsi append_system_message(markdown_text) {
+        scroll = diri.query_one("#chat_messages", VerticalScroll)
+        box = Vertical(Label(Markdown(markdown_text)), classes="msg-system-box")
+        scroll.mount(box)
+        scroll.scroll_end(animate=benar)
+    }
+
+    fungsi append_error_message(formatted_error) {
+        scroll = diri.query_one("#chat_messages", VerticalScroll)
+        box = Vertical(Label(formatted_error), classes="msg-error-box")
+        scroll.mount(box)
+        scroll.scroll_end(animate=benar)
+    }
+
+    fungsi restore_session_ui(session) {
+        scroll = diri.query_one("#chat_messages", VerticalScroll)
+        untuk child dalam list(scroll.children) {
+            child.remove()
+        }
+
+        untuk msg dalam session.ui_messages {
+            jika msg.msg_type == "user" {
+                box = Vertical(Label("⌬ ANDA:", classes="msg-user-title"), Label(msg.text), classes="msg-user-box")
+                scroll.mount(box)
+            } jika_lain msg.msg_type == "tool" {
+                card = ToolCallCard(tool_name=msg.tool_name, args=msg.tool_args, initial_preview=msg.tool_preview)
+                scroll.mount(card)
+            } jika_lain msg.msg_type == "agent" {
+                card = TypingMessageCard(full_text=msg.text, animate=salah)
+                scroll.mount(card)
+            } jika_lain msg.msg_type == "system" {
+                box = Vertical(Label(Markdown(msg.text)), classes="msg-system-box")
+                scroll.mount(box)
+            }
+        }
+
+        scroll.scroll_end(animate=salah)
+        diri.update_status_bar(diri.agent.model_name jika diri.agent selain "-", "READY", session.title)
+        diri.append_system_message(
+            f"Sesi **{session.title}** ({len(session.ui_messages)} pesan) dipulihkan. Konteks percakapan siap dilanjutkan."
+        )
+    }
+
+    @on(Button.Pressed, "#btn_send")
+    @on(Input.Submitted, "#chat_input")
+    fungsi handle_submit() {
+        input_widget = diri.query_one("#chat_input", Input)
+        raw_msg = input_widget.value.strip()
+        jika tidak raw_msg {
+            kembalikan
+        }
+
+        input_widget.value = ""
+
+        jika raw_msg.startswith("/") {
+            diri.handle_slash_command(raw_msg)
+            kembalikan
+        }
+
+        pesan_terproses, lampiran_info = diri._ekstrak_konteks_berkas(raw_msg)
+        diri.append_user_message(raw_msg)
+        jika lampiran_info {
+            diri.append_system_message(lampiran_info)
+        }
+        diri.current_agent_worker = diri.dispatch_agent_message(pesan_terproses)
+    }
+
+    fungsi _ekstrak_konteks_berkas(teks) {
+        pola_at = re.findall(r"@([a-zA-Z0-9_\.\-\/\\]+)", teks)
+        jika tidak pola_at {
+            kembalikan (teks, "")
+        }
+
+        lampiran_teks = []
+        info_list = []
+        untuk match dalam pola_at {
+            coba {
+                p = Path(match)
+                jika p.exists() dan p.is_file() {
+                    konten = p.read_text(encoding="utf-8", errors="replace")
+                    lampiran_teks.append(f"\n\n[Lampiran Konteks Berkas @{match}]:\n```\n{konten}\n```\n")
+                    info_list.append(f"`@{match}` ({len(konten)} char)")
+                }
+            } kecuali exc {
+                lewati
+            }
+        }
+
+        jika lampiran_teks {
+            pesan_lengkap = teks + "\n" + "\n".join(lampiran_teks)
+            info_str = "📎 Menyertakan konteks berkas: " + ", ".join(info_list)
+            kembalikan (pesan_lengkap, info_str)
+        }
+        kembalikan (teks, "")
+    }
+
+    @on(Button.Pressed, "#btn_interrupt")
+    fungsi handle_interrupt_button() {
+        diri.action_interrupt_agent()
+    }
+
+    fungsi handle_slash_command(cmd_text) {
+        parts = cmd_text.split(maxsplit=1)
+        command = parts[0].lower()
+        arg = parts[1].strip() jika len(parts) > 1 selain ""
+
+        jika command dalam ["/quit", "/exit"] {
+            diri.action_quit_app()
+        } jika_lain command dalam ["/restart", "/reload", "/reboot"] {
+            diri.action_restart_app()
+        } jika_lain command dalam ["/stop", "/interrupt", "/batal", "/cancel"] {
+            diri.action_interrupt_agent()
+        } jika_lain command dalam ["/export", "/ekspor"] {
+            diri._handle_export_command(arg)
+        } jika_lain command == "/clear" {
+            diri.action_clear_chat()
+        } jika_lain command dalam ["/session", "/sessions"] {
+            diri._handle_session_command(arg)
+        } jika_lain command == "/memory" {
+            diri._handle_memory_command(arg)
+        } jika_lain command == "/theme" {
+            jika arg dalam TEMA_WARNA {
+                diri.apply_theme(arg)
+                diri.append_system_message(f"Tema berhasil diubah ke: `{arg}`")
+            } selain {
+                themes_list = ", ".join([f"`{t}`" untuk t dalam TEMA_WARNA.keys()])
+                diri.append_system_message(f"Tema `{arg}` tidak ditemukan. Pilihan: {themes_list}")
+            }
+        } jika_lain command == "/model" {
+            jika arg {
+                pengelola_konfigurasi.simpan_model(arg)
+                jika diri.agent {
+                    diri.agent.change_model(arg)
+                }
+                diri.flash_model_transition(arg)
+                diri.append_system_message(f"Model aktif dialihkan secara langsung ke: `{arg}`")
+            } selain {
+                diri.action_open_model_select()
+            }
+        } jika_lain command == "/help" {
+            help_content = (
+                "### Panduan Perintah Slash & Fitur AI Agent (Indonesiaku-Lang)\n\n"
+                "| Perintah / Format | Fungsi |\n"
+                "| :--- | :--- |\n"
+                "| `@nama_berkas` | Lampirkan isi berkas ke prompt secara otomatis (misal: `@app.py`) |\n"
+                "| `/export [nama.md]` | Ekspor seluruh percakapan sesi ini ke format Markdown |\n"
+                "| `/restart` | Memulai ulang aplikasi terminal agent secara bersih |\n"
+                "| `/stop` | Hentikan pemrosesan respon agen seketika |\n"
+                "| `/session` | Buka jendela modal manajemen & pemulihan sesi |\n"
+                "| `/session list` | Tampilkan daftar semua sesi yang tersimpan |\n"
+                "| `/session load <id/no>` | Pulihkan dan masuk ke sesi tertentu |\n"
+                "| `/session new [judul]` | Mulai sesi percakapan baru yang segar |\n"
+                "| `/session rename <judul>`| Beri nama baru untuk sesi aktif saat ini |\n"
+                "| `/session delete <id/no>`| Hapus sesi percakapan dari disk |\n"
+                "| `/session info` | Informasi detail tentang sesi aktif saat ini |\n"
+                "| `/memory` | Tampilkan daftar memori jangka panjang agent |\n"
+                "| `/memory set <key> <val>`| Simpan instruksi/fakta ke memori persisten |\n"
+                "| `/memory delete <key>` | Hapus kunci memori tertentu |\n"
+                "| `/memory clear` | Kosongkan seluruh memori jangka panjang |\n"
+                "| `/model [nama]` | Buka seleksi model atau langsung ganti model |\n"
+                "| `/theme <nama>` | Ganti tema UI (default, emerald, crimson, amber, purple) |\n"
+                "| `/clear` | Mulai sesi baru & bersihkan layar chat |\n"
+                "| `/quit` | Keluar dari aplikasi terminal agent |\n\n"
+                "### Pintasan Keyboard\n"
+                "- `Enter` : Kirim pesan prompt\n"
+                "- `Ctrl + R` : Memulai ulang aplikasi (Restart)\n"
+                "- `Ctrl + X` : Hentikan respon agen (Interrupt / Stop)\n"
+                "- `Ctrl + S` : Buka Layar Manajemen Sesi\n"
+                "- `Ctrl + M` : Buka Layar Pemilihan Model\n"
+                "- `Ctrl + T` : Ganti tema secara berurutan\n"
+                "- `Ctrl + L` : Bersihkan chat / mulai sesi baru\n"
+                "- `Ctrl + C` : Keluar dari aplikasi\n"
+            )
+            diri.append_system_message(help_content)
+        } selain {
+            diri.append_system_message(f"[!] Perintah `{command}` tidak dikenal. Ketik `/help` untuk panduan.")
+        }
+    }
+
+    fungsi _handle_session_command(arg) {
+        jika tidak diri.agent {
+            diri.append_error_message("[X] Agent belum diinisialisasi.")
+            kembalikan
+        }
+
+        jika tidak arg atau arg == "modal" {
+            diri.action_open_session_modal()
+            kembalikan
+        }
+
+        subparts = arg.split(maxsplit=1)
+        subcmd = subparts[0].lower()
+        subarg = subparts[1].strip() jika len(subparts) > 1 selain ""
+
+        jika subcmd == "list" {
+            sessions = pengelola_sesi.daftar_sesi()
+            jika tidak sessions {
+                diri.append_system_message("Belum ada riwayat sesi tersimpan.")
+                kembalikan
+            }
+
+            baris = ["### Daftar Sesi Tersimpan\n"]
+            baris.append("| No | Sesi | ID | Pesan | Model | Terakhir Diperbarui |")
+            baris.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+            untuk idx, s dalam enumerate(sessions, 1) {
+                is_active = (s["session_id"] == diri.agent.session.session_id)
+                tag = " `[AKTIF]`" jika is_active selain ""
+                title = s["title"] + tag
+                updated = s["updated_at"][:19].replace("T", " ") jika s["updated_at"] selain "-"
+                baris.append(f"| {idx} | {title} | `{s['session_id']}` | {s['message_count']} | `{s['model_name']}` | {updated} |")
+            }
+            baris.append("\nKetik `/session load <nomor_atau_id>` untuk berpindah sesi.")
+            diri.append_system_message("\n".join(baris))
+        } jika_lain subcmd == "load" {
+            jika tidak subarg {
+                diri.append_system_message("[!] Tentukan nomor urut atau ID sesi. Contoh: `/session load 1`")
+                kembalikan
+            }
+
+            target_id = diri._resolve_session_id(subarg)
+            jika tidak target_id {
+                diri.append_system_message(f"[!] Sesi '{subarg}' tidak ditemukan.")
+                kembalikan
+            }
+
+            target_sess = pengelola_sesi.ambil_sesi(target_id)
+            jika tidak target_sess {
+                diri.append_system_message(f"[!] Gagal memuat berkas sesi: {target_id}")
+                kembalikan
+            }
+
+            diri.agent.switch_session(target_sess)
+            diri.restore_session_ui(target_sess)
+        } jika_lain subcmd == "new" {
+            new_title = subarg jika subarg selain kosong
+            new_sess = diri.agent.create_new_session(title=new_title)
+            diri.restore_session_ui(new_sess)
+            diri.append_system_message(f"Sesi baru dimulai: **{new_sess.title}** (ID: `{new_sess.session_id}`).")
+        } jika_lain subcmd dalam ["rename", "title"] {
+            jika tidak subarg {
+                diri.append_system_message("[!] Masukkan judul baru. Contoh: `/session rename Proyek Analisis Data`")
+                kembalikan
+            }
+            diri.agent.session.title = subarg
+            pengelola_sesi.simpan_sesi(diri.agent.session)
+            diri.update_status_bar(diri.agent.model_name, "READY", subarg)
+            diri.append_system_message(f"Judul sesi aktif diubah menjadi: **{subarg}**")
+        } jika_lain subcmd == "delete" {
+            jika tidak subarg {
+                diri.append_system_message("[!] Tentukan nomor urut atau ID sesi yang ingin dihapus.")
+                kembalikan
+            }
+
+            target_id = diri._resolve_session_id(subarg)
+            jika tidak target_id {
+                diri.append_system_message(f"[!] Sesi '{subarg}' tidak ditemukan.")
+                kembalikan
+            }
+
+            jika target_id == diri.agent.session.session_id {
+                diri.append_system_message("[!] Tidak dapat menghapus sesi yang sedang aktif. Beralihlah ke sesi lain terlebih dahulu.")
+                kembalikan
+            }
+
+            pengelola_sesi.hapus_sesi(target_id)
+            diri.append_system_message(f"Sesi `{target_id}` berhasil dihapus.")
+        } jika_lain subcmd == "info" {
+            s = diri.agent.session
+            info_text = (
+                f"### Informasi Sesi Aktif\n\n"
+                f"- **Judul Sesi**: {s.title}\n"
+                f"- **ID Sesi**: `{s.session_id}`\n"
+                f"- **Model**: `{s.model_name}`\n"
+                f"- **Jumlah Pesan**: {len(s.ui_messages)}\n"
+                f"- **Jumlah Putaran Multi-Turn**: {len(s.history)}\n"
+                f"- **Waktu Dibuat**: {s.created_at[:19].replace('T', ' ')}\n"
+                f"- **Waktu Terakhir Diperbarui**: {s.updated_at[:19].replace('T', ' ')}\n"
+            )
+            diri.append_system_message(info_text)
+        } selain {
+            diri.append_system_message(f"[!] Perintah `/session {subcmd}` tidak dikenal. Ketik `/help` untuk panduan.")
+        }
+    }
+
+    fungsi _resolve_session_id(input_str) {
+        sessions = pengelola_sesi.daftar_sesi()
+        jika input_str.isdigit() {
+            idx = int(input_str) - 1
+            jika 0 <= idx < len(sessions) {
+                kembalikan sessions[idx]["session_id"]
+            }
+        }
+        untuk s dalam sessions {
+            jika s["session_id"] == input_str atau s["session_id"].startswith(input_str) {
+                kembalikan s["session_id"]
+            }
+        }
+        kembalikan kosong
+    }
+
+    fungsi _handle_memory_command(arg) {
+        jika tidak arg atau arg == "list" {
+            mems = pengelola_memori.ambil_semua()
+            jika tidak mems {
+                diri.append_system_message("Memori jangka panjang masih kosong. Gunakan `/memory set <kunci> <nilai>` untuk menambahkan fakta.")
+                kembalikan
+            }
+
+            baris = ["### Memori Jangka Panjang Persisten\n"]
+            baris.append("Fakta berikut selalu diingat agen di semua sesi:\n")
+            baris.append("| Kunci (Key) | Nilai (Value) |")
+            baris.append("| :--- | :--- |")
+            untuk k, v dalam mems.items() {
+                baris.append(f"| `{k}` | {v} |")
+            }
+            diri.append_system_message("\n".join(baris))
+        } jika_lain arg.startswith("set ") {
+            rest = arg[4:].strip()
+            parts = rest.split(maxsplit=1)
+            jika len(parts) < 2 {
+                diri.append_system_message("[!] Format salah. Gunakan: `/memory set <kunci> <nilai>`")
+                kembalikan
+            }
+            k, v = parts[0], parts[1]
+            pengelola_memori.simpan(k, v)
+            jika diri.agent {
+                diri.agent._init_chat_session()
+            }
+            diri.append_system_message(f"Memori disimpan: `{k}` = **{v}**. Konteks agen diperbarui.")
+        } jika_lain arg.startswith("delete ") {
+            k = arg[7:].strip()
+            jika pengelola_memori.hapus(k) {
+                jika diri.agent {
+                    diri.agent._init_chat_session()
+                }
+                diri.append_system_message(f"Kunci memori `{k}` berhasil dihapus.")
+            } selain {
+                diri.append_system_message(f"[!] Kunci memori `{k}` tidak ditemukan.")
+            }
+        } jika_lain arg == "clear" {
+            pengelola_memori.bersihkan()
+            jika diri.agent {
+                diri.agent._init_chat_session()
+            }
+            diri.append_system_message("Seluruh memori jangka panjang telah dikosongkan.")
+        } selain {
+            diri.append_system_message("[!] Sub-perintah `/memory` tidak dikenal. Pilihan: `/memory`, `/memory set <kunci> <nilai>`, `/memory delete <kunci>`, `/memory clear`")
+        }
+    }
+
+    fungsi _handle_export_command(filename_arg) {
+        jika tidak diri.agent atau tidak diri.agent.session {
+            diri.append_system_message("[!] Tidak ada sesi aktif yang dapat diekspor.")
+            kembalikan
+        }
+        s = diri.agent.session
+        nama_target = filename_arg.strip() jika filename_arg.strip() selain f"ekspor_{s.title.lower().replace(' ', '_')}_{s.session_id[:6]}.md"
+        jika tidak nama_target.endswith(".md") {
+            nama_target += ".md"
+        }
+
+        baris = [
+            f"# Ekspor Percakapan: {s.title}",
+            f"- **ID Sesi**: `{s.session_id}`",
+            f"- **Model**: `{s.model_name}`",
+            f"- **Waktu**: {s.created_at[:19].replace('T', ' ')}",
+            "",
+            "---",
+            "",
+        ]
+
+        untuk m dalam s.ui_messages {
+            jika m.msg_type == "user" {
+                baris.append(f"### ❯ Anda\n\n{m.text}\n")
+            } jika_lain m.msg_type == "agent" {
+                baris.append(f"### ⌬ Gemini Agent\n\n{m.text}\n")
+            } jika_lain m.msg_type == "tool" {
+                baris.append(f"> ⚙ **[Tool]** `{m.tool_name}`: {m.tool_preview}\n")
+            }
+        }
+
+        coba {
+            jalur = Path(nama_target)
+            jalur.write_text("\n".join(baris), encoding="utf-8")
+            diri.append_system_message(f"Sesi percakapan berhasil diekspor ke: **{jalur.name}** ({len(s.ui_messages)} pesan).")
+        } kecuali exc {
+            diri.append_error_message(f"[X] Gagal mengekspor sesi ke '{nama_target}': {exc}")
+        }
+    }
+
+    @work(thread=benar)
+    fungsi dispatch_agent_message(message) {
+        jika tidak diri.agent {
+            diri.app.call_from_thread(
+                diri.append_error_message,
+                "[X] Agen belum diinisialisasi. Periksa API Key dan Model.",
+            )
+            kembalikan
+        }
+
+        diri.app.call_from_thread(diri._set_thinking_state, benar)
+
+        coba {
+            response_text = diri.agent.send_message(
+                message=message,
+                on_tool_call=diri._ui_tool_call_start,
+                on_tool_result=diri._ui_tool_call_finish,
+                on_chunk=diri._ui_on_chunk,
+            )
+            jika diri.agent dan diri.agent.interrupted {
+                kembalikan
+            }
+            diri.app.call_from_thread(diri._render_agent_response, response_text)
+            diri.app.call_from_thread(
+                diri.update_status_bar,
+                diri.agent.model_name,
+                "READY",
+                diri.agent.session.title,
+            )
+        } kecuali exc {
+            jika diri.agent dan diri.agent.interrupted {
+                kembalikan
+            }
+            err = agent_logger.diagnose_and_format_error(
+                exc=exc,
+                context="generate: send_message",
+                active_model=diri.agent.model_name,
+            )
+            diri.app.call_from_thread(diri.append_error_message, err.to_cli_string())
+        } akhirnya {
+            diri.app.call_from_thread(diri._set_thinking_state, salah)
+        }
+    }
+
+    fungsi _ui_on_chunk(delta_text) {
+        fungsi _append_chunk() {
+            jika tidak diri.active_typing_card {
+                scroll = diri.query_one("#chat_messages", VerticalScroll)
+                card = TypingMessageCard("", animate=salah)
+                diri.active_typing_card = card
+                scroll.mount(card)
+            }
+            coba {
+                diri.active_typing_card.append_delta(delta_text)
+                scroll = diri.query_one("#chat_messages", VerticalScroll)
+                scroll.scroll_end(animate=salah)
+            } kecuali exc {
+                lewati
+            }
+        }
+        diri.call_from_thread(_append_chunk)
+    }
+
+    fungsi _set_thinking_state(is_thinking) {
+        diri.is_thinking = is_thinking
+        diri.query_one("#thinking_box").display = is_thinking
+        coba {
+            diri.query_one("#btn_send").disabled = is_thinking
+        } kecuali exc {
+            lewati
+        }
+        status = "MEMPROSES..." jika is_thinking selain "READY"
+        title = diri.agent.session.title jika diri.agent selain kosong
+        diri.update_status_bar(diri.agent.model_name jika diri.agent selain "-", status, title)
+    }
+
+    fungsi _ui_tool_call_start(tool_name, args) {
+        fungsi _add_card() {
+            scroll = diri.query_one("#chat_messages", VerticalScroll)
+            card = ToolCallCard(tool_name, args)
+            diri.active_tool_card = card
+            scroll.mount(card)
+            scroll.scroll_end(animate=benar)
+        }
+        diri.call_from_thread(_add_card)
+    }
+
+    fungsi _ui_tool_call_finish(tool_name, preview) {
+        fungsi _update_card() {
+            jika diri.active_tool_card {
+                diri.active_tool_card.mark_completed(preview)
+                diri.active_tool_card = kosong
+            }
+            scroll = diri.query_one("#chat_messages", VerticalScroll)
+            scroll.scroll_end(animate=benar)
+        }
+        diri.call_from_thread(_update_card)
+    }
+
+    fungsi _render_agent_response(full_text) {
+        jika diri.active_typing_card {
+            diri.active_typing_card.finalize(full_text)
+            diri.active_typing_card = kosong
+        } selain {
+            scroll = diri.query_one("#chat_messages", VerticalScroll)
+            card = TypingMessageCard(full_text, animate=salah)
+            scroll.mount(card)
+        }
+        scroll = diri.query_one("#chat_messages", VerticalScroll)
+        scroll.scroll_end(animate=benar)
+    }
+
+    fungsi action_interrupt_agent() {
+        jika tidak diri.is_thinking dan tidak diri.active_typing_card {
+            diri.append_system_message("[i] Tidak ada proses agen yang sedang berjalan.")
+            kembalikan
+        }
+
+        jika diri.agent {
+            diri.agent.interrupt()
+        }
+
+        jika diri.current_agent_worker {
+            coba {
+                diri.current_agent_worker.cancel()
+            } kecuali exc {
+                lewati
+            }
+            diri.current_agent_worker = kosong
+        }
+
+        jika diri.active_typing_card {
+            coba {
+                diri.active_typing_card.stop_animation()
+            } kecuali exc {
+                lewati
+            }
+            diri.active_typing_card = kosong
+        }
+
+        jika diri.active_tool_card {
+            coba {
+                diri.active_tool_card.mark_completed("[Dibatalkan]")
+            } kecuali exc {
+                lewati
+            }
+            diri.active_tool_card = kosong
+        }
+
+        diri.append_system_message("[⏹ INTERUPSI] Proses agen telah dihentikan oleh pengguna.")
+        diri._set_thinking_state(salah)
+
+        coba {
+            input_box = diri.query_one("#chat_input", Input)
+            input_box.focus()
+        } kecuali exc {
+            lewati
+        }
+    }
+
+    fungsi action_restart_app() {
+        coba {
+            diri.append_system_message("[i] Memulai ulang aplikasi...")
+        } kecuali exc {
+            lewati
+        }
+        diri.exit(result="RESTART")
+    }
+
+    fungsi action_quit_app() {
+        diri.exit()
+    }
+
+    fungsi action_clear_chat() {
+        jika diri.agent {
+            new_sess = diri.agent.create_new_session()
+            diri.restore_session_ui(new_sess)
+            diri.append_system_message(f"Sesi baru dimulai: **{new_sess.title}** (Riwayat sebelumnya tetap tersimpan di disk).")
+        } selain {
+            scroll = diri.query_one("#chat_messages", VerticalScroll)
+            untuk child dalam list(scroll.children) {
+                child.remove()
+            }
+        }
+    }
+
+    fungsi action_open_session_modal() {
+        curr_id = diri.agent.session.session_id jika diri.agent selain ""
+        diri.push_screen(SessionSelectModal(curr_id), diri._on_session_selected)
+    }
+
+    fungsi _on_session_selected(selected_sess_id) {
+        jika tidak selected_sess_id atau tidak diri.agent {
+            kembalikan
+        }
+
+        jika selected_sess_id == "__NEW__" {
+            new_sess = diri.agent.create_new_session()
+            diri.restore_session_ui(new_sess)
+            diri.append_system_message(f"Sesi baru berhasil dibuat: **{new_sess.title}**.")
+        } selain {
+            target_sess = pengelola_sesi.ambil_sesi(selected_sess_id)
+            jika target_sess {
+                diri.agent.switch_session(target_sess)
+                diri.restore_session_ui(target_sess)
+            }
+        }
+    }
+
+    fungsi action_open_model_select() {
+        api_key = pengelola_konfigurasi.ambil_api_key()
+        jika tidak api_key {
+            diri.push_screen(ApiKeyModal(), diri._on_key_configured)
+        } selain {
+            diri.push_screen(ModelSelectModal(api_key), diri._on_model_reselected)
+        }
+    }
+
+    fungsi _on_model_reselected(new_model) {
+        jika diri.agent {
+            diri.agent.change_model(new_model)
+        }
+        diri.flash_model_transition(new_model)
+        diri.append_system_message(f"Model berhasil diperbarui ke: `{new_model}` (konteks sesi tetap terjaga).")
+    }
+
+    fungsi apply_theme(theme_name) {
+        jika theme_name tidak dalam TEMA_WARNA {
+            theme_name = "default"
+        }
+        diri.active_theme = theme_name
+        pengelola_konfigurasi.simpan_tema(theme_name)
+        untuk t dalam TEMA_WARNA {
+            diri.screen.remove_class(f"theme-{t}")
+        }
+        diri.screen.add_class(f"theme-{theme_name}")
+    }
+
+    fungsi action_cycle_theme() {
+        theme_names = list(TEMA_WARNA.keys())
+        coba {
+            curr_idx = theme_names.index(diri.active_theme)
+            next_idx = (curr_idx + 1) % len(theme_names)
+        } kecuali exc {
+            next_idx = 0
+        }
+        new_theme = theme_names[next_idx]
+        diri.apply_theme(new_theme)
+        diri.append_system_message(f"Tema tampilan dialihkan ke: `{new_theme}`")
+    }
+}
+
+
+fungsi utama() {
+    """Entry point peluncuran aplikasi dengan dukungan restart."""
+    selagi benar {
+        app = GeminiTerminalAgentApp()
+        hasil = app.run()
+        jika hasil == "RESTART" {
+            coba {
+                os.system("cls" jika os.name == "nt" selain "clear")
+                os.execv(sys.executable, [sys.executable] + sys.argv)
+            } kecuali exc {
+                lanjut
+            }
+        } selain {
+            berhenti
+        }
+    }
+}
+
+jika __name__ == "__main__" {
+    utama()
+}

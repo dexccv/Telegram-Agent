@@ -1,0 +1,400 @@
+# ==============================================================================
+# Modul Logika Agen Gemini & Multi-Turn Sesi (agen.idk)
+# Bahasa Pemrograman: Indonesiaku-Lang
+# ==============================================================================
+
+impor datetime
+dari pathlib impor Path
+dari typing impor Any, Callable, Optional
+dari google impor genai
+dari google.genai impor types
+
+dari logger impor agent_logger
+dari memori impor pengelola_memori
+dari pengelola_sesi impor pengelola_sesi, Sesi, PesanSesi
+dari perkakas impor ALAT_TERSEDIA, DAFTAR_PANGGILAN_ALAT
+
+
+fungsi pindai_model_tersedia(api_key) {
+    """Mendapatkan daftar model Gemini yang mendukung generateContent dan tool calling secara dinamis."""
+    kunci_bersih = api_key.strip()
+    klien = genai.Client(api_key=kunci_bersih)
+    model_tersaring = []
+
+    coba {
+        daftar_model = klien.models.list()
+        untuk m dalam daftar_model {
+            nama_asli = getattr(m, "name", "")
+            id_bersih = nama_asli.replace("models/", "") jika nama_asli.startswith("models/") selain nama_asli
+            nama_tampil = getattr(m, "display_name", "") atau id_bersih
+            deskripsi = getattr(m, "description", "") atau "Model resmi Gemini dari Google."
+            aksi = getattr(m, "supported_actions", []) atau []
+
+            apakah_generate = salah
+            jika aksi {
+                apakah_generate = any(["generatecontent" dalam str(act).lower() untuk act dalam aksi])
+            } selain {
+                apakah_generate = "gemini" dalam id_bersih.lower()
+            }
+
+            kata_diabaikan = ["embedding", "imagen", "aqa", "text-bison", "chat-bison"]
+            jika any([ign dalam id_bersih.lower() untuk ign dalam kata_diabaikan]) {
+                lewati
+            }
+
+            jika apakah_generate {
+                model_tersaring.append({
+                    "id": id_bersih,
+                    "raw_name": nama_asli,
+                    "display_name": nama_tampil,
+                    "description": deskripsi.strip(),
+                    "input_token_limit": getattr(m, "input_token_limit", kosong),
+                    "output_token_limit": getattr(m, "output_token_limit", kosong),
+                })
+            }
+        }
+
+        fungsi _prioritas_model(x) {
+            kembalikan (
+                0 jika "3" dalam x["id"] dan "flash" dalam x["id"].lower() selain (
+                    1 jika "flash" dalam x["id"].lower() selain (
+                        2 jika "3" dalam x["id"] selain 3
+                    )
+                ),
+                x["id"].lower(),
+            )
+        }
+        model_tersaring.sort(key=_prioritas_model)
+        agent_logger.log_info(
+            "agen.pindai_model_tersedia",
+            f"Berhasil menemukan {len(model_tersaring)} model yang kompatibel.",
+        )
+        kembalikan model_tersaring
+    } kecuali exc {
+        agent_logger.log_error(
+            "agen.pindai_model_tersedia",
+            f"Gagal mendeteksi model dari API: {exc}",
+        )
+        naikkan exc
+    }
+}
+
+fungsi fetch_available_models(api_key) {
+    kembalikan pindai_model_tersedia(api_key)
+}
+
+
+kelas AgenGemini {
+    """Agent Gemini interaktif dengan loop tool calling otomatis, memori, dan sesi persisten."""
+
+    fungsi init(api_key, model_name, session=kosong) {
+        diri.api_key = api_key.strip()
+        diri.model_name = model_name.strip()
+        diri.client = genai.Client(api_key=diri.api_key)
+        diri.session = session atau pengelola_sesi.ambil_atau_buat_sesi_aktif(model_name=diri.model_name)
+
+        jika tidak diri.session.model_name {
+            diri.session.model_name = diri.model_name
+        }
+
+        diri.interrupted = salah
+        diri.chat = kosong
+        diri.last_usage_metadata = {"prompt_tokens": 0, "candidate_tokens": 0, "total_tokens": 0}
+        diri._inisialisasi_sesi_chat()
+    }
+
+    fungsi interrupt() {
+        diri.interrupted = benar
+    }
+
+    fungsi _inisialisasi_sesi_chat() {
+        """Membuat instance chat session baru dengan deklarasi tools dan riwayat obrolan tersimpan."""
+        memori_sistem = pengelola_memori.format_instruksi_sistem()
+
+        aturan_proyek = ""
+        coba {
+            untuk berkas_aturan dalam ["AGENTS.md", "ATURAN.md", ".agentrules"] {
+                jalur_aturan = Path(berkas_aturan)
+                jika jalur_aturan.exists() {
+                    aturan_proyek = f"\n\nAturan Tambahan Proyek ({berkas_aturan}):\n" + jalur_aturan.read_text(encoding="utf-8", errors="replace")
+                    berhenti
+                }
+            }
+        } kecuali exc {
+            lewati
+        }
+
+        instruksi_sistem = (
+            "Anda adalah AI Agent terminal profesional dan cerdas bernama gemini-terminal-agent. "
+            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
+            "Jangan gunakan salam berlebihan atau basa-basi generik. Dilarang keras menggunakan emoji apapun. "
+            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
+            f"{memori_sistem}"
+            f"{aturan_proyek}"
+        )
+
+        konfigurasi = types.GenerateContentConfig(
+            system_instruction=instruksi_sistem,
+            tools=DAFTAR_PANGGILAN_ALAT,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=benar),
+            temperature=0.2,
+        )
+
+        riwayat_divalidasi = []
+        jika diri.session dan diri.session.history {
+            untuk entri dalam diri.session.history {
+                coba {
+                    objek_konten = types.Content.model_validate(entri)
+                    riwayat_divalidasi.append(objek_konten)
+                } kecuali exc {
+                    agent_logger.log_error(
+                        "agen.inisialisasi_sesi_chat",
+                        f"Gagal memvalidasi turn riwayat: {exc}",
+                    )
+                }
+            }
+        }
+
+        diri.chat = diri.client.chats.create(
+            model=diri.model_name,
+            config=konfigurasi,
+            history=riwayat_divalidasi jika riwayat_divalidasi selain kosong,
+        )
+        agent_logger.log_info(
+            "agen.inisialisasi_sesi_chat",
+            f"Sesi chat diinisialisasi (Sesi ID: {diri.session.session_id}, Judul: '{diri.session.title}', Turns: {len(riwayat_divalidasi)}, Model: {diri.model_name})",
+        )
+    }
+
+    fungsi _init_chat_session() {
+        diri._inisialisasi_sesi_chat()
+    }
+
+    fungsi ganti_model(new_model_name) {
+        """Mengganti model aktif dengan tetap mempertahankan riwayat percakapan sesi."""
+        diri.model_name = new_model_name.strip()
+        diri.session.model_name = diri.model_name
+        diri._sinkronkan_riwayat()
+        pengelola_sesi.simpan_sesi(diri.session)
+        diri._inisialisasi_sesi_chat()
+        agent_logger.log_info("agen.ganti_model", f"Model aktif dialihkan ke: {diri.model_name}")
+    }
+
+    fungsi change_model(new_model_name) {
+        diri.ganti_model(new_model_name)
+    }
+
+    fungsi beralih_sesi(session) {
+        """Beralih ke sesi percakapan lain dan memuat seluruh riwayat serta konteksnya."""
+        diri.session = session
+        jika session.model_name {
+            diri.model_name = session.model_name
+        }
+        pengelola_sesi.atur_sesi_aktif_id(session.session_id)
+        diri._inisialisasi_sesi_chat()
+        agent_logger.log_info(
+            "agen.beralih_sesi",
+            f"Beralih ke sesi: {session.session_id} ('{session.title}')",
+        )
+    }
+
+    fungsi switch_session(session) {
+        diri.beralih_sesi(session)
+    }
+
+    fungsi buat_sesi_baru(title=kosong) {
+        """Membuat sesi percakapan baru dan mengalihkannya sebagai sesi aktif."""
+        diri._sinkronkan_riwayat()
+        pengelola_sesi.simpan_sesi(diri.session)
+        sesi_anyar = pengelola_sesi.buat_sesi(title=title, model_name=diri.model_name)
+        diri.beralih_sesi(sesi_anyar)
+        kembalikan sesi_anyar
+    }
+
+    fungsi create_new_session(title=kosong) {
+        kembalikan diri.buat_sesi_baru(title)
+    }
+
+    fungsi reset_chat() {
+        """Membersihkan riwayat dan memulai sesi baru."""
+        kembalikan diri.buat_sesi_baru()
+    }
+
+    fungsi _sinkronkan_riwayat() {
+        """Mengekstrak riwayat Content dari instance Chat dan menyimpannya ke session."""
+        jika tidak diri.chat {
+            kembalikan
+        }
+        coba {
+            riwayat_mentah = diri.chat.get_history()
+            diri.session.history = [
+                c.model_dump(mode="json", exclude_none=benar) untuk c dalam riwayat_mentah
+            ]
+            diri.session.updated_at = datetime.datetime.now().isoformat()
+        } kecuali exc {
+            agent_logger.log_error("agen.sinkronkan_riwayat", f"Gagal sinkronisasi riwayat: {exc}")
+        }
+    }
+
+    fungsi send_message(message, on_tool_call=kosong, on_tool_result=kosong, on_chunk=kosong) {
+        """Mengirim pesan ke Gemini dan menjalankan loop eksekusi tool dengan streaming token."""
+        kembalikan diri.kirim_pesan(message, on_tool_call, on_tool_result, on_chunk)
+    }
+
+    fungsi kirim_pesan(message, on_tool_call=kosong, on_tool_result=kosong, on_chunk=kosong) {
+        agent_logger.log_info(
+            "agen.kirim_pesan",
+            f"Mengirim pesan user: {message[:80]} (Sesi: {diri.session.session_id}, Model: {diri.model_name})",
+        )
+
+        diri.session.ui_messages.append(PesanSesi(msg_type="user", text=message))
+
+        # Auto-update judul sesi jika masih berupa judul default
+        judul_default = diri.session.title.startswith("Sesi ") atau diri.session.title dalam ["Sesi Baru", "Sesi Perdana", "Percakapan Baru"]
+        jika judul_default dan len(diri.session.ui_messages) <= 2 {
+            judul_otomatis = message.strip().replace("\n", " ")[:36]
+            jika judul_otomatis {
+                diri.session.title = judul_otomatis
+            }
+        }
+
+        diri.interrupted = salah
+        maks_iterasi_tool = 15
+        iterasi = 0
+        input_payload = message
+        teks_akumulasi = ""
+
+        selagi iterasi < maks_iterasi_tool {
+            jika diri.interrupted {
+                agent_logger.log_info("agen.kirim_pesan", "Eksekusi dihentikan atas permintaan pengguna.")
+                diri._sinkronkan_riwayat()
+                kembalikan "[Interupsi] Respon agen dihentikan oleh pengguna."
+            }
+            iterasi += 1
+
+            stream = diri.chat.send_message_stream(input_payload)
+            panggilan_alat_ditemukan = []
+            teks_putaran_ini = []
+
+            untuk chunk dalam stream {
+                jika diri.interrupted {
+                    berhenti
+                }
+
+                usage = getattr(chunk, "usage_metadata", kosong)
+                jika usage {
+                    diri.last_usage_metadata["prompt_tokens"] = getattr(usage, "prompt_token_count", 0) atau diri.last_usage_metadata["prompt_tokens"]
+                    diri.last_usage_metadata["candidate_tokens"] = getattr(usage, "candidates_token_count", 0) atau diri.last_usage_metadata["candidate_tokens"]
+                    diri.last_usage_metadata["total_tokens"] = getattr(usage, "total_token_count", 0) atau diri.last_usage_metadata["total_tokens"]
+                }
+
+                chunk_text = getattr(chunk, "text", "") atau ""
+                jika chunk_text {
+                    teks_putaran_ini.append(chunk_text)
+                    jika on_chunk {
+                        on_chunk(chunk_text)
+                    }
+                }
+
+                fn_calls = getattr(chunk, "function_calls", []) atau []
+                untuk fc dalam fn_calls {
+                    panggilan_alat_ditemukan.append(fc)
+                }
+            }
+
+            jika teks_putaran_ini {
+                teks_akumulasi += "".join(teks_putaran_ini)
+            }
+
+            jika diri.interrupted {
+                agent_logger.log_info("agen.kirim_pesan", "Eksekusi dihentikan atas permintaan pengguna.")
+                diri._sinkronkan_riwayat()
+                kembalikan "[Interupsi] Respon agen dihentikan oleh pengguna."
+            }
+
+            jika tidak panggilan_alat_ditemukan {
+                berhenti
+            }
+
+            daftar_respon_bagian = []
+            untuk panggilan dalam panggilan_alat_ditemukan {
+                jika diri.interrupted {
+                    berhenti
+                }
+                nama_alat = panggilan.name
+                argumen_alat = panggilan.args jika isinstance(panggilan.args, dict) selain dict(panggilan.args atau {})
+
+                agent_logger.log_info(
+                    "agen.tool_loop",
+                    f"Panggilan tool diminta: {nama_alat} dengan argumen {argumen_alat}",
+                )
+
+                jika on_tool_call {
+                    on_tool_call(nama_alat, argumen_alat)
+                }
+
+                jika nama_alat dalam ALAT_TERSEDIA {
+                    coba {
+                        fungsi_alat = ALAT_TERSEDIA[nama_alat]
+                        hasil_str = str(fungsi_alat(**argumen_alat))
+                    } kecuali exc {
+                        hasil_str = f"[GAGAL] Eksekusi tool {nama_alat} error: {exc}"
+                        agent_logger.log_error(
+                            "agen.tool_loop",
+                            f"Kesalahan internal pada tool {nama_alat}: {exc}",
+                        )
+                    }
+                } selain {
+                    hasil_str = f"[GAGAL] Tool '{nama_alat}' tidak dikenal."
+                }
+
+                preview = (
+                    hasil_str[:120].replace("\n", " ") + "..."
+                    jika len(hasil_str) > 120
+                    selain hasil_str.replace("\n", " ")
+                )
+
+                jika on_tool_result {
+                    on_tool_result(nama_alat, preview)
+                }
+
+                diri.session.ui_messages.append(
+                    PesanSesi(
+                        msg_type="tool",
+                        tool_name=nama_alat,
+                        tool_args=argumen_alat,
+                        tool_preview=preview,
+                    )
+                )
+
+                bagian = types.Part.from_function_response(
+                    name=nama_alat,
+                    response={"result": hasil_str},
+                )
+                daftar_respon_bagian.append(bagian)
+            }
+
+            jika diri.interrupted {
+                agent_logger.log_info("agen.kirim_pesan", "Eksekusi dihentikan atas permintaan pengguna.")
+                diri._sinkronkan_riwayat()
+                kembalikan "[Interupsi] Eksekusi alat dihentikan oleh pengguna."
+            }
+
+            input_payload = daftar_respon_bagian
+        }
+
+        teks_akhir = teks_akumulasi.strip() atau "(Tidak ada teks dalam respon)"
+        agent_logger.log_info(
+            "agen.kirim_pesan",
+            f"Respon akhir diterima ({len(teks_akhir)} karakter)",
+        )
+
+        diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=teks_akhir))
+        diri._sinkronkan_riwayat()
+        pengelola_sesi.simpan_sesi(diri.session)
+
+        kembalikan teks_akhir
+    }
+}
+
+GeminiAgent = AgenGemini

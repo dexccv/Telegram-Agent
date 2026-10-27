@@ -1,0 +1,140 @@
+# ==============================================================================
+# Modul Memori Jangka Panjang Persisten (memori.idk)
+# Bahasa Pemrograman: Indonesiaku-Lang
+# ==============================================================================
+
+impor json
+dari pathlib impor Path
+dari typing impor Optional
+dari konfigurasi impor pengelola_konfigurasi
+dari logger impor agent_logger
+
+
+kelas PengelolaMemori {
+    """Mengelola penyimpanan data memori jangka panjang dalam format JSON."""
+
+    fungsi init(berkas_memori=kosong) {
+        diri.berkas_memori = berkas_memori atau (pengelola_konfigurasi.app_dir / "memory.json")
+        diri.pastikan_berkas()
+    }
+
+    fungsi pastikan_berkas() {
+        """Memastikan berkas memory.json tersedia pada disk."""
+        coba {
+            jika tidak diri.berkas_memori.exists() {
+                diri.berkas_memori.write_text("{}", encoding="utf-8")
+            }
+        } kecuali exc {
+            agent_logger.log_error("memori.pastikan_berkas", f"Gagal membuat berkas memori: {exc}")
+        }
+    }
+
+    fungsi ambil_semua() {
+        """Mengambil seluruh data memori yang tersimpan."""
+        coba {
+            jika diri.berkas_memori.exists() {
+                mentah = diri.berkas_memori.read_text(encoding="utf-8").strip()
+                jika mentah {
+                    data = json.loads(mentah)
+                    jika isinstance(data, dict) {
+                        kembalikan {str(k): str(v) untuk k, v dalam data.items()}
+                    }
+                }
+            }
+        } kecuali exc {
+            agent_logger.log_error("memori.ambil_semua", f"Gagal membaca data memori: {exc}")
+        }
+        kembalikan {}
+    }
+
+    fungsi ambil(kunci) {
+        """Mengambil nilai memori berdasarkan kata kunci."""
+        memori = diri.ambil_semua()
+        kembalikan memori.get(kunci.strip())
+    }
+
+    fungsi simpan(kunci, nilai) {
+        """Menyimpan atau memperbarui data fakta ke memori jangka panjang."""
+        kunci_bersih = kunci.strip()
+        nilai_bersih = nilai.strip()
+        jika tidak kunci_bersih {
+            kembalikan
+        }
+
+        memori = diri.ambil_semua()
+        memori[kunci_bersih] = nilai_bersih
+
+        coba {
+            jalur_tmp = diri.berkas_memori.with_suffix(".tmp")
+            jalur_tmp.write_text(
+                json.dumps(memori, indent=2, ensure_ascii=salah),
+                encoding="utf-8",
+            )
+            jalur_tmp.replace(diri.berkas_memori)
+            agent_logger.log_info("memori.simpan", f"Memori disimpan: '{kunci_bersih}' -> '{nilai_bersih}'")
+        } kecuali exc {
+            agent_logger.log_error("memori.simpan", f"Gagal menulis berkas memori: {exc}")
+        }
+    }
+
+    fungsi hapus(kunci) {
+        """Menghapus entri memori berdasarkan kunci."""
+        kunci_bersih = kunci.strip()
+        memori = diri.ambil_semua()
+        jika kunci_bersih dalam memori {
+            buang memori[kunci_bersih]
+            coba {
+                jalur_tmp = diri.berkas_memori.with_suffix(".tmp")
+                jalur_tmp.write_text(
+                    json.dumps(memori, indent=2, ensure_ascii=salah),
+                    encoding="utf-8",
+                )
+                jalur_tmp.replace(diri.berkas_memori)
+                agent_logger.log_info("memori.hapus", f"Memori dihapus: '{kunci_bersih}'")
+                kembalikan benar
+            } kecuali exc {
+                agent_logger.log_error("memori.hapus", f"Gagal menghapus entri memori: {exc}")
+            }
+        }
+        kembalikan salah
+    }
+
+    fungsi bersihkan() {
+        """Mengosongkan seluruh isi memori jangka panjang."""
+        coba {
+            diri.berkas_memori.write_text("{}", encoding="utf-8")
+            agent_logger.log_info("memori.bersihkan", "Seluruh memori persisten dikosongkan.")
+        } kecuali exc {
+            agent_logger.log_error("memori.bersihkan", f"Gagal mengosongkan memori: {exc}")
+        }
+    }
+
+    fungsi format_instruksi_sistem() {
+        """Memformat seluruh memori ke dalam string instruksi sistem untuk model."""
+        memori = diri.ambil_semua()
+        jika tidak memori {
+            kembalikan ""
+        }
+
+        baris = [
+            "\n[MEMORI PERSISTEN JANGKA PANJANG (FAKTA & PREFERENSI PENGGUNA)]:",
+            "Informasi berikut harus selalu Anda ingat dan terapkan dalam setiap keputusan:",
+        ]
+        untuk k, v dalam memori.items() {
+            baris.append(f"- {k}: {v}")
+        }
+        baris.append("────────────────────────────────────────────────────────────")
+        kembalikan "\n".join(baris)
+    }
+
+    # Alias kompatibilitas
+    fungsi get_all() { kembalikan diri.ambil_semua() }
+    fungsi get(k) { kembalikan diri.ambil(k) }
+    fungsi set(k, v) { diri.simpan(k, v) }
+    fungsi delete(k) { kembalikan diri.hapus(k) }
+    fungsi clear() { diri.bersihkan() }
+    fungsi format_for_system_instruction() { kembalikan diri.format_instruksi_sistem() }
+}
+
+pengelola_memori = PengelolaMemori()
+memory_manager = pengelola_memori

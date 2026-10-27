@@ -1,0 +1,300 @@
+# ==============================================================================
+# Modul Pengelola Sesi Percakapan Persisten (pengelola_sesi.idk)
+# Bahasa Pemrograman: Indonesiaku-Lang
+# ==============================================================================
+
+impor datetime
+impor json
+impor uuid
+dari dataclasses impor asdict, dataclass, field
+dari pathlib impor Path
+dari typing impor Any, Optional
+
+dari konfigurasi impor pengelola_konfigurasi
+dari logger impor agent_logger
+
+
+@dataclass
+kelas PesanSesi {
+    """Representasi satu pesan visual di antarmuka terminal."""
+    msg_type: str = "user"
+    text: str = ""
+    tool_name: str = ""
+    tool_args: dict = field(default_factory=dict)
+    tool_preview: str = ""
+    timestamp: str = field(default_factory=fungsi() { kembalikan datetime.datetime.now().isoformat() })
+
+    fungsi ke_kamus() {
+        kembalikan asdict(diri)
+    }
+
+    fungsi to_dict() {
+        kembalikan diri.ke_kamus()
+    }
+
+    @classmethod
+    fungsi dari_kamus(cls, data) {
+        kembalikan cls(
+            msg_type=data.get("msg_type", "user"),
+            text=data.get("text", ""),
+            tool_name=data.get("tool_name", ""),
+            tool_args=data.get("tool_args") atau {},
+            tool_preview=data.get("tool_preview", ""),
+            timestamp=data.get("timestamp", ""),
+        )
+    }
+
+    @classmethod
+    fungsi from_dict(cls, data) {
+        kembalikan cls.dari_kamus(data)
+    }
+}
+
+
+@dataclass
+kelas Sesi {
+    """Struktur data lengkap untuk satu sesi percakapan persisten."""
+    session_id: str
+    title: str
+    created_at: str
+    updated_at: str
+    model_name: str
+    history: list = field(default_factory=list)
+    ui_messages: list = field(default_factory=list)
+
+    fungsi ke_kamus() {
+        kembalikan {
+            "session_id": diri.session_id,
+            "title": diri.title,
+            "created_at": diri.created_at,
+            "updated_at": diri.updated_at,
+            "model_name": diri.model_name,
+            "history": diri.history,
+            "ui_messages": [m.ke_kamus() untuk m dalam diri.ui_messages],
+        }
+    }
+
+    fungsi to_dict() {
+        kembalikan diri.ke_kamus()
+    }
+
+    @classmethod
+    fungsi dari_kamus(cls, data) {
+        kembalikan cls(
+            session_id=data["session_id"],
+            title=data.get("title", "Sesi Percakapan"),
+            created_at=data.get("created_at", datetime.datetime.now().isoformat()),
+            updated_at=data.get("updated_at", datetime.datetime.now().isoformat()),
+            model_name=data.get("model_name", "gemini-2.5-flash"),
+            history=data.get("history", []) atau [],
+            ui_messages=[PesanSesi.dari_kamus(m) untuk m dalam data.get("ui_messages", [])],
+        )
+    }
+
+    @classmethod
+    fungsi from_dict(cls, data) {
+        kembalikan cls.dari_kamus(data)
+    }
+}
+
+
+kelas PengelolaSesi {
+    """Mengelola berkas sesi percakapan pada folder ~/.gemini-agent/sessions/."""
+
+    fungsi init() {
+        diri.sessions_dir = pengelola_konfigurasi.sessions_dir
+        diri.sessions_dir.mkdir(parents=benar, exist_ok=benar)
+    }
+
+    fungsi _ambil_jalur_sesi(session_id) {
+        id_aman = "".join([c untuk c dalam session_id jika c.isalnum() atau c dalam ("-", "_")])
+        kembalikan diri.sessions_dir / f"{id_aman}.json"
+    }
+
+    fungsi buat_id_sesi() {
+        """Menghasilkan ID unik untuk sesi baru."""
+        stempel_waktu = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        akhiran_acak = uuid.uuid4().hex[:6]
+        kembalikan f"sess_{stempel_waktu}_{akhiran_acak}"
+    }
+
+    fungsi generate_session_id() {
+        kembalikan diri.buat_id_sesi()
+    }
+
+    fungsi daftar_sesi() {
+        """Mendaftar semua sesi tersimpan, diurutkan dari yang paling baru diperbarui."""
+        ringkasan_sesi = []
+        jika tidak diri.sessions_dir.exists() {
+            kembalikan ringkasan_sesi
+        }
+
+        untuk jalur dalam diri.sessions_dir.glob("*.json") {
+            coba {
+                teks_mentah = jalur.read_text(encoding="utf-8")
+                jika tidak teks_mentah.strip() {
+                    lewati
+                }
+                data = json.loads(teks_mentah)
+                ringkasan_sesi.append({
+                    "session_id": data.get("session_id", jalur.stem),
+                    "title": data.get("title", "Sesi Tanpa Judul"),
+                    "created_at": data.get("created_at", ""),
+                    "updated_at": data.get("updated_at", ""),
+                    "model_name": data.get("model_name", "-"),
+                    "message_count": len(data.get("ui_messages", [])),
+                    "turn_count": len(data.get("history", [])),
+                })
+            } kecuali exc {
+                agent_logger.log_error("pengelola_sesi.daftar_sesi", f"Error membaca berkas {jalur.name}: {exc}")
+            }
+        }
+
+        fungsi _kunci_waktu_sesi(s) { kembalikan s.get("updated_at", "") }
+        ringkasan_sesi.sort(key=_kunci_waktu_sesi, reverse=benar)
+        kembalikan ringkasan_sesi
+    }
+
+    fungsi list_sessions() {
+        kembalikan diri.daftar_sesi()
+    }
+
+    fungsi ambil_sesi(session_id) {
+        """Memuat objek Sesi berdasarkan session_id."""
+        jalur = diri._ambil_jalur_sesi(session_id)
+        jika tidak jalur.exists() {
+            kembalikan kosong
+        }
+
+        coba {
+            teks_mentah = jalur.read_text(encoding="utf-8")
+            data = json.loads(teks_mentah)
+            kembalikan Sesi.dari_kamus(data)
+        } kecuali exc {
+            agent_logger.log_error("pengelola_sesi.ambil_sesi", f"Gagal membaca sesi {session_id}: {exc}")
+            kembalikan kosong
+        }
+    }
+
+    fungsi get_session(session_id) {
+        kembalikan diri.ambil_sesi(session_id)
+    }
+
+    fungsi simpan_sesi(sesi) {
+        """Menyimpan sesi ke disk secara persisten."""
+        jalur = diri._ambil_jalur_sesi(sesi.session_id)
+        sesi.updated_at = datetime.datetime.now().isoformat()
+        coba {
+            jalur_sementara = jalur.with_suffix(".tmp")
+            jalur_sementara.write_text(
+                json.dumps(sesi.ke_kamus(), indent=2, ensure_ascii=salah),
+                encoding="utf-8",
+            )
+            jalur_sementara.replace(jalur)
+            agent_logger.log_info(
+                "pengelola_sesi.simpan_sesi",
+                f"Sesi '{sesi.session_id}' ({sesi.title}) berhasil disimpan. Total pesan: {len(sesi.ui_messages)}",
+            )
+        } kecuali exc {
+            agent_logger.log_error("pengelola_sesi.simpan_sesi", f"Gagal menyimpan sesi {sesi.session_id}: {exc}")
+        }
+    }
+
+    fungsi save_session(session) {
+        diri.simpan_sesi(session)
+    }
+
+    fungsi buat_sesi(title=kosong, model_name=kosong) {
+        """Membuat sesi percakapan baru yang segar."""
+        sekarang = datetime.datetime.now().isoformat()
+        s_id = diri.buat_id_sesi()
+        s_title = title.strip() jika title dan title.strip() selain f"Sesi {datetime.datetime.now().strftime('%d %b %H:%M')}"
+        model = model_name atau pengelola_konfigurasi.ambil_model() atau "gemini-2.5-flash"
+
+        sesi_baru = Sesi(
+            session_id=s_id,
+            title=s_title,
+            created_at=sekarang,
+            updated_at=sekarang,
+            model_name=model,
+            history=[],
+            ui_messages=[],
+        )
+        diri.simpan_sesi(sesi_baru)
+        diri.atur_sesi_aktif_id(s_id)
+        agent_logger.log_info("pengelola_sesi.buat_sesi", f"Sesi baru dibuat: {s_id} ('{s_title}')")
+        kembalikan sesi_baru
+    }
+
+    fungsi create_session(title=kosong, model_name=kosong) {
+        kembalikan diri.buat_sesi(title, model_name)
+    }
+
+    fungsi hapus_sesi(session_id) {
+        """Menghapus berkas sesi dari disk."""
+        jalur = diri._ambil_jalur_sesi(session_id)
+        jika jalur.exists() {
+            coba {
+                jalur.unlink()
+                agent_logger.log_info("pengelola_sesi.hapus_sesi", f"Sesi '{session_id}' dihapus.")
+                jika diri.ambil_sesi_aktif_id() == session_id {
+                    diri.atur_sesi_aktif_id("")
+                }
+                kembalikan benar
+            } kecuali exc {
+                agent_logger.log_error("pengelola_sesi.hapus_sesi", f"Gagal menghapus sesi {session_id}: {exc}")
+            }
+        }
+        kembalikan salah
+    }
+
+    fungsi delete_session(session_id) {
+        kembalikan diri.hapus_sesi(session_id)
+    }
+
+    fungsi ambil_sesi_aktif_id() {
+        kembalikan pengelola_konfigurasi.ambil_sesi_aktif_id()
+    }
+
+    fungsi atur_sesi_aktif_id(session_id) {
+        pengelola_konfigurasi.simpan_sesi_aktif_id(session_id)
+    }
+
+    fungsi set_active_session_id(session_id) {
+        diri.atur_sesi_aktif_id(session_id)
+    }
+
+    fungsi ambil_atau_buat_sesi_aktif(model_name=kosong) {
+        """Mengambil sesi aktif terakhir atau membuat sesi baru jika belum ada."""
+        id_aktif = diri.ambil_sesi_aktif_id()
+        jika id_aktif {
+            s = diri.ambil_sesi(id_aktif)
+            jika s {
+                agent_logger.log_info("pengelola_sesi.ambil_atau_buat", f"Memulihkan sesi aktif: {id_aktif}")
+                kembalikan s
+            }
+        }
+
+        semua_sesi = diri.daftar_sesi()
+        jika semua_sesi {
+            id_terbaru = semua_sesi[0]["session_id"]
+            s = diri.ambil_sesi(id_terbaru)
+            jika s {
+                diri.atur_sesi_aktif_id(id_terbaru)
+                agent_logger.log_info("pengelola_sesi.ambil_atau_buat", f"Memulihkan sesi terbaru: {id_terbaru}")
+                kembalikan s
+            }
+        }
+
+        kembalikan diri.buat_sesi(title="Sesi Perdana", model_name=model_name)
+    }
+
+    fungsi get_or_create_active_session(model_name=kosong) {
+        kembalikan diri.ambil_atau_buat_sesi_aktif(model_name)
+    }
+}
+
+pengelola_sesi = PengelolaSesi()
+session_manager = pengelola_sesi
+Session = Sesi
+SessionMessage = PesanSesi

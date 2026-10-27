@@ -1,0 +1,444 @@
+# ==============================================================================
+# Modul Perkakas / Tools Sistem (perkakas.idk)
+# Bahasa Pemrograman: Indonesiaku-Lang
+# ==============================================================================
+
+impor os
+impor re
+impor subprocess
+dari pathlib impor Path
+dari typing impor Any
+
+dari logger impor agent_logger
+dari memori impor pengelola_memori
+
+
+# Pola perintah berbahaya yang diblokir untuk keamanan sistem
+POLA_BERBAHAYA = [
+    r"\brm\s+-(?:r[fv]|f[rv]|rf|fr)\s+(?:/|[a-zA-Z]:\\|\*)",
+    r"\bformat\s+[a-zA-Z]:",
+    r"\bmkfs\b",
+    r"\bshutdown\b",
+    r"\bdel\s+(?:/[a-zA-Z\s]+)*[a-zA-Z]:\\",
+    r"\brmdir\s+/[sS]\s+/[qQ]\s+[a-zA-Z]:\\",
+    r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:",  # Fork bomb
+    r"\bdd\s+if=.*of=/dev/[sh]d[a-z]",
+]
+
+
+fungsi apakah_perintah_aman(perintah) {
+    """Memeriksa apakah perintah terminal masuk dalam daftar hitam perintah berbahaya."""
+    perintah_bersih = perintah.strip().lower()
+
+    kata_kunci_terlarang = [
+        "rm -rf /",
+        "format c:",
+        "mkfs",
+        "shutdown",
+        "del /f /s /q c:\\",
+    ]
+    untuk k dalam kata_kunci_terlarang {
+        jika k dalam perintah_bersih {
+            kembalikan (salah, f"Perintah terdeteksi dalam daftar terlarang: '{k}'")
+        }
+    }
+
+    untuk pola dalam POLA_BERBAHAYA {
+        jika re.search(pola, perintah_bersih, re.IGNORECASE) {
+            kembalikan (salah, f"Pola berbahaya terdeteksi oleh filter keamanan ({pola}).")
+        }
+    }
+
+    kembalikan (benar, "")
+}
+
+fungsi is_command_safe(perintah) {
+    kembalikan apakah_perintah_aman(perintah)
+}
+
+
+fungsi validasi_jalur_sandbox(path: str) {
+    """Memvalidasi bahwa path berada di dalam direktori kerja proyek (workspace)."""
+    coba {
+        workspace_root = Path.cwd().resolve()
+        target = Path(path).expanduser().resolve()
+
+        jika target == workspace_root atau workspace_root dalam target.parents {
+            kembalikan (benar, target, "")
+        }
+        alasan = f"Akses diblokir demi keamanan sandbox. Jalur '{target}' berada di luar direktori proyek ('{workspace_root}')."
+        kembalikan (salah, target, alasan)
+    } kecuali exc {
+        kembalikan (salah, kosong, f"Jalur tidak valid: {exc}")
+    }
+}
+
+
+fungsi create_folder(path: str) -> str {
+    """Membuat direktori baru pada path yang ditentukan di dalam proyek.
+
+    Args:
+        path: Path direktori yang akan dibuat.
+
+    Returns:
+        Pesan status hasil pembuatan direktori.
+    """
+    aman, target, alasan = validasi_jalur_sandbox(path)
+    jika tidak aman {
+        agent_logger.log_warning("perkakas.create_folder", f"Akses sandbox ditolak: {alasan}")
+        kembalikan f"[DIBLOKIR KEAMANAN] {alasan}"
+    }
+
+    coba {
+        target.mkdir(parents=benar, exist_ok=benar)
+        pesan = f"[SUKSES] Direktori berhasil dibuat: {target}"
+        agent_logger.log_info("perkakas.create_folder", pesan)
+        kembalikan pesan
+    } kecuali exc {
+        agent_logger.log_error("perkakas.create_folder", f"Gagal membuat folder {path}: {exc}")
+        kembalikan f"[GAGAL] Gagal membuat folder '{path}': {exc}"
+    }
+}
+
+buat_folder = create_folder
+
+
+fungsi list_files(path: str = ".") -> str {
+    """Mendaftar file dan direktori pada path yang diberikan di dalam proyek.
+
+    Args:
+        path: Direktori yang ingin diperiksa (default: ".").
+
+    Returns:
+        Daftar file dan folder terformat.
+    """
+    aman, target, alasan = validasi_jalur_sandbox(path)
+    jika tidak aman {
+        agent_logger.log_warning("perkakas.list_files", f"Akses sandbox ditolak: {alasan}")
+        kembalikan f"[DIBLOKIR KEAMANAN] {alasan}"
+    }
+
+    coba {
+        jika tidak target.exists() {
+            kembalikan f"[GAGAL] Jalur tidak ditemukan: {target}"
+        }
+        jika tidak target.is_dir() {
+            kembalikan f"[GAGAL] Jalur bukan sebuah direktori: {target}"
+        }
+
+        fungsi _kunci_urut_berkas(p) { kembalikan (tidak p.is_dir(), p.name.lower()) }
+        entri = sorted(target.iterdir(), key=_kunci_urut_berkas)
+        baris = [f"Isi dari direktori: {target}", "─" * 45]
+
+        jika tidak entri {
+            baris.append("  (Direktori kosong)")
+        } selain {
+            untuk item dalam entri {
+                jika item.is_dir() {
+                    baris.append(f"  [DIR]   {item.name}/")
+                } selain {
+                    coba {
+                        ukuran = item.stat().st_size
+                        jika ukuran < 1024 {
+                            str_ukuran = f"{ukuran} B"
+                        } jika_lain ukuran < 1024 * 1024 {
+                            str_ukuran = f"{ukuran / 1024:.1f} KB"
+                        } selain {
+                            str_ukuran = f"{ukuran / (1024 * 1024):.1f} MB"
+                        }
+                    } kecuali exc {
+                        str_ukuran = "? B"
+                    }
+                    baris.append(f"  [FILE]  {item.name:<25} ({str_ukuran})")
+                }
+            }
+        }
+
+        hasil = "\n".join(baris)
+        agent_logger.log_info("perkakas.list_files", f"Memindai direktori {target} ({len(entri)} item)")
+        kembalikan hasil
+    } kecuali exc {
+        agent_logger.log_error("perkakas.list_files", f"Gagal mendaftar direktori {path}: {exc}")
+        kembalikan f"[GAGAL] Gagal mendaftar direktori '{path}': {exc}"
+    }
+}
+
+daftar_berkas = list_files
+
+
+fungsi read_file(path: str) -> str {
+    """Membaca isi konten dari file teks lokal di dalam proyek.
+
+    Args:
+        path: Path file yang ingin dibaca.
+
+    Returns:
+        Konten isi file atau pesan error.
+    """
+    aman, target, alasan = validasi_jalur_sandbox(path)
+    jika tidak aman {
+        agent_logger.log_warning("perkakas.read_file", f"Akses sandbox ditolak: {alasan}")
+        kembalikan f"[DIBLOKIR KEAMANAN] {alasan}"
+    }
+
+    coba {
+        jika tidak target.exists() {
+            kembalikan f"[GAGAL] Berkas tidak ditemukan: {target}"
+        }
+        jika target.is_dir() {
+            kembalikan f"[GAGAL] Jalur adalah direktori, bukan berkas teks: {target}"
+        }
+
+        ukuran = target.stat().st_size
+        batas_maks = 1024 * 1024  # 1 MB
+        jika ukuran > batas_maks {
+            kembalikan f"[GAGAL] Ukuran berkas terlalu besar ({ukuran / 1024:.1f} KB). Batas maksimum adalah 1 MB."
+        }
+
+        konten = target.read_text(encoding="utf-8", errors="replace")
+        agent_logger.log_info("perkakas.read_file", f"Membaca berkas {target} ({len(konten)} karakter)")
+        kembalikan f"[KONTEN BERKAS: {target}]\n" + ("─" * 45) + f"\n{konten}"
+    } kecuali exc {
+        agent_logger.log_error("perkakas.read_file", f"Gagal membaca berkas {path}: {exc}")
+        kembalikan f"[GAGAL] Kesalahan saat membaca berkas '{path}': {exc}"
+    }
+}
+
+baca_berkas = read_file
+
+
+fungsi write_file(path: str, content: str) -> str {
+    """Menulis atau menimpa konten teks ke file lokal secara aman dan atomik.
+
+    Args:
+        path: Path tujuan file yang akan ditulis.
+        content: Teks isi file yang akan disimpan.
+
+    Returns:
+        Pesan status keberhasilan penulisan file.
+    """
+    aman, target, alasan = validasi_jalur_sandbox(path)
+    jika tidak aman {
+        agent_logger.log_warning("perkakas.write_file", f"Akses sandbox ditolak: {alasan}")
+        kembalikan f"[DIBLOKIR KEAMANAN] {alasan}"
+    }
+
+    coba {
+        target.parent.mkdir(parents=benar, exist_ok=benar)
+        tmp_file = target.with_suffix(f"{target.suffix}.tmp")
+        tmp_file.write_text(content, encoding="utf-8")
+        tmp_file.replace(target)
+        pesan = f"[SUKSES] Berkas berhasil ditulis ({len(content)} karakter): {target}"
+        agent_logger.log_info("perkakas.write_file", pesan)
+        kembalikan pesan
+    } kecuali exc {
+        agent_logger.log_error("perkakas.write_file", f"Gagal menulis ke berkas {path}: {exc}")
+        kembalikan f"[GAGAL] Gagal menulis ke berkas '{path}': {exc}"
+    }
+}
+
+tulis_berkas = write_file
+
+
+fungsi edit_file(path: str, target_text: str, replacement_text: str) -> str {
+    """Mengganti potongan teks tertentu pada file secara presisi (diff replace).
+
+    Args:
+        path: Path file yang ingin disunting.
+        target_text: Potongan teks yang persis ingin diganti.
+        replacement_text: Teks pengganti baru.
+
+    Returns:
+        Pesan status keberhasilan atau kegagalan penyuntingan.
+    """
+    aman, target, alasan = validasi_jalur_sandbox(path)
+    jika tidak aman {
+        agent_logger.log_warning("perkakas.edit_file", f"Akses sandbox ditolak: {alasan}")
+        kembalikan f"[DIBLOKIR KEAMANAN] {alasan}"
+    }
+
+    coba {
+        jika tidak target.exists() {
+            kembalikan f"[GAGAL] Berkas tidak ditemukan: {target}"
+        }
+        jika target.is_dir() {
+            kembalikan f"[GAGAL] Jalur adalah direktori, bukan berkas teks: {target}"
+        }
+
+        konten = target.read_text(encoding="utf-8")
+        jika target_text tidak dalam konten {
+            kembalikan f"[GAGAL] Teks target tidak ditemukan di dalam berkas '{path}'."
+        }
+        jumlah_kemunculan = konten.count(target_text)
+        jika jumlah_kemunculan > 1 {
+            kembalikan f"[GAGAL] Teks target muncul sebanyak {jumlah_kemunculan} kali. Mohon sertakan baris konteks sebelum/sesudah agar unik."
+        }
+
+        konten_baru = konten.replace(target_text, replacement_text, 1)
+        tmp_file = target.with_suffix(f"{target.suffix}.tmp")
+        tmp_file.write_text(konten_baru, encoding="utf-8")
+        tmp_file.replace(target)
+
+        pesan = f"[SUKSES] Berkas '{target.name}' berhasil disunting secara presisi."
+        agent_logger.log_info("perkakas.edit_file", pesan)
+        kembalikan pesan
+    } kecuali exc {
+        agent_logger.log_error("perkakas.edit_file", f"Gagal menyunting berkas {path}: {exc}")
+        kembalikan f"[GAGAL] Kesalahan saat menyunting berkas '{path}': {exc}"
+    }
+}
+
+edit_berkas = edit_file
+
+
+fungsi run_command(command: str) -> str {
+    """Menjalankan perintah shell atau command line pada sistem operasi lokal.
+
+    Args:
+        command: Perintah shell yang ingin dieksekusi.
+
+    Returns:
+        Output stdout/stderr perintah atau pesan penolakan keamanan.
+    """
+    aman, alasan = apakah_perintah_aman(command)
+    jika tidak aman {
+        pesan_blokir = f"[DIBLOKIR KEAMANAN] Perintah dibatalkan: {alasan}"
+        agent_logger.log_warning("perkakas.run_command", pesan_blokir)
+        kembalikan pesan_blokir
+    }
+
+    coba {
+        agent_logger.log_info("perkakas.run_command", f"Menjalankan perintah: {command}")
+        proses = subprocess.run(
+            command,
+            shell=benar,
+            capture_output=benar,
+            text=benar,
+            timeout=60,
+        )
+
+        stdout = proses.stdout.strip()
+        stderr = proses.stderr.strip()
+        kode = proses.returncode
+
+        bagian = [f"[KODE KELUAR: {kode}]"]
+        jika stdout {
+            bagian.append(f"STDOUT:\n{stdout}")
+        }
+        jika stderr {
+            bagian.append(f"STDERR:\n{stderr}")
+        }
+        jika tidak stdout dan tidak stderr {
+            bagian.append("(Tidak ada output)")
+        }
+
+        hasil = "\n\n".join(bagian)
+        agent_logger.log_info("perkakas.run_command", f"Selesai (kode {kode}): {command[:60]}")
+        kembalikan hasil
+    } kecuali subprocess.TimeoutExpired {
+        agent_logger.log_error("perkakas.run_command", f"Timeout 60 detik pada perintah: {command}")
+        kembalikan "[TIMEOUT] Eksekusi perintah melebihi batas waktu 60 detik."
+    } kecuali exc {
+        agent_logger.log_error("perkakas.run_command", f"Kesalahan saat menjalankan '{command}': {exc}")
+        kembalikan f"[GAGAL] Kesalahan saat menjalankan perintah: {exc}"
+    }
+}
+
+jalankan_perintah = run_command
+
+
+fungsi save_memory(key: str, value: str) -> str {
+    """Menyimpan atau memperbarui informasi penting ke memori jangka panjang.
+
+    Args:
+        key: Kunci atau label topik memori (contoh: 'nama_pengguna', 'preferensi').
+        value: Nilai fakta atau preferensi yang ingin disimpan.
+
+    Returns:
+        Konfirmasi penyimpanan memori.
+    """
+    coba {
+        pengelola_memori.simpan(key, value)
+        kembalikan f"[SUKSES] Informasi '{key}' berhasil disimpan ke memori jangka panjang."
+    } kecuali exc {
+        kembalikan f"[GAGAL] Gagal menyimpan memori: {exc}"
+    }
+}
+
+simpan_memori = save_memory
+
+
+fungsi recall_memory(key: str) -> str {
+    """Mengingat kembali fakta atau informasi spesifik dari memori jangka panjang.
+
+    Args:
+        key: Kunci memori yang ingin dicari.
+
+    Returns:
+        Informasi yang tersimpan atau pesan bahwa kunci tidak ditemukan.
+    """
+    val = pengelola_memori.ambil(key)
+    jika val tidak kosong {
+        kembalikan f"[DITEMUKAN] {key}: {val}"
+    }
+    kembalikan f"[TIDAK DITEMUKAN] Tidak ada catatan untuk kunci: '{key}'"
+}
+
+ingat_memori = recall_memory
+
+
+fungsi list_memories() -> str {
+    """Melihat daftar seluruh fakta dan preferensi yang tersimpan di memori.
+
+    Returns:
+        Daftar seluruh memori atau pesan jika memori masih kosong.
+    """
+    mems = pengelola_memori.ambil_semua()
+    jika tidak mems {
+        kembalikan "Memori jangka panjang masih kosong."
+    }
+    baris = ["Daftar Memori Jangka Panjang Persisten:", "─" * 45]
+    untuk k, v dalam mems.items() {
+        baris.append(f"• {k}: {v}")
+    }
+    kembalikan "\n".join(baris)
+}
+
+daftar_memori = list_memories
+
+
+ALAT_TERSEDIA = {
+    "buat_folder": buat_folder,
+    "create_folder": create_folder,
+    "daftar_berkas": daftar_berkas,
+    "list_files": list_files,
+    "baca_berkas": baca_berkas,
+    "read_file": read_file,
+    "tulis_berkas": tulis_berkas,
+    "write_file": write_file,
+    "edit_berkas": edit_berkas,
+    "edit_file": edit_file,
+    "jalankan_perintah": jalankan_perintah,
+    "run_command": run_command,
+    "simpan_memori": simpan_memori,
+    "save_memory": save_memory,
+    "ingat_memori": ingat_memori,
+    "recall_memory": recall_memory,
+    "daftar_memori": daftar_memori,
+    "list_memories": list_memories,
+}
+
+DAFTAR_PANGGILAN_ALAT = [
+    create_folder,
+    list_files,
+    read_file,
+    write_file,
+    edit_file,
+    run_command,
+    save_memory,
+    recall_memory,
+    list_memories,
+]
+
+AVAILABLE_TOOLS = ALAT_TERSEDIA
+TOOL_CALLABLES = DAFTAR_PANGGILAN_ALAT
