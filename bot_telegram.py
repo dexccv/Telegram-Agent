@@ -1844,8 +1844,51 @@ class TelegramAgentGateway:
         except Exception:
             pass
 
+        # Kirim notifikasi pesan ke user bahwa bot sudah berhasil terhubung (Connected)
+        if self.allowed_user_id and str(self.allowed_user_id).isdigit():
+            chat_id = int(self.allowed_user_id)
+            try:
+                m = ambil_metrik_realtime()
+                prov = self.config.ambil_provider().upper()
+                waktu_now = datetime.datetime.now().strftime("%H:%M:%S WIB")
+                conn_msg = (
+                    "🟢 **LAPTOP AGENT CONNECTED** 🚀\n\n"
+                    "⌬ **Terminal Agent Berhasil Terhubung ke Telegram!**\n"
+                    f"• **Status**: ONLINE 🟢\n"
+                    f"• **Waktu**: `{waktu_now}`\n"
+                    f"• **Daya Baterai**: `{m['battery_str']}`\n"
+                    f"• **Jaringan Wi-Fi**: `{m['wifi_full']}`\n"
+                    f"• **Jendela Aktif**: `{m['active_window']}`\n"
+                    f"• **Provider AI**: `{prov}` (Model: `{self.agent.model_name}`)\n\n"
+                    "Perangkat laptop siap dikendalikan dari HP.\n"
+                    "Ketik `/status` untuk membuka dashboard monitoring atau `/buka` untuk pusat media."
+                )
+                await application.bot.send_message(
+                    chat_id=chat_id,
+                    text=conn_msg,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                print(f"[OK] Notifikasi koneksi berhasil dikirim ke Telegram User ID: {chat_id}")
+            except Exception as exc:
+                agent_logger.log_error("telegram_gateway.post_init", f"Gagal mengirim notifikasi koneksi: {exc}")
+
     def run(self) -> None:
         """Menjalankan bot Telegram polling daemon."""
+        # Bersihkan instance bot_telegram.py lain jika ada untuk mencegah Conflict 409
+        try:
+            import psutil
+            my_pid = os.getpid()
+            for p in psutil.process_iter(["pid", "name", "cmdline"]):
+                try:
+                    if p.info["pid"] != my_pid:
+                        cmd = " ".join(p.info.get("cmdline") or [])
+                        if "bot_telegram.py" in cmd and "python -c" not in cmd:
+                            p.terminate()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         print("=" * 60)
         print("  TERMINAL LAPTOP AGENT - TELEGRAM MOBILE GATEWAY")
         print("=" * 60)
