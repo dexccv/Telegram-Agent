@@ -1065,7 +1065,7 @@ class TelegramAgentGateway:
         if msg_target:
             await msg_target.reply_text(pesan, parse_mode=ParseMode.MARKDOWN)
 
-    def _start_global_lock_hotkey_listener(self, application: Application) -> None:
+    def _start_global_lock_hotkey_listener(self, application: Application, loop: Any = None) -> None:
         """Menjalankan thread latar belakang untuk mendengarkan tombol kombinasi Ctrl + L di laptop."""
         import threading
 
@@ -1091,20 +1091,20 @@ class TelegramAgentGateway:
                         # Kirim notifikasi instan ke Telegram jika whitelist chat_id terdaftar
                         if self.allowed_user_id and str(self.allowed_user_id).isdigit():
                             try:
-                                loop = asyncio.get_event_loop()
                                 notif_text = (
                                     "🔒 **PINTASAN KEYBOARD: LAPTOP DIKUNCI!**\n\n"
                                     "Laptop baru saja dikunci menggunakan kombinasi tombol **Ctrl + L** di laptop.\n"
                                     f"⏱ Waktu: `{datetime.datetime.now().strftime('%H:%M:%S WIB')}`"
                                 )
-                                asyncio.run_coroutine_threadsafe(
-                                    application.bot.send_message(
-                                        chat_id=int(self.allowed_user_id),
-                                        text=notif_text,
-                                        parse_mode=ParseMode.MARKDOWN,
-                                    ),
-                                    loop,
-                                )
+                                if loop and loop.is_running():
+                                    asyncio.run_coroutine_threadsafe(
+                                        application.bot.send_message(
+                                            chat_id=int(self.allowed_user_id),
+                                            text=notif_text,
+                                            parse_mode=ParseMode.MARKDOWN,
+                                        ),
+                                        loop,
+                                    )
                             except Exception:
                                 pass
                     user32.TranslateMessage(ctypes.byref(msg))
@@ -2184,18 +2184,28 @@ class TelegramAgentGateway:
             except Exception as exc:
                 agent_logger.log_error("telegram_gateway.post_init", f"Gagal mengirim notifikasi koneksi: {exc}")
 
+        # Jalankan global listener hotkey Ctrl+L untuk lock workstation
+        try:
+            self._start_global_lock_hotkey_listener(application, asyncio.get_running_loop())
+        except Exception:
+            pass
+
     def run(self) -> None:
         """Menjalankan bot Telegram polling daemon."""
         # Bersihkan instance bot_telegram.py lain jika ada untuk mencegah Conflict 409
         try:
             import psutil
             my_pid = os.getpid()
+            parent_pid = os.getppid() if hasattr(os, "getppid") else None
             for p in psutil.process_iter(["pid", "name", "cmdline"]):
                 try:
-                    if p.info["pid"] != my_pid:
-                        cmd = " ".join(p.info.get("cmdline") or [])
-                        if "bot_telegram.py" in cmd and "python -c" not in cmd:
-                            p.terminate()
+                    p_pid = p.info["pid"]
+                    if p_pid != my_pid and p_pid != parent_pid:
+                        p_name = (p.info.get("name") or "").lower()
+                        if p_name.startswith("python"):
+                            cmd = " ".join(p.info.get("cmdline") or [])
+                            if "bot_telegram.py" in cmd and "python -c" not in cmd:
+                                p.terminate()
                 except Exception:
                     pass
         except Exception:
@@ -2287,7 +2297,6 @@ class TelegramAgentGateway:
                 print("[SOLUSI] Pastikan hanya satu terminal / proses bot_telegram.py yang berjalan.")
 
         app.add_error_handler(error_handler)
-        self._start_global_lock_hotkey_listener(app)
         app.run_polling(drop_pending_updates=True)
 
 
