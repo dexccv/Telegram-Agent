@@ -40,6 +40,7 @@ Dilengkapi dengan antarmuka visual **Textual TUI**, dukungan multi-provider AI (
 - **Pencarian YouTube Otomatis**: Mendukung perintah natural seperti *"buka chrome lalu buka youtube dan cari lagu hindia"*.
 - **Penjelajah Berkas & Pengunduh Dokumen (`/get`)**: Jelajahi folder laptop (Project, Downloads, Documents, Desktop, Drive C/D) dengan tombol inline dan unduh berkas apa pun langsung ke HP dalam satu ketukan.
 - **Kontrol Volume & Pemutar Musik (`/volume`, `/play`, `/next`, `/prev`)**: Tombol volume (+/-10%, Mute/Unmute, 20-100%) dan kontrol lagu (Play/Pause `F10`, Next `F11`, Prev `F9`) yang disimulasikan langsung ke keyboard laptop.
+- **Tangkapan Layar Display (`/capture`, `/ss`)**: Mengambil screenshot layar laptop resolusi penuh secara instan dan mengirimkannya langsung sebagai foto ke chat Telegram.
 - **Tangkapan Kamera Webcam (`/kamera`)**: Ambil foto live dari webcam laptop dan kirimkan ke chat Telegram.
 - **Manajemen Aplikasi (`/tutup`)**: Menutup aplikasi desktop yang sedang berjalan di laptop.
 - **Uji Kecepatan & Latensi (`/speed`)**: Benchmark latency respon AI dan roundtrip pengiriman Telegram.
@@ -212,6 +213,7 @@ Jika Anda ingin menjalankan agen secara offline atau menggunakan model open-sour
 | `/play` / `/pause` | Memutar atau menjeda lagu/video di YouTube atau Spotify (`F10`). |
 | `/next` / `/prev` | Memutar lagu berikutnya (`F11`) atau lagu sebelumnya (`F9`). |
 | `/mute` / `/unmute` | Mematikan atau menghidupkan kembali suara speaker laptop secara instan. |
+| `/capture` / `/ss` | Mengambil screenshot layar laptop resolusi penuh dan mengirimkan fotonya ke Telegram. |
 | `/kamera` | Mengambil foto live dari webcam laptop dan mengirimkannya ke chat. |
 | `/tutup <nama>` | Menutup aplikasi desktop tertentu yang sedang berjalan di laptop (contoh: `/tutup chrome`). |
 | `/speed` | Menguji latensi respons model AI dan kecepatan kirim jaringan Telegram. |

@@ -304,6 +304,7 @@ class TelegramAgentGateway:
             "• `/baterai` : Pantau persentase baterai & status pengisian charger.\n"
             "• `/jendela` : Pantau jendela yang sedang dibuka di layar & daftar aplikasi aktif.\n"
             "• `/kamera` : Ambil foto langsung dari webcam laptop dan kirimkan ke sini.\n"
+            "• `/capture` : Ambil tangkapan layar (screenshot) tampilan display laptop saat ini.\n"
             "• `/buka <target>` : Buka aplikasi, link, atau cari lagu di YouTube (misal: `/buka youtube lagu hindia`).\n"
             "• `/tutup <nama>` : Tutup aplikasi desktop tertentu (misal: `/tutup chrome` atau `/tutup notepad`).\n"
             "• `/volume [level]` : Atur volume master laptop (0-100, +10, -10, mute, unmute) atau buka panel volume.\n"
@@ -379,6 +380,10 @@ class TelegramAgentGateway:
                 [
                     InlineKeyboardButton("⚡ Uji Kecepatan (Speed Test)", callback_data="btn_speed_test"),
                     InlineKeyboardButton("🔊 Atur Volume", callback_data="btn_volume_panel"),
+                ],
+                [
+                    InlineKeyboardButton("📸 Foto Webcam", callback_data="btn_camera"),
+                    InlineKeyboardButton("🖥️ Screenshot Layar", callback_data="btn_capture_screen"),
                 ],
             ]
         )
@@ -498,6 +503,12 @@ class TelegramAgentGateway:
         elif data == "btn_speed_test":
             await query.answer("⚡ Menjalankan uji kecepatan...")
             await self.speed_cmd(update, context)
+        elif data == "btn_camera":
+            await query.answer("📸 Mengambil foto kamera...")
+            await self.camera_cmd(update, context)
+        elif data == "btn_capture_screen":
+            await query.answer("🖥️ Mengambil screenshot layar...")
+            await self.capture_screen_cmd(update, context)
         elif data == "btn_volume_panel":
             import perkakas
             fn_vol = getattr(perkakas, "set_volume", None)
@@ -806,6 +817,51 @@ class TelegramAgentGateway:
                 )
         else:
             await update.message.reply_text(f"❌ Gagal mengambil foto: {pesan}")
+
+    async def capture_screen_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Mengambil screenshot layar display laptop dan langsung mengirimkannya ke Telegram."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        msg_target = update.message or (update.callback_query.message if update.callback_query else None)
+        if not msg_target:
+            return
+
+        status_msg = await msg_target.reply_text(
+            "🖥️ *Mengambil tangkapan layar (screenshot) display laptop...*",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+        import perkakas
+        fn_ss = getattr(perkakas, "capture_screen", None)
+        if not fn_ss:
+            await msg_target.reply_text("❌ Fungsi capture_screen tidak tersedia.")
+            return
+
+        out_name = "screen_capture.png"
+        res = await asyncio.to_thread(fn_ss, out_name)
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        ss_path = Path(out_name).resolve()
+        if ss_path.exists():
+            m = ambil_metrik_realtime()
+            caption = (
+                f"🖥️ **Tangkapan Layar (Screenshot) Laptop**\n"
+                f"🎯 **Jendela Aktif**: `{m['active_window']}`\n"
+                f"⏱ **Waktu**: `{datetime.datetime.now().strftime('%H:%M:%S WIB')}`"
+            )
+            with open(ss_path, "rb") as pf:
+                await msg_target.reply_photo(
+                    photo=pf,
+                    caption=caption,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+        else:
+            await msg_target.reply_text(f"❌ {res}")
 
     async def close_app_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Menutup aplikasi tertentu di laptop (misal: /tutup chrome atau /tutup notepad)."""
@@ -1432,6 +1488,29 @@ class TelegramAgentGateway:
                     except Exception:
                         pass
 
+            # Cek apakah ada tangkapan layar (screenshot) baru yang dihasilkan dalam 45 detik terakhir
+            for ss_name in ["screen_capture.png", "screenshot.png"]:
+                ss_path = Path(ss_name)
+                if ss_path.exists():
+                    try:
+                        mtime = ss_path.stat().st_mtime
+                        if (datetime.datetime.now().timestamp() - mtime) < 45:
+                            m = ambil_metrik_realtime()
+                            caption = (
+                                f"🖥️ **Tangkapan Layar (Screenshot) Laptop**\n"
+                                f"🎯 **Jendela Aktif**: `{m['active_window']}`\n"
+                                f"⏱ **Waktu**: `{datetime.datetime.now().strftime('%H:%M:%S WIB')}`"
+                            )
+                            with open(ss_path, "rb") as pf:
+                                await update.message.reply_photo(
+                                    photo=pf,
+                                    caption=caption,
+                                    parse_mode=ParseMode.MARKDOWN,
+                                )
+                            break
+                    except Exception:
+                        pass
+
         except Exception as exc:
             err_msg = f"❌ Terjadi kesalahan saat memproses di laptop: {exc}"
             agent_logger.log_error("telegram_gateway", str(exc))
@@ -1444,6 +1523,7 @@ class TelegramAgentGateway:
         """Mendaftarkan menu tombol command interaktif di aplikasi Telegram."""
         commands = [
             BotCommand("status", "Dashboard monitoring laptop real-time"),
+            BotCommand("capture", "Ambil tangkapan layar laptop (Screenshot)"),
             BotCommand("speed", "Uji kecepatan respon AI & kirim Telegram"),
             BotCommand("kamera", "Ambil foto dari webcam laptop"),
             BotCommand("buka", "Buka aplikasi/Chrome/YouTube (misal: /buka youtube lagu hindia)"),
@@ -1513,6 +1593,9 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("kamera", self.camera_cmd))
         app.add_handler(CommandHandler("foto", self.camera_cmd))
         app.add_handler(CommandHandler("webcam", self.camera_cmd))
+        app.add_handler(CommandHandler("capture", self.capture_screen_cmd))
+        app.add_handler(CommandHandler("screenshot", self.capture_screen_cmd))
+        app.add_handler(CommandHandler("ss", self.capture_screen_cmd))
         app.add_handler(CommandHandler("tutup", self.close_app_cmd))
         app.add_handler(CommandHandler("close", self.close_app_cmd))
         app.add_handler(CommandHandler("buka", self.open_app_cmd))

@@ -654,6 +654,24 @@ kelas AgenGemini {
             kembalikan hasil
         }
 
+        # 8. Tindakan Ambil Tangkapan Layar (Screenshot Display Laptop)
+        jika any([k dalam msg_lower untuk k dalam ["screenshot", "screen capture", "capture layar", "tangkapan layar", "foto layar", "ss laptop", "ss layar", "capture screen", "ambil ss", "ambil screenshot"]]) {
+            jika on_tool_call {
+                on_tool_call("capture_screen", {"output_path": "screen_capture.png"})
+            }
+            fn_ss = ALAT_TERSEDIA.get("capture_screen")
+            hasil = fn_ss("screen_capture.png") jika fn_ss selain "Alat capture_screen tidak ditemukan."
+            jika on_tool_result {
+                on_tool_result("capture_screen", hasil)
+            }
+            jika on_chunk {
+                on_chunk(hasil)
+            }
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil))
+            pengelola_sesi.simpan_sesi(diri.session)
+            kembalikan hasil
+        }
+
         jika diri.provider == "omniroute" {
             kembalikan diri._kirim_pesan_omniroute(message, on_tool_call, on_tool_result, on_chunk)
         } jika_lain diri.provider == "ollama" {

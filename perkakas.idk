@@ -514,6 +514,47 @@ fungsi capture_camera(output_path: str = "kamera_capture.jpg") -> str {
 ambil_foto_kamera = capture_camera
 
 
+fungsi capture_screen(output_path: str = "screen_capture.png") -> str {
+    """Mengambil tangkapan layar (screenshot) display laptop saat ini secara instan.
+
+    Args:
+        output_path: Jalur penyimpanan file gambar screenshot (.png atau .jpg).
+
+    Returns:
+        Pesan status hasil tangkapan layar laptop.
+    """
+    coba {
+        impor ctypes
+        impor os
+        dari pathlib impor Path
+        dari PIL impor ImageGrab
+
+        user32 = ctypes.windll.user32
+        # Hubungkan thread ke active input desktop Windows agar screen grab BitBlt berhasil
+        coba {
+            hdesk = user32.OpenInputDesktop(0, salah, 0x01FF)
+            jika hdesk {
+                user32.SetThreadDesktop(hdesk)
+            }
+        } kecuali Exception {
+            lewati
+        }
+
+        im = ImageGrab.grab(all_screens=benar)
+        out_p = Path(output_path).resolve()
+        im.save(str(out_p))
+
+        agent_logger.log_info("perkakas.capture_screen", f"Screenshot berhasil disimpan: {out_p}")
+        kembalikan f"[SUKSES] Tangkapan layar laptop berhasil diambil ({im.size[0]}x{im.size[1]} px): {out_p.name}"
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.capture_screen", f"Gagal tangkap layar: {exc}")
+        kembalikan f"[GAGAL] Gagal mengambil screenshot layar: {exc}"
+    }
+}
+
+ambil_tangkapan_layar = capture_screen
+
+
 fungsi get_system_status() -> str {
     """Membaca persentase penggunaan sistem dan penyimpanan laptop secara real-time.
 
@@ -979,6 +1020,9 @@ ALAT_TERSEDIA = {
     "atur_volume": atur_volume,
     "media_control": media_control,
     "kontrol_media": kontrol_media,
+    "capture_screen": capture_screen,
+    "ambil_tangkapan_layar": ambil_tangkapan_layar,
+    "screenshot": capture_screen,
 }
 
 DAFTAR_PANGGILAN_ALAT = [
@@ -998,6 +1042,7 @@ DAFTAR_PANGGILAN_ALAT = [
     open_application,
     set_volume,
     media_control,
+    capture_screen,
 ]
 
 AVAILABLE_TOOLS = ALAT_TERSEDIA
@@ -1186,6 +1231,20 @@ SKEMA_ALAT_OPENAI = [
                     "action": {"type": "string", "description": "'play_pause', 'play', 'pause', 'next', 'prev', 'stop'"},
                 },
                 "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "capture_screen",
+            "description": "Mengambil tangkapan layar (screenshot) display laptop saat ini dan menyimpannya sebagai berkas gambar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "output_path": {"type": "string", "description": "Jalur penyimpanan file screenshot (default: 'screen_capture.png')"},
+                },
+                "required": [],
             },
         },
     },
