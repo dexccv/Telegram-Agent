@@ -11,6 +11,7 @@ import ctypes
 import datetime
 import os
 import platform
+import re
 import socket
 import subprocess
 import sys
@@ -31,11 +32,31 @@ from rich import box
 
 console = Console(highlight=False)
 
+import telegram.error
+from telegram import (
+    BotCommand,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
+    BotCommandScopeDefault,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    MenuButtonCommands,
+    Update,
+)
+from telegram.constants import ParseMode
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+
 # Aktifkan runtime loader Indonesiaku-Lang
 from penerjemah_idk import aktifkan_hook_idk
 
 aktifkan_hook_idk()
-
 
 # Modul logika ditulis dalam Indonesiaku-Lang (.idk) dan dimuat dinamis via hook penerjemah_idk
 import agen  # type: ignore[import-not-found]
