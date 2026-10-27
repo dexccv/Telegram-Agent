@@ -1156,10 +1156,9 @@ class TelegramAgentGateway:
             btn_title = v_title[:38] + ".." if len(v_title) > 40 else v_title
             buttons.append([InlineKeyboardButton(f"▶️ {idx}. {btn_title}", callback_data=f"yt_play:{r['video_id']}")])
 
-        lines.append("👇 *Tekan tombol di bawah untuk langsung memutar video di laptop:*")
         encoded_q = urllib.parse.quote_plus(query)
         buttons.append([
-            InlineKeyboardButton("🌐 Buka Hasil di Browser", callback_data=f"open_app:https://www.youtube.com/results?search_query={encoded_q}"),
+            InlineKeyboardButton("🌐 Buka Hasil di Browser", url=f"https://www.youtube.com/results?search_query={encoded_q}"),
         ])
 
         await msg_target.reply_text(
@@ -1287,7 +1286,7 @@ class TelegramAgentGateway:
             )
             buttons = [
                 [
-                    InlineKeyboardButton("🌐 Buka Tautan di Browser", callback_data=f"open_app:{target_url}"),
+                    InlineKeyboardButton("🌐 Buka Tautan di Browser", url=target_url),
                 ]
             ]
             try:
@@ -1849,8 +1848,9 @@ class TelegramAgentGateway:
             await self.cari_cmd(update, context)
             return
 
-        # Deteksi langsung: Pencarian / Pemutaran YouTube otomatis
-        if ("youtube" in u_clean or "yt" in u_clean or "lagu" in u_clean) and any(w in u_clean for w in ["cari", "putar", "play", "dengarkan", "stel", "setel"]):
+        # Deteksi langsung: Pencarian / Pemutaran YouTube otomatis HANYA jika perintah tunggal (bukan majemuk dengan 'dan', 'volume', 'lalu', dsb)
+        is_compound = any(w in u_clean for w in [" dan ", " lalu ", " serta ", "sambil", "kemudian", "volume", "suara", "tutup", "pdf"])
+        if not is_compound and ("youtube" in u_clean or "yt" in u_clean or "lagu" in u_clean) and any(w in u_clean for w in ["cari", "putar", "play", "dengarkan", "stel", "setel"]):
             cleaned_query = re.sub(
                 r"\b(buka|open|chrome|lalu|didalam|dan|youtube|yt|tolong|coba|cari|carikan|putar|putarkan|play|lagu|video|setel|musik)\b",
                 "",
@@ -1916,6 +1916,11 @@ class TelegramAgentGateway:
             except Exception:
                 pass
 
+            # Cek berkas siap kirim dari hasil eksekusi tool AI
+            berkas_siap = re.findall(r"\[BERKAS_SIAP_KIRIM:\s*(.*?)\]", response_text)
+            if berkas_siap:
+                response_text = re.sub(r"\[BERKAS_SIAP_KIRIM:\s*.*?\]\n?", "", response_text).strip()
+
             if not response_text or not response_text.strip():
                 response_text = "✅ Perintah telah diproses oleh Agen di laptop."
 
@@ -1937,6 +1942,40 @@ class TelegramAgentGateway:
                 except Exception:
                     # Fallback ke plain text jika Markdown mengandung karakter unescaped
                     await update.message.reply_text(chunk)
+
+            # Kirim dokumen/berkas yang diminta/dihasilkan oleh agen ke Telegram pengguna
+            berkas_terkirim = set()
+            for b_path_str in berkas_siap:
+                try:
+                    b_path = Path(b_path_str.strip()).expanduser().resolve()
+                    if b_path.exists() and b_path.is_file():
+                        file_sz = b_path.stat().st_size
+                        if file_sz <= 50 * 1024 * 1024:
+                            with open(b_path, "rb") as bf:
+                                await update.message.reply_document(
+                                    document=bf,
+                                    caption=f"📄 **Berkas dari Laptop**: `{b_path.name}`",
+                                    parse_mode=ParseMode.MARKDOWN,
+                                )
+                            berkas_terkirim.add(str(b_path))
+                except Exception as b_err:
+                    agent_logger.log_error("telegram_gateway.send_doc", f"Gagal kirim berkas: {b_err}")
+
+            # Cek apakah ada file PDF baru yang dibuat di direktori kerja dalam 45 detik terakhir
+            now_ts = datetime.datetime.now().timestamp()
+            for pdf_file in Path.cwd().glob("*.pdf"):
+                try:
+                    if (now_ts - pdf_file.stat().st_mtime) < 45 and str(pdf_file.resolve()) not in berkas_terkirim:
+                        with open(pdf_file, "rb") as bf:
+                            await update.message.reply_document(
+                                document=bf,
+                                caption=f"📄 **Dokumen PDF Dibuat**: `{pdf_file.name}`",
+                                parse_mode=ParseMode.MARKDOWN,
+                            )
+                        berkas_terkirim.add(str(pdf_file.resolve()))
+                        break
+                except Exception:
+                    pass
 
             # Cek apakah ada foto webcam baru yang dihasilkan dalam 45 detik terakhir
             for foto_name in ["kamera_capture.jpg", "capture_kamera.jpg"]:

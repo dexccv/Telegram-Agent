@@ -1000,12 +1000,28 @@ fungsi play_youtube_video(video_id_or_url: str) -> str {
     coba {
         impor os
         impor subprocess
+        impor urllib.parse
 
         target = video_id_or_url.strip()
         jika target.startswith("http://") atau target.startswith("https://") {
             final_url = target
         } selain {
-            final_url = f"https://www.youtube.com/watch?v={target}&autoplay=1"
+            # Cek apakah target adalah 11-karakter ID YouTube standar tanpa spasi
+            is_valid_id = len(target) == 11 dan all([c.isalnum() atau c dalam "_-" untuk c dalam target])
+            jika tidak is_valid_id {
+                # Cari video teratas menggunakan search_youtube_videos
+                hasil_cari = search_youtube_videos(target, limit=1)
+                jika hasil_cari dan len(hasil_cari) > 0 {
+                    vid_info = hasil_cari[0]
+                    v_id = vid_info.get("video_id")
+                    final_url = f"https://www.youtube.com/watch?v={v_id}&autoplay=1" jika v_id selain (vid_info.get("url") atau target)
+                } selain {
+                    encoded = urllib.parse.quote_plus(target)
+                    final_url = f"https://www.youtube.com/results?search_query={encoded}"
+                }
+            } selain {
+                final_url = f"https://www.youtube.com/watch?v={target}&autoplay=1"
+            }
         }
 
         chrome_candidates = [
@@ -1307,6 +1323,111 @@ fungsi media_control(action: str = "play_pause") -> str {
 kontrol_media = media_control
 
 
+fungsi create_pdf(filename: str, content: str, title: str = "") -> str {
+    """Membuat file dokumen PDF profesional dari teks/konten dan menyimpannya di laptop."""
+    coba {
+        impor os
+        dari pathlib impor Path
+        
+        target_name = filename.strip() jika filename dan filename.strip() selain "dokumen.pdf"
+        jika tidak target_name.lower().endswith(".pdf") {
+            target_name += ".pdf"
+        }
+        target_path = Path(target_name).expanduser().resolve()
+        
+        dari reportlab.lib.pagesizes impor A4
+        dari reportlab.platypus impor SimpleDocTemplate, Paragraph, Spacer
+        dari reportlab.lib.styles impor getSampleStyleSheet, ParagraphStyle
+        dari reportlab.lib impor colors
+
+        doc = SimpleDocTemplate(
+            str(target_path),
+            pagesize=A4,
+            rightMargin=54,
+            leftMargin=54,
+            topMargin=54,
+            bottomMargin=54,
+        )
+        
+        styles = getSampleStyleSheet()
+        normal_style = styles["Normal"]
+        normal_style.fontSize = 11
+        normal_style.leading = 16
+        normal_style.textColor = colors.HexColor("#222222")
+
+        elements = []
+        
+        doc_title = title.strip() jika title dan title.strip() selain target_path.stem.replace("_", " ").title()
+        title_style = ParagraphStyle(
+            "DocTitle",
+            parent=styles["Heading1"],
+            fontSize=18,
+            leading=22,
+            textColor=colors.HexColor("#1A365D"),
+            spaceAfter=15,
+        )
+        elements.append(Paragraph(doc_title, title_style))
+        elements.append(Spacer(1, 10))
+
+        paragraphs = content.strip().split("\n\n")
+        untuk p dalam paragraphs {
+            p_clean = p.strip()
+            jika tidak p_clean {
+                lanjut
+            }
+            p_formatted = p_clean.replace("\n", "<br/>")
+            elements.append(Paragraph(p_formatted, normal_style))
+            elements.append(Spacer(1, 10))
+        }
+
+        doc.build(elements)
+        file_size = target_path.stat().st_size
+        
+        pesan = f"[SUKSES] Dokumen PDF berhasil dibuat di: {target_path} (Ukuran: {file_size:,} byte)\n[BERKAS_SIAP_KIRIM: {target_path}]"
+        agent_logger.log_info("perkakas.create_pdf", pesan)
+        kembalikan pesan
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.create_pdf", f"Gagal membuat PDF: {exc}")
+        kembalikan f"[GAGAL] Gagal membuat dokumen PDF: {exc}"
+    }
+}
+
+buat_pdf = create_pdf
+
+
+fungsi send_file_to_user(file_path: str, caption: str = "") -> str {
+    """Menyiapkan dan menandai berkas di laptop untuk dikirimkan langsung ke Telegram pengguna."""
+    coba {
+        impor os
+        dari pathlib impor Path
+        
+        p = Path(file_path.strip()).expanduser().resolve()
+        jika tidak p.exists() {
+            alt = (Path.cwd() / file_path.strip()).resolve()
+            jika alt.exists() {
+                p = alt
+            }
+        }
+        jika tidak p.exists() {
+            kembalikan f"[GAGAL] Berkas '{file_path}' tidak ditemukan di laptop."
+        }
+        jika tidak p.is_file() {
+            kembalikan f"[GAGAL] Jalur '{file_path}' adalah folder, bukan berkas."
+        }
+        
+        size = p.stat().st_size
+        pesan = f"[SUKSES] Berkas siap dikirim ke Telegram: {p} ({size:,} byte)\n[BERKAS_SIAP_KIRIM: {p}]"
+        agent_logger.log_info("perkakas.send_file_to_user", pesan)
+        kembalikan pesan
+    } kecuali Exception sebagai exc {
+        agent_logger.log_error("perkakas.send_file_to_user", f"Gagal memproses berkas: {exc}")
+        kembalikan f"[GAGAL] Gagal memproses berkas: {exc}"
+    }
+}
+
+kirim_berkas_ke_pengguna = send_file_to_user
+
+
 ALAT_TERSEDIA = {
     "buat_folder": buat_folder,
     "create_folder": create_folder,
@@ -1355,6 +1476,10 @@ ALAT_TERSEDIA = {
     "tutup_jendela": tutup_jendela,
     "control_browser_media": control_browser_media,
     "kontrol_media_browser": kontrol_media_browser,
+    "create_pdf": create_pdf,
+    "buat_pdf": buat_pdf,
+    "send_file_to_user": send_file_to_user,
+    "kirim_berkas_ke_pengguna": send_file_to_user,
 }
 
 DAFTAR_PANGGILAN_ALAT = [
@@ -1381,6 +1506,8 @@ DAFTAR_PANGGILAN_ALAT = [
     focus_window,
     close_window_tab,
     control_browser_media,
+    create_pdf,
+    send_file_to_user,
 ]
 
 AVAILABLE_TOOLS = ALAT_TERSEDIA
@@ -1663,6 +1790,37 @@ SKEMA_ALAT_OPENAI = [
                     "action": {"type": "string", "description": "'play_pause', 'play', 'pause', 'next', 'prev', 'stop'"},
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_pdf",
+            "description": "Membuat dokumen PDF baru dari teks atau konten tertentu dan menyimpannya di sistem laptop. Berkas otomatis dapat langsung dikirim ke Telegram.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {"type": "string", "description": "Nama file PDF yang akan dibuat (contoh: 'laporan.pdf' atau 'catatan.pdf')"},
+                    "content": {"type": "string", "description": "Isi teks dokumen yang akan dimasukkan ke dalam PDF"},
+                    "title": {"type": "string", "description": "Judul dokumen di bagian atas halaman PDF (opsional)"},
+                },
+                "required": ["filename", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_file_to_user",
+            "description": "Menyiapkan dan mengirimkan berkas/dokumen/foto yang ada di laptop langsung ke chat Telegram pengguna.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Jalur berkas lokal yang ingin dikirimkan ke Telegram"},
+                    "caption": {"type": "string", "description": "Keterangan opsional untuk berkas tersebut"},
+                },
+                "required": ["file_path"],
             },
         },
     },

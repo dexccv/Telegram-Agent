@@ -519,123 +519,146 @@ class GeminiAgent:
             if auto_title:
                 self.session.title = auto_title
 
-        # Fast path intent detection untuk perintah kontrol laptop langsung
+        # Fast path intent detection untuk perintah kontrol laptop langsung (hanya jika bukan instruksi majemuk)
         msg_lower = message.strip().lower()
+        kata_sambung = [" dan ", " lalu ", " serta ", " sambil ", " kemudian ", " setelah itu ", " terus ", "\n", ";"]
+        is_compound = any(w in msg_lower for w in kata_sambung)
+        if ("putar" in msg_lower or "play" in msg_lower) and ("volume" in msg_lower or "suara" in msg_lower):
+            is_compound = True
+        if "pdf" in msg_lower or "dokumen" in msg_lower:
+            is_compound = True
 
-        # 1. Menutup aplikasi
-        if msg_lower.startswith("tutup aplikasi ") or msg_lower.startswith("tutup ") or msg_lower.startswith("close "):
-            parts = message.strip().split(maxsplit=2 if msg_lower.startswith("tutup aplikasi ") else 1)
-            target_app = parts[-1].strip().strip('"').strip("'")
-            if target_app:
-                fn_tutup = AVAILABLE_TOOLS.get("close_application")
-                if fn_tutup:
+        if not is_compound:
+            # 1. Menutup aplikasi
+            if msg_lower.startswith("tutup aplikasi ") or msg_lower.startswith("tutup ") or msg_lower.startswith("close "):
+                parts = message.strip().split(maxsplit=2 if msg_lower.startswith("tutup aplikasi ") else 1)
+                target_app = parts[-1].strip().strip('"').strip("'")
+                if target_app:
+                    fn_tutup = AVAILABLE_TOOLS.get("close_application")
+                    if fn_tutup:
+                        if on_tool_call:
+                            on_tool_call("close_application", {"app_name_or_pid": target_app})
+                        res = str(fn_tutup(target_app))
+                        if on_tool_result:
+                            on_tool_result("close_application", res)
+                        self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                        session_manager.save_session(self.session)
+                        return res
+
+            # 2. Buka kamera webcam & foto
+            if any(k in msg_lower for k in ["buka kamera", "ambil foto", "foto kamera", "capture kamera", "foto webcam", "kamera laptop"]):
+                fn_cam = AVAILABLE_TOOLS.get("capture_camera")
+                if fn_cam:
                     if on_tool_call:
-                        on_tool_call("close_application", {"app_name_or_pid": target_app})
-                    res = str(fn_tutup(target_app))
+                        on_tool_call("capture_camera", {"output_path": "kamera_capture.jpg"})
+                    res = str(fn_cam("kamera_capture.jpg"))
                     if on_tool_result:
-                        on_tool_result("close_application", res)
+                        on_tool_result("capture_camera", res)
                     self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
                     session_manager.save_session(self.session)
                     return res
 
-        # 2. Buka kamera webcam & foto
-        if any(k in msg_lower for k in ["buka kamera", "ambil foto", "foto kamera", "capture kamera", "foto webcam", "kamera laptop"]):
-            fn_cam = AVAILABLE_TOOLS.get("capture_camera")
-            if fn_cam:
-                if on_tool_call:
-                    on_tool_call("capture_camera", {"output_path": "kamera_capture.jpg"})
-                res = str(fn_cam("kamera_capture.jpg"))
-                if on_tool_result:
-                    on_tool_result("capture_camera", res)
-                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                session_manager.save_session(self.session)
-                return res
+            # 3. Status sistem / hardware
+            if any(k in msg_lower for k in ["status sistem", "persentase sistem", "persentase penyimpanan", "persentase baterai", "cek baterai", "cek penyimpanan", "cek ram", "cek cpu", "cek storage"]):
+                fn_stat = AVAILABLE_TOOLS.get("get_system_status")
+                if fn_stat:
+                    if on_tool_call:
+                        on_tool_call("get_system_status", {})
+                    res = str(fn_stat())
+                    if on_tool_result:
+                        on_tool_result("get_system_status", res)
+                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                    session_manager.save_session(self.session)
+                    return res
 
-        # 3. Status sistem / hardware
-        if any(k in msg_lower for k in ["status sistem", "persentase sistem", "persentase penyimpanan", "persentase baterai", "cek baterai", "cek penyimpanan", "cek ram", "cek cpu", "cek storage"]):
-            fn_stat = AVAILABLE_TOOLS.get("get_system_status")
-            if fn_stat:
-                if on_tool_call:
-                    on_tool_call("get_system_status", {})
-                res = str(fn_stat())
-                if on_tool_result:
-                    on_tool_result("get_system_status", res)
-                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                session_manager.save_session(self.session)
-                return res
+            # 4. Buka aplikasi desktop / YouTube / URL
+            if (msg_lower.startswith("buka ") or msg_lower.startswith("open ") or "buka chrome" in msg_lower or "buka youtube" in msg_lower or (("putar " in msg_lower or "play " in msg_lower) and ("youtube" in msg_lower or "yt" in msg_lower))) and not ("kamera" in msg_lower or "webcam" in msg_lower):
+                if ("youtube" in msg_lower or "yt" in msg_lower) and ("putar" in msg_lower or "play" in msg_lower):
+                    fn_yt = AVAILABLE_TOOLS.get("play_youtube_video")
+                    if fn_yt:
+                        q_yt = message.strip()
+                        for w in ["putar", "putarkan", "play", "lagu", "video", "musik", "di", "pada", "youtube", "yt", "tolong", "coba"]:
+                            q_yt = re.sub(r"\b" + w + r"\b", "", q_yt, flags=re.IGNORECASE).strip()
+                        if on_tool_call:
+                            on_tool_call("play_youtube_video", {"video_id_or_url": q_yt})
+                        res = str(fn_yt(q_yt))
+                        if on_tool_result:
+                            on_tool_result("play_youtube_video", res)
+                        self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                        session_manager.save_session(self.session)
+                        return res
 
-        # 4. Buka aplikasi desktop / YouTube / URL
-        if (msg_lower.startswith("buka ") or msg_lower.startswith("open ") or "buka chrome" in msg_lower or "buka youtube" in msg_lower) and not ("kamera" in msg_lower or "webcam" in msg_lower):
-            fn_open = AVAILABLE_TOOLS.get("open_application")
-            if fn_open:
-                if on_tool_call:
-                    on_tool_call("open_application", {"app_or_query": message.strip()})
-                res = str(fn_open(message.strip()))
-                if on_tool_result:
-                    on_tool_result("open_application", res)
-                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                session_manager.save_session(self.session)
-                return res
+                fn_open = AVAILABLE_TOOLS.get("open_application")
+                if fn_open:
+                    if on_tool_call:
+                        on_tool_call("open_application", {"app_or_query": message.strip()})
+                    res = str(fn_open(message.strip()))
+                    if on_tool_result:
+                        on_tool_result("open_application", res)
+                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                    session_manager.save_session(self.session)
+                    return res
 
-        # 5. Atur volume laptop
-        if any(k in msg_lower for k in ["atur volume", "set volume", "ganti volume", "ubah volume", "volume laptop", "besarkan volume", "naikkan volume", "kecilkan volume", "turunkan volume", "mute", "unmute", "senyap"]):
-            m_vol = re.search(r"(\+?\-?\d+%?|mute|unmute|senyap)", msg_lower)
-            vol_arg = m_vol.group(1) if m_vol else "status"
-            if "naik" in msg_lower or "besar" in msg_lower:
-                vol_arg = "+10"
-            elif "turun" in msg_lower or "kecil" in msg_lower:
-                vol_arg = "-10"
-            elif any(w in msg_lower for w in ["unmute", "nyalakan suara", "hidupkan suara"]):
-                vol_arg = "unmute"
-            elif any(w in msg_lower for w in ["mute", "senyap", "matikan suara"]):
-                vol_arg = "mute"
-            fn_vol = AVAILABLE_TOOLS.get("set_volume")
-            if fn_vol:
-                if on_tool_call:
-                    on_tool_call("set_volume", {"level": vol_arg})
-                res = str(fn_vol(vol_arg))
-                if on_tool_result:
-                    on_tool_result("set_volume", res)
-                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                session_manager.save_session(self.session)
-                return res
+            # 5. Atur volume laptop
+            if any(k in msg_lower for k in ["atur volume", "set volume", "ganti volume", "ubah volume", "volume laptop", "besarkan volume", "naikkan volume", "kecilkan volume", "turunkan volume", "mute", "unmute", "senyap"]):
+                m_vol = re.search(r"(\+?\-?\d+%?|mute|unmute|senyap)", msg_lower)
+                vol_arg = m_vol.group(1) if m_vol else "status"
+                if "naik" in msg_lower or "besar" in msg_lower:
+                    vol_arg = "+10"
+                elif "turun" in msg_lower or "kecil" in msg_lower:
+                    vol_arg = "-10"
+                elif any(w in msg_lower for w in ["unmute", "nyalakan suara", "hidupkan suara"]):
+                    vol_arg = "unmute"
+                elif any(w in msg_lower for w in ["mute", "senyap", "matikan suara"]):
+                    vol_arg = "mute"
+                fn_vol = AVAILABLE_TOOLS.get("set_volume")
+                if fn_vol:
+                    if on_tool_call:
+                        on_tool_call("set_volume", {"level": vol_arg})
+                    res = str(fn_vol(vol_arg))
+                    if on_tool_result:
+                        on_tool_result("set_volume", res)
+                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                    session_manager.save_session(self.session)
+                    return res
 
-        # 6. Kontrol musik / pemutar lagu (Play, Pause, Next, Prev, Stop)
-        if any(k in msg_lower for k in ["pause lagu", "jeda lagu", "play lagu", "putar lagu", "lanjut lagu", "stop lagu", "berhenti lagu", "next lagu", "lagu berikutnya", "prev lagu", "lagu sebelumnya", "pause musik", "play musik"]):
-            act_media = "play_pause"
-            if "next" in msg_lower or "berikutnya" in msg_lower:
-                act_media = "next"
-            elif "prev" in msg_lower or "sebelumnya" in msg_lower:
-                act_media = "prev"
-            elif "stop" in msg_lower or "berhenti" in msg_lower:
-                act_media = "stop"
-            elif "pause" in msg_lower or "jeda" in msg_lower:
-                act_media = "pause"
-            elif "play" in msg_lower or "putar" in msg_lower or "lanjut" in msg_lower:
-                act_media = "play"
-            fn_med = AVAILABLE_TOOLS.get("media_control")
-            if fn_med:
-                if on_tool_call:
-                    on_tool_call("media_control", {"action": act_media})
-                res = str(fn_med(act_media))
-                if on_tool_result:
-                    on_tool_result("media_control", res)
-                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                session_manager.save_session(self.session)
-                return res
+            # 6. Kontrol musik / pemutar lagu (Play, Pause, Next, Prev, Stop HANYA jika bukan query lagu spesifik)
+            bukan_query_spesifik = not ("youtube" in msg_lower or "yt" in msg_lower or len(msg_lower.split()) > 3)
+            if bukan_query_spesifik and any(k in msg_lower for k in ["pause lagu", "jeda lagu", "play lagu", "putar lagu", "lanjut lagu", "stop lagu", "berhenti lagu", "next lagu", "lagu berikutnya", "prev lagu", "lagu sebelumnya", "pause musik", "play musik"]):
+                act_media = "play_pause"
+                if "next" in msg_lower or "berikutnya" in msg_lower:
+                    act_media = "next"
+                elif "prev" in msg_lower or "sebelumnya" in msg_lower:
+                    act_media = "prev"
+                elif "stop" in msg_lower or "berhenti" in msg_lower:
+                    act_media = "stop"
+                elif "pause" in msg_lower or "jeda" in msg_lower:
+                    act_media = "pause"
+                elif "play" in msg_lower or "putar" in msg_lower or "lanjut" in msg_lower:
+                    act_media = "play"
+                fn_med = AVAILABLE_TOOLS.get("media_control")
+                if fn_med:
+                    if on_tool_call:
+                        on_tool_call("media_control", {"action": act_media})
+                    res = str(fn_med(act_media))
+                    if on_tool_result:
+                        on_tool_result("media_control", res)
+                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                    session_manager.save_session(self.session)
+                    return res
 
-        # 7. Screenshot
-        if any(k in msg_lower for k in ["screenshot", "screen capture", "capture layar", "tangkapan layar", "foto layar", "ss laptop", "ss layar"]):
-            fn_ss = AVAILABLE_TOOLS.get("capture_screen")
-            if fn_ss:
-                if on_tool_call:
-                    on_tool_call("capture_screen", {"output_path": "screen_capture.png"})
-                res = str(fn_ss("screen_capture.png"))
-                if on_tool_result:
-                    on_tool_result("capture_screen", res)
-                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                session_manager.save_session(self.session)
-                return res
+            # 7. Screenshot
+            if any(k in msg_lower for k in ["screenshot", "screen capture", "capture layar", "tangkapan layar", "foto layar", "ss laptop", "ss layar"]):
+                fn_ss = AVAILABLE_TOOLS.get("capture_screen")
+                if fn_ss:
+                    if on_tool_call:
+                        on_tool_call("capture_screen", {"output_path": "screen_capture.png"})
+                    res = str(fn_ss("screen_capture.png"))
+                    if on_tool_result:
+                        on_tool_result("capture_screen", res)
+                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
+                    session_manager.save_session(self.session)
+                    return res
 
         self.provider = config_manager.get_provider()
         if self.provider == "groq":
@@ -853,11 +876,19 @@ class GeminiAgent:
                 except Exception:
                     detail_err = str(exc_http)
 
-                if "tools" in detail_err.lower() or "tool_choice" in detail_err.lower():
+                if any(err_term in detail_err.lower() for err_term in ["tools", "tool_choice", "parsing failed", "failed_generation"]):
                     try:
+                        fb_messages = []
+                        for pmsg in messages:
+                            if pmsg.get("role") == "tool":
+                                fb_messages.append({"role": "user", "content": f"[Hasil Perkakas]: {pmsg.get('content')}"})
+                            elif pmsg.get("role") == "assistant" and pmsg.get("tool_calls"):
+                                fb_messages.append({"role": "assistant", "content": "Saya telah menjalankan perkakas yang diperlukan."})
+                            else:
+                                fb_messages.append(pmsg)
                         fallback_payload = {
                             "model": model_name,
-                            "messages": messages,
+                            "messages": fb_messages,
                             "stream": False,
                         }
                         req_fb = urllib.request.Request(
@@ -868,7 +899,8 @@ class GeminiAgent:
                         with urllib.request.urlopen(req_fb, timeout=timeout) as resp_fb:
                             data_fb = json.loads(resp_fb.read().decode())
                             final_text = data_fb.get("choices", [{}])[0].get("message", {}).get("content", "")
-                            break
+                            if final_text:
+                                break
                     except Exception as fb_exc:
                         detail_err = f"{detail_err} | Fallback gagal: {fb_exc}"
                 final_text = f"[Galat {provider_label} HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err or exc_http}"
