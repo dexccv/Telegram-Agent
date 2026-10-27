@@ -118,36 +118,36 @@ fungsi pindai_model_tersedia(api_key=kosong) {
     jika provider == "groq" {
         kembalikan [
             {
+                "id": "openai/gpt-oss-120b",
+                "raw_name": "openai/gpt-oss-120b",
+                "display_name": "OpenAI GPT OSS 120B (Terbesar & Cerdas ⚡)",
+                "description": "Model 120B OpenAI generasi terbaru di Groq, sangat cerdas & respons ~0.8s.",
+                "input_token_limit": 131072,
+                "output_token_limit": 65536,
+            },
+            {
+                "id": "openai/gpt-oss-20b",
+                "raw_name": "openai/gpt-oss-20b",
+                "display_name": "OpenAI GPT OSS 20B (Ultra Fast ~0.4s)",
+                "description": "Model 20B OpenAI berkecepatan tinggi dan pintar di Groq LPU.",
+                "input_token_limit": 131072,
+                "output_token_limit": 65536,
+            },
+            {
+                "id": "qwen/qwen3.8-27b",
+                "raw_name": "qwen/qwen3.8-27b",
+                "display_name": "Qwen 3.8 27B (Alibaba Cloud)",
+                "description": "Model Qwen 27B handal untuk penalaran dan instruksi teks.",
+                "input_token_limit": 131072,
+                "output_token_limit": 16384,
+            },
+            {
                 "id": "llama-3.3-70b-versatile",
                 "raw_name": "llama-3.3-70b-versatile",
-                "display_name": "Llama 3.3 70B Versatile (Cerdas & Cepat)",
-                "description": "Model 70B tercanggih Meta di Groq, setara GPT-4o.",
+                "display_name": "Llama 3.3 70B Versatile",
+                "description": "Model 70B Meta Llama 3.3 di Groq.",
                 "input_token_limit": 128000,
                 "output_token_limit": 32768,
-            },
-            {
-                "id": "llama-3.1-8b-instant",
-                "raw_name": "llama-3.1-8b-instant",
-                "display_name": "Llama 3.1 8B Instant (Ultra Fast ~0.3s)",
-                "description": "Kecepatan ekstrim 500 token/detik di hardware Groq LPU.",
-                "input_token_limit": 128000,
-                "output_token_limit": 8192,
-            },
-            {
-                "id": "mixtral-8x7b-32768",
-                "raw_name": "mixtral-8x7b-32768",
-                "display_name": "Mixtral 8x7B (MoE 32k)",
-                "description": "Model Mixture of Experts cepat dan efisien.",
-                "input_token_limit": 32768,
-                "output_token_limit": 8192,
-            },
-            {
-                "id": "deepseek-r1-distill-llama-70b",
-                "raw_name": "deepseek-r1-distill-llama-70b",
-                "display_name": "DeepSeek R1 Distill Llama 70B (Penalaran)",
-                "description": "Model penalaran canggih DeepSeek R1 yang di-hosting di Groq.",
-                "input_token_limit": 128000,
-                "output_token_limit": 16384,
             },
         ]
     }
@@ -917,7 +917,7 @@ kelas AgenGemini {
             pesan_list.append({"role": "user", "content": message})
         }
 
-        nama_model = diri.model_name atau "llama-3.3-70b-versatile"
+        nama_model = diri.model_name atau "openai/gpt-oss-120b"
         payload = {
             "model": nama_model,
             "messages": pesan_list,
@@ -931,6 +931,7 @@ kelas AgenGemini {
                 headers={
                     "Authorization": f"Bearer {kunci}",
                     "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
                 },
                 data=json.dumps(payload).encode("utf-8"),
             )

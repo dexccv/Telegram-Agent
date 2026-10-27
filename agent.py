@@ -108,6 +108,42 @@ def fetch_available_models(api_key: Optional[str] = None) -> list[dict[str, Any]
         base_url = config_manager.get_omni_base_url()
         return fetch_omniroute_models(base_url, omni_key)
 
+    if provider == "groq":
+        return [
+            {
+                "id": "openai/gpt-oss-120b",
+                "raw_name": "openai/gpt-oss-120b",
+                "display_name": "OpenAI GPT OSS 120B (Terbesar & Cerdas ⚡)",
+                "description": "Model 120B OpenAI generasi terbaru di Groq, sangat cerdas & respons ~0.8s.",
+                "input_token_limit": 131072,
+                "output_token_limit": 65536,
+            },
+            {
+                "id": "openai/gpt-oss-20b",
+                "raw_name": "openai/gpt-oss-20b",
+                "display_name": "OpenAI GPT OSS 20B (Ultra Fast ~0.4s)",
+                "description": "Model 20B OpenAI berkecepatan tinggi dan pintar di Groq LPU.",
+                "input_token_limit": 131072,
+                "output_token_limit": 65536,
+            },
+            {
+                "id": "qwen/qwen3.8-27b",
+                "raw_name": "qwen/qwen3.8-27b",
+                "display_name": "Qwen 3.8 27B (Alibaba Cloud)",
+                "description": "Model Qwen 27B handal untuk penalaran dan instruksi teks.",
+                "input_token_limit": 131072,
+                "output_token_limit": 16384,
+            },
+            {
+                "id": "llama-3.3-70b-versatile",
+                "raw_name": "llama-3.3-70b-versatile",
+                "display_name": "Llama 3.3 70B Versatile",
+                "description": "Model 70B Meta Llama 3.3 di Groq.",
+                "input_token_limit": 128000,
+                "output_token_limit": 32768,
+            },
+        ]
+
     clean_key = (api_key or config_manager.get_gemini_api_key() or "").strip()
     http_opts = _build_http_options()
     client = genai.Client(api_key=clean_key, http_options=http_opts) if http_opts else genai.Client(api_key=clean_key)
@@ -557,7 +593,7 @@ class GeminiAgent:
         if not messages or messages[-1].get("content") != message:
             messages.append({"role": "user", "content": message})
 
-        model_name = self.model_name or "llama-3.3-70b-versatile"
+        model_name = self.model_name or "openai/gpt-oss-120b"
         payload = {
             "model": model_name,
             "messages": messages,
@@ -571,6 +607,7 @@ class GeminiAgent:
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
                 },
                 data=json.dumps(payload).encode("utf-8"),
             )

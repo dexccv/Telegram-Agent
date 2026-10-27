@@ -137,9 +137,9 @@ class ConfigManager:
         os.environ["GROQ_API_KEY"] = clean
 
     def get_groq_model(self) -> str:
-        """Mengambil model Groq aktif (default: llama-3.3-70b-versatile)."""
+        """Mengambil model Groq aktif (default: openai/gpt-oss-120b)."""
         self.reload()
-        return os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip() or "llama-3.3-70b-versatile"
+        return os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b").strip() or "openai/gpt-oss-120b"
 
     def save_groq_model(self, model_name: str) -> None:
         """Menyimpan nama model Groq."""

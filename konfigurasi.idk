@@ -148,7 +148,7 @@ kelas PengelolaKonfigurasi {
 
     fungsi ambil_groq_model() {
         diri.muat_ulang()
-        kembalikan os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile").strip() atau "llama-3.3-70b-versatile"
+        kembalikan os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b").strip() atau "openai/gpt-oss-120b"
     }
 
     fungsi simpan_groq_model(model_name) {

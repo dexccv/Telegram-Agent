@@ -276,7 +276,7 @@ class TelegramAgentGateway:
         self.allowed_user_id = self.config.ambil_telegram_allowed_user_id()
         self.provider = self.config.ambil_provider()
         self.api_key = self.config.ambil_api_key()
-        self.model_name = self.config.ambil_model() or ("auto" if self.provider == "omniroute" else "gemini-2.5-flash")
+        self.model_name = self.config.ambil_model() or ("openai/gpt-oss-120b" if self.provider == "groq" else ("auto" if self.provider == "omniroute" else "gemini-2.5-flash"))
 
         if not self.bot_token:
             print("[Galat] TELEGRAM_BOT_TOKEN belum disetel di ~/.gemini-agent/.env")
@@ -361,7 +361,7 @@ class TelegramAgentGateway:
             "• `/mute` / `/unmute` : Matikan atau nyalakan suara speaker laptop.\n"
             "• `/baca <file>` : Baca isi file teks dari laptop langsung di Telegram.\n"
             "• `/get <nama_berkas>` : Unduh berkas dari laptop langsung ke Telegram HP Anda.\n"
-            "• `/provider [gemini/omniroute/ollama]` : Cek atau ganti provider AI aktif.\n"
+            "• `/provider [groq/gemini/ollama/omniroute]` : Cek atau ganti provider AI aktif.\n"
             "• `/models` : Pindai & tampilkan daftar model AI yang tersedia.\n"
             "• `/model <nama>` : Ganti model aktif (misal: `/model qwen2.5-coder:7b`).\n"
             "• `/new [judul]` : Mulai sesi percakapan baru yang bersih.\n"
