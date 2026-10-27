@@ -71,18 +71,19 @@ class TelegramAgentGateway:
         self.config = konfigurasi.pengelola_konfigurasi
         self.bot_token = self.config.ambil_telegram_token()
         self.allowed_user_id = self.config.ambil_telegram_allowed_user_id()
+        self.provider = self.config.ambil_provider()
         self.api_key = self.config.ambil_api_key()
-        self.model_name = self.config.ambil_model() or "gemini-2.5-flash"
+        self.model_name = self.config.ambil_model() or ("auto" if self.provider == "omniroute" else "gemini-2.5-flash")
 
         if not self.bot_token:
             print("[Galat] TELEGRAM_BOT_TOKEN belum disetel di ~/.gemini-agent/.env")
             sys.exit(1)
 
         if not self.api_key:
-            print("[Galat] GEMINI_API_KEY belum disetel. Jalankan 'python app.py' terlebih dahulu.")
+            print(f"[Galat] API Key untuk provider '{self.provider}' belum disetel di ~/.gemini-agent/.env")
             sys.exit(1)
 
-        print(f"[*] Menginisialisasi Agen Gemini dengan model: {self.model_name}...")
+        print(f"[*] Menginisialisasi Terminal Agent [Provider: {self.provider.upper()}, Model: {self.model_name}]...")
         self.agent = agen.AgenGemini(api_key=self.api_key, model_name=self.model_name)
         print(f"[OK] Agen siap. Whitelist Telegram User ID: {self.allowed_user_id or 'Semua User (Hati-hati!)'}")
 
@@ -110,10 +111,12 @@ class TelegramAgentGateway:
             return
 
         user_name = update.effective_user.first_name if update.effective_user else "Pengguna"
+        prov = self.config.ambil_provider().upper()
         msg = (
             f"Halo **{user_name}**! 👋\n\n"
-            f"⌬ **Gemini Laptop Agent Siap Melayani**\n"
+            f"⌬ **Terminal Laptop Agent Siap Melayani**\n"
             f"• **Status Laptop**: ONLINE\n"
+            f"• **Provider AI**: `{prov}`\n"
             f"• **Model AI**: `{self.agent.model_name}`\n"
             f"• **Sesi Aktif**: `{self.agent.session.title}`\n"
             f"• **Direktori Kerja**: `{Path.cwd().name}`\n\n"
@@ -130,6 +133,9 @@ class TelegramAgentGateway:
         help_text = (
             "📋 **Panduan Perintah Telegram Gateway**\n\n"
             "• **Kirim Pesan Biasa**: Instruksi langsung ke AI Agent untuk manipulasi berkas, shell, atau komputasi di laptop.\n"
+            "• `/provider [gemini/omniroute]` : Cek atau ganti provider AI aktif.\n"
+            "• `/models` : Pindai & tampilkan daftar model AI yang tersedia.\n"
+            "• `/model <nama_model>` : Ganti model aktif (misal: `/model auto` atau `/model auto/best-fast`).\n"
             "• `/status` : Informasi hardware laptop (baterai, OS, memori, token).\n"
             "• `/get <nama_berkas>` : Unduh berkas dari laptop langsung ke Telegram HP Anda.\n"
             "• `/new [judul]` : Mulai sesi percakapan baru yang bersih.\n"
@@ -286,6 +292,81 @@ class TelegramAgentGateway:
             lines.append(f"• **{k}**: {v}")
         await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
+    async def provider_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Melihat atau beralih provider AI (gemini atau omniroute)."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        if not context.args:
+            current = self.config.ambil_provider()
+            model = self.config.ambil_model()
+            msg = (
+                f"⚙️ **Status Provider AI Aktif**:\n"
+                f"• Provider: `{current.upper()}`\n"
+                f"• Model Terpilih: `{model}`\n\n"
+                "Untuk beralih provider, gunakan:\n"
+                "• `/provider omniroute`\n"
+                "• `/provider gemini`"
+            )
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+            return
+
+        target = context.args[0].strip().lower()
+        if target not in ["gemini", "omniroute"]:
+            await update.message.reply_text("⚠️ Pilihan provider hanya: `gemini` atau `omniroute`.")
+            return
+
+        self.config.simpan_provider(target)
+        self.provider = target
+        self.api_key = self.config.ambil_api_key()
+        self.model_name = self.config.ambil_model()
+        self.agent = agen.AgenGemini(api_key=self.api_key, model_name=self.model_name)
+        await update.message.reply_text(
+            f"✅ Provider AI berhasil dialihkan ke **{target.upper()}** (Model: `{self.model_name}`)",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+    async def models_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Memindai dan menampilkan daftar model yang tersedia untuk provider aktif."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        status_msg = await update.message.reply_text("🔍 Memindai model yang tersedia...")
+        try:
+            models = agen.pindai_model_tersedia()
+            prov = self.config.ambil_provider().upper()
+            lines = [f"📋 **Daftar Model {prov} (Total: {len(models)})**:\n"]
+            for m in models[:15]:
+                is_active = m["id"] == self.agent.model_name
+                tag = " `[AKTIF]`" if is_active else ""
+                lines.append(f"• `{m['id']}` - {m['display_name']}{tag}")
+            if len(models) > 15:
+                lines.append(f"\n...dan {len(models) - 15} model lainnya.")
+            lines.append("\nGunakan `/model <nama_model>` untuk mengganti model.")
+            await status_msg.edit_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+        except Exception as exc:
+            await status_msg.edit_text(f"❌ Gagal memindai model: {exc}")
+
+    async def model_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Mengganti model aktif untuk provider saat ini."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        if not context.args:
+            await update.message.reply_text(
+                f"Model aktif saat ini: `{self.agent.model_name}`\nContoh ganti: `/model auto` atau `/model gemini-2.5-flash`"
+            )
+            return
+
+        new_model = context.args[0].strip()
+        self.config.simpan_model(new_model)
+        self.model_name = new_model
+        self.agent.ganti_model(new_model)
+        await update.message.reply_text(f"✅ Model aktif diganti ke: `{new_model}`")
+
     async def handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Menerima kiriman file dari HP pengguna dan menyimpannya di folder kerja laptop."""
         if not self.is_authorized(update):
@@ -364,8 +445,9 @@ class TelegramAgentGateway:
     def run(self) -> None:
         """Menjalankan bot Telegram polling daemon."""
         print("=" * 60)
-        print("  GEMINI LAPTOP AGENT - TELEGRAM MOBILE GATEWAY")
+        print("  TERMINAL LAPTOP AGENT - TELEGRAM MOBILE GATEWAY")
         print("=" * 60)
+        print(f"* Provider Aktif: {self.provider.upper()} (Model: {self.model_name})")
         print(f"* Bot Token: {self.bot_token[:10]}... (Aman)")
         print(f"* Whitelist User ID: {self.allowed_user_id}")
         print("* Status: Sedang mendengarkan pesan dari HP Anda...")
@@ -375,6 +457,9 @@ class TelegramAgentGateway:
 
         app.add_handler(CommandHandler("start", self.start_cmd))
         app.add_handler(CommandHandler("help", self.help_cmd))
+        app.add_handler(CommandHandler("provider", self.provider_cmd))
+        app.add_handler(CommandHandler("models", self.models_cmd))
+        app.add_handler(CommandHandler("model", self.model_cmd))
         app.add_handler(CommandHandler("status", self.status_cmd))
         app.add_handler(CommandHandler("get", self.get_file_cmd))
         app.add_handler(CommandHandler("new", self.new_session_cmd))

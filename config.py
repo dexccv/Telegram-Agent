@@ -36,53 +36,100 @@ class ConfigManager:
         if self.env_path.exists():
             load_dotenv(dotenv_path=self.env_path, override=True)
 
-    def get_api_key(self) -> Optional[str]:
-        """Mengambil Gemini API key dari env atau file .env."""
+    def get_provider(self) -> str:
+        """Mengambil provider AI aktif ('gemini' atau 'omniroute')."""
         self.reload()
-        key = os.environ.get("GEMINI_API_KEY")
-        if key:
-            stripped = key.strip()
-            if stripped:
-                return stripped
-        return None
+        prov = os.environ.get("AI_PROVIDER", "").strip().lower()
+        if prov in ["gemini", "omniroute"]:
+            return prov
+        if os.environ.get("OMNI_API_KEY"):
+            return "omniroute"
+        return "gemini"
+
+    def save_provider(self, provider: str) -> None:
+        """Menyimpan provider AI aktif ke file .env."""
+        clean = provider.strip().lower()
+        set_key(str(self.env_path), "AI_PROVIDER", clean)
+        os.environ["AI_PROVIDER"] = clean
+
+    def get_gemini_api_key(self) -> Optional[str]:
+        """Mengambil API key resmi Gemini."""
+        self.reload()
+        k = os.environ.get("GEMINI_API_KEY", "").strip()
+        return k or None
+
+    def save_gemini_api_key(self, api_key: str) -> None:
+        """Menyimpan API key resmi Gemini."""
+        clean = api_key.strip()
+        set_key(str(self.env_path), "GEMINI_API_KEY", clean)
+        os.environ["GEMINI_API_KEY"] = clean
+
+    def get_omni_api_key(self) -> Optional[str]:
+        """Mengambil API key Omniroute."""
+        self.reload()
+        k = os.environ.get("OMNI_API_KEY", "").strip()
+        return k or None
+
+    def save_omni_api_key(self, api_key: str) -> None:
+        """Menyimpan API key Omniroute."""
+        clean = api_key.strip()
+        set_key(str(self.env_path), "OMNI_API_KEY", clean)
+        os.environ["OMNI_API_KEY"] = clean
+
+    def get_omni_base_url(self) -> str:
+        """Mengambil Base URL Omniroute."""
+        self.reload()
+        return os.environ.get("OMNI_BASE_URL", "http://localhost:20128/v1").strip()
+
+    def save_omni_base_url(self, base_url: str) -> None:
+        """Menyimpan Base URL Omniroute."""
+        clean = base_url.strip()
+        set_key(str(self.env_path), "OMNI_BASE_URL", clean)
+        os.environ["OMNI_BASE_URL"] = clean
+
+    def get_api_key(self) -> Optional[str]:
+        """Mengambil API key sesuai provider aktif."""
+        if self.get_provider() == "omniroute":
+            return self.get_omni_api_key() or self.get_gemini_api_key()
+        return self.get_gemini_api_key() or self.get_omni_api_key()
 
     def save_api_key(self, api_key: str) -> None:
-        """Menyimpan Gemini API key ke file .env dan memperbarui environment aktif."""
-        clean_key = api_key.strip()
-        set_key(str(self.env_path), "GEMINI_API_KEY", clean_key)
-        os.environ["GEMINI_API_KEY"] = clean_key
+        """Menyimpan API key ke provider aktif."""
+        if self.get_provider() == "omniroute":
+            self.save_omni_api_key(api_key)
+        else:
+            self.save_gemini_api_key(api_key)
 
     def get_base_url(self) -> Optional[str]:
-        """Mengambil custom base URL API dari env atau file .env."""
-        self.reload()
-        url = os.environ.get("GEMINI_BASE_URL")
-        if url:
-            stripped = url.strip()
-            if stripped:
-                return stripped
-        return None
+        """Mengambil base URL sesuai provider aktif."""
+        if self.get_provider() == "omniroute":
+            return self.get_omni_base_url()
+        return os.environ.get("GEMINI_BASE_URL")
 
     def save_base_url(self, base_url: str) -> None:
-        """Menyimpan custom base URL API ke file .env dan memperbarui environment aktif."""
         clean_url = base_url.strip()
-        set_key(str(self.env_path), "GEMINI_BASE_URL", clean_url)
-        os.environ["GEMINI_BASE_URL"] = clean_url
+        if self.get_provider() == "omniroute":
+            self.save_omni_base_url(clean_url)
+        else:
+            set_key(str(self.env_path), "GEMINI_BASE_URL", clean_url)
+            os.environ["GEMINI_BASE_URL"] = clean_url
 
     def get_model(self) -> Optional[str]:
-        """Mengambil model terpilih dari env atau file .env."""
+        """Mengambil model terpilih untuk provider aktif."""
         self.reload()
-        model = os.environ.get("GEMINI_MODEL")
-        if model:
-            stripped = model.strip()
-            if stripped:
-                return stripped
-        return None
+        if self.get_provider() == "omniroute":
+            return os.environ.get("OMNI_MODEL", "auto").strip() or "auto"
+        return os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
 
     def save_model(self, model_name: str) -> None:
-        """Menyimpan model terpilih ke file .env dan memperbarui environment aktif."""
+        """Menyimpan model terpilih untuk provider aktif."""
         clean_model = model_name.strip()
-        set_key(str(self.env_path), "GEMINI_MODEL", clean_model)
-        os.environ["GEMINI_MODEL"] = clean_model
+        if self.get_provider() == "omniroute":
+            set_key(str(self.env_path), "OMNI_MODEL", clean_model)
+            os.environ["OMNI_MODEL"] = clean_model
+        else:
+            set_key(str(self.env_path), "GEMINI_MODEL", clean_model)
+            os.environ["GEMINI_MODEL"] = clean_model
 
     def get_theme(self) -> str:
         """Mengambil tema terpilih dari env atau file .env. Default: 'default'."""

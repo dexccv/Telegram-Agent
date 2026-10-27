@@ -9,6 +9,8 @@ dengan notifikasi event status ke antarmuka terminal.
 from __future__ import annotations
 
 import datetime
+import json
+import urllib.request
 from typing import Any, Callable, Optional
 from google import genai
 from google.genai import types
@@ -17,7 +19,7 @@ from config import config_manager
 from logger import agent_logger
 from memory import memory_manager
 from session_manager import Session, SessionMessage, session_manager
-from tools import AVAILABLE_TOOLS, TOOL_CALLABLES
+from tools import AVAILABLE_TOOLS, OPENAI_TOOLS_SCHEMA, TOOL_CALLABLES
 
 
 def _build_http_options() -> Optional[types.HttpOptions]:
@@ -31,19 +33,80 @@ def _build_http_options() -> Optional[types.HttpOptions]:
     return None
 
 
-def fetch_available_models(api_key: str) -> list[dict[str, Any]]:
-    """Mendapatkan daftar model Gemini yang mendukung generateContent dan tool calling secara dinamis.
+def fetch_omniroute_models(base_url: str, api_key: str) -> list[dict[str, Any]]:
+    """Memindai model yang tersedia di Omniroute melalui endpoint /v1/models."""
+    try:
+        clean = base_url.rstrip("/")
+        if clean.endswith("/v1"):
+            clean = clean[:-3]
+        url = clean + "/v1/models"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            models = [
+                {
+                    "id": "auto",
+                    "raw_name": "auto",
+                    "display_name": "Omniroute Auto (Rekomendasi)",
+                    "description": "Otomatis memilih model terbaik di Omniroute.",
+                    "input_token_limit": 1000000,
+                    "output_token_limit": 65535,
+                }
+            ]
+            for m in data.get("data", []):
+                mid = m.get("id", "")
+                if not mid or mid == "auto":
+                    continue
+                name = m.get("name") or mid
+                desc = f"Provider: {m.get('owned_by', 'omniroute')}"
+                models.append({
+                    "id": mid,
+                    "raw_name": mid,
+                    "display_name": name,
+                    "description": desc,
+                    "input_token_limit": m.get("max_input_tokens") or 1000000,
+                    "output_token_limit": m.get("max_output_tokens") or 65535,
+                })
+            return models
+    except Exception as exc:
+        agent_logger.log_error("agent.fetch_omniroute_models", f"Gagal memindai model Omniroute: {exc}")
+        return [
+            {
+                "id": "auto",
+                "raw_name": "auto",
+                "display_name": "Omniroute Auto (Rekomendasi)",
+                "description": "Otomatis memilih model terbaik di Omniroute.",
+                "input_token_limit": 1000000,
+                "output_token_limit": 65535,
+            },
+            {
+                "id": "auto/best-coding",
+                "raw_name": "auto/best-coding",
+                "display_name": "Omniroute Best Coding",
+                "description": "Rute model koding terbaik di Omniroute.",
+                "input_token_limit": 1000000,
+                "output_token_limit": 65535,
+            },
+            {
+                "id": "auto/best-fast",
+                "raw_name": "auto/best-fast",
+                "display_name": "Omniroute Best Fast",
+                "description": "Rute model cepat di Omniroute.",
+                "input_token_limit": 1000000,
+                "output_token_limit": 65535,
+            },
+        ]
 
-    Args:
-        api_key: Kunci API Gemini untuk autentikasi.
 
-    Returns:
-        Daftar dictionary metadata model (id, display_name, description, token limit).
+def fetch_available_models(api_key: Optional[str] = None) -> list[dict[str, Any]]:
+    """Mendapatkan daftar model yang kompatibel secara dinamis sesuai provider aktif."""
+    provider = config_manager.get_provider()
+    if provider == "omniroute":
+        omni_key = api_key or config_manager.get_omni_api_key() or ""
+        base_url = config_manager.get_omni_base_url()
+        return fetch_omniroute_models(base_url, omni_key)
 
-    Raises:
-        Exception: Jika terjadi kesalahan autentikasi, jaringan, atau kuota.
-    """
-    clean_key = api_key.strip()
+    clean_key = (api_key or config_manager.get_gemini_api_key() or "").strip()
     http_opts = _build_http_options()
     client = genai.Client(api_key=clean_key, http_options=http_opts) if http_opts else genai.Client(api_key=clean_key)
     filtered_models: list[dict[str, Any]] = []
@@ -163,23 +226,26 @@ class GeminiAgent:
 
     def __init__(
         self,
-        api_key: str,
-        model_name: str,
+        api_key: Optional[str] = None,
+        model_name: Optional[str] = None,
         session: Optional[Session] = None,
     ) -> None:
-        self.api_key: str = api_key.strip()
-        self.model_name: str = model_name.strip()
-        http_opts = _build_http_options()
-        self.client: genai.Client = genai.Client(api_key=self.api_key, http_options=http_opts) if http_opts else genai.Client(api_key=self.api_key)
+        self.provider: str = config_manager.get_provider()
+        self.api_key: str = (api_key or config_manager.get_api_key() or "").strip()
+        self.model_name: str = (model_name or config_manager.get_model() or "auto").strip()
         self.session: Session = session or session_manager.get_or_create_active_session(
             model_name=self.model_name
         )
-        # Pastikan model di session selaras jika belum ada model
         if not self.session.model_name:
             self.session.model_name = self.model_name
 
         self.chat = None
-        self._init_chat_session()
+        if self.provider == "gemini":
+            http_opts = _build_http_options()
+            self.client: Optional[genai.Client] = genai.Client(api_key=self.api_key, http_options=http_opts) if http_opts else genai.Client(api_key=self.api_key)
+            self._init_chat_session()
+        else:
+            self.client = None
 
     def _init_chat_session(self) -> None:
         """Membuat instance chat session baru dengan deklarasi tools, system instruction, dan riwayat sesi."""
@@ -301,8 +367,12 @@ class GeminiAgent:
             or self.session.title in ["Sesi Baru", "Sesi Perdana", "Percakapan Baru"]
         ) and len(self.session.ui_messages) <= 2:
             auto_title = message.strip().replace("\n", " ")[:36]
-            if auto_title:
-                self.session.title = auto_title
+        self.provider = config_manager.get_provider()
+        if self.provider == "omniroute":
+            return self._send_message_omniroute(message, on_tool_call, on_tool_result)
+
+        if not self.chat:
+            self._init_chat_session()
 
         response = self.chat.send_message(message)
         max_tool_iterations = 15
@@ -381,3 +451,69 @@ class GeminiAgent:
         session_manager.save_session(self.session)
 
         return final_text
+
+    def _send_message_omniroute(
+        self,
+        message: str,
+        on_tool_call: Optional[Callable[[str, dict[str, Any]], None]] = None,
+        on_tool_result: Optional[Callable[[str, str], None]] = None,
+    ) -> str:
+        agent_logger.log_info(
+            "agent.omniroute",
+            f"Kirim prompt Omniroute: {message[:80]} (Model: {self.model_name})",
+        )
+
+        base_url = config_manager.get_omni_base_url().rstrip("/")
+        api_key = config_manager.get_omni_api_key() or self.api_key
+        target_url = (base_url if base_url.endswith("/v1") else f"{base_url}/v1") + "/chat/completions"
+
+        persistent_memory = memory_manager.format_for_system_instruction()
+        system_instruction = (
+            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent. "
+            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
+            "Dilarang keras menggunakan emoji apapun. "
+            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
+            f"{persistent_memory}"
+        )
+
+        messages = [{"role": "system", "content": system_instruction}]
+        for m in self.session.ui_messages[-10:]:
+            role = "user" if m.msg_type == "user" else "assistant"
+            if m.text:
+                messages.append({"role": role, "content": m.text})
+        if not messages or messages[-1].get("content") != message:
+            messages.append({"role": "user", "content": message})
+
+        payload = {
+            "model": self.model_name,
+            "messages": messages,
+            "stream": False,
+        }
+
+        accumulated_text = ""
+        try:
+            req = urllib.request.Request(
+                target_url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                data=json.dumps(payload).encode("utf-8"),
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode())
+                choices = data.get("choices", [])
+                if choices:
+                    accumulated_text = choices[0].get("message", {}).get("content", "")
+        except Exception as exc:
+            agent_logger.log_error("agent.omniroute", f"Galat Omniroute: {exc}")
+            accumulated_text = f"[Galat Omniroute: {exc}]\nPastikan server Omniroute aktif di {base_url} dan model '{self.model_name}' tersedia."
+
+        if accumulated_text:
+            self.session.ui_messages.append(SessionMessage(msg_type="agent", text=accumulated_text))
+            session_manager.save_session(self.session)
+
+        return accumulated_text
+
+
+TerminalAgent = GeminiAgent

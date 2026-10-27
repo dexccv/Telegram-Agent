@@ -38,64 +38,115 @@ kelas PengelolaKonfigurasi {
         }
     }
 
-    fungsi ambil_api_key() {
-        """Mengambil Gemini API key dari env atau berkas .env."""
+    fungsi ambil_provider() {
+        """Mengambil nama provider AI aktif ('gemini' atau 'omniroute')."""
         diri.muat_ulang()
-        kunci = os.environ.get("GEMINI_API_KEY")
-        jika kunci {
-            kunci_bersih = kunci.strip()
-            jika kunci_bersih {
-                kembalikan kunci_bersih
-            }
+        prov = os.environ.get("AI_PROVIDER", "").strip().lower()
+        jika prov dalam ["gemini", "omniroute"] {
+            kembalikan prov
         }
-        kembalikan kosong
+        jika os.environ.get("OMNI_API_KEY") {
+            kembalikan "omniroute"
+        }
+        kembalikan "gemini"
+    }
+
+    fungsi simpan_provider(provider) {
+        """Menyimpan provider AI aktif."""
+        clean = provider.strip().lower()
+        set_key(str(diri.env_path), "AI_PROVIDER", clean)
+        os.environ["AI_PROVIDER"] = clean
+    }
+
+    fungsi ambil_gemini_api_key() {
+        diri.muat_ulang()
+        k = os.environ.get("GEMINI_API_KEY", "").strip()
+        kembalikan k jika k selain kosong
+    }
+
+    fungsi simpan_gemini_api_key(api_key) {
+        clean = api_key.strip()
+        set_key(str(diri.env_path), "GEMINI_API_KEY", clean)
+        os.environ["GEMINI_API_KEY"] = clean
+    }
+
+    fungsi ambil_omni_api_key() {
+        diri.muat_ulang()
+        k = os.environ.get("OMNI_API_KEY", "").strip()
+        kembalikan k jika k selain kosong
+    }
+
+    fungsi simpan_omni_api_key(api_key) {
+        clean = api_key.strip()
+        set_key(str(diri.env_path), "OMNI_API_KEY", clean)
+        os.environ["OMNI_API_KEY"] = clean
+    }
+
+    fungsi ambil_omni_base_url() {
+        diri.muat_ulang()
+        kembalikan os.environ.get("OMNI_BASE_URL", "http://localhost:20128/v1").strip()
+    }
+
+    fungsi simpan_omni_base_url(base_url) {
+        clean = base_url.strip()
+        set_key(str(diri.env_path), "OMNI_BASE_URL", clean)
+        os.environ["OMNI_BASE_URL"] = clean
+    }
+
+    fungsi ambil_api_key() {
+        """Mengambil API key sesuai provider aktif."""
+        jika diri.ambil_provider() == "omniroute" {
+            kembalikan diri.ambil_omni_api_key() atau diri.ambil_gemini_api_key()
+        }
+        kembalikan diri.ambil_gemini_api_key() atau diri.ambil_omni_api_key()
     }
 
     fungsi simpan_api_key(api_key) {
-        """Menyimpan Gemini API key ke berkas .env."""
-        kunci_bersih = api_key.strip()
-        set_key(str(diri.env_path), "GEMINI_API_KEY", kunci_bersih)
-        os.environ["GEMINI_API_KEY"] = kunci_bersih
+        """Menyimpan API key untuk provider aktif."""
+        jika diri.ambil_provider() == "omniroute" {
+            diri.simpan_omni_api_key(api_key)
+        } selain {
+            diri.simpan_gemini_api_key(api_key)
+        }
     }
 
     fungsi ambil_base_url() {
-        """Mengambil custom base URL API dari env atau berkas .env."""
-        diri.muat_ulang()
-        url = os.environ.get("GEMINI_BASE_URL")
-        jika url {
-            url_bersih = url.strip()
-            jika url_bersih {
-                kembalikan url_bersih
-            }
+        """Mengambil base URL API sesuai provider aktif."""
+        jika diri.ambil_provider() == "omniroute" {
+            kembalikan diri.ambil_omni_base_url()
         }
-        kembalikan kosong
+        kembalikan os.environ.get("GEMINI_BASE_URL", "").strip() atau kosong
     }
 
     fungsi simpan_base_url(base_url) {
-        """Menyimpan custom base URL API ke berkas .env."""
-        url_bersih = base_url.strip()
-        set_key(str(diri.env_path), "GEMINI_BASE_URL", url_bersih)
-        os.environ["GEMINI_BASE_URL"] = url_bersih
+        clean_url = base_url.strip()
+        jika diri.ambil_provider() == "omniroute" {
+            diri.simpan_omni_base_url(clean_url)
+        } selain {
+            set_key(str(diri.env_path), "GEMINI_BASE_URL", clean_url)
+            os.environ["GEMINI_BASE_URL"] = clean_url
+        }
     }
 
     fungsi ambil_model() {
-        """Mengambil model aktif terpilih dari env atau berkas .env."""
+        """Mengambil model aktif terpilih untuk provider yang aktif."""
         diri.muat_ulang()
-        model = os.environ.get("GEMINI_MODEL")
-        jika model {
-            model_bersih = model.strip()
-            jika model_bersih {
-                kembalikan model_bersih
-            }
+        jika diri.ambil_provider() == "omniroute" {
+            kembalikan os.environ.get("OMNI_MODEL", "auto").strip() atau "auto"
         }
-        kembalikan kosong
+        kembalikan os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() atau "gemini-2.5-flash"
     }
 
     fungsi simpan_model(model_name) {
-        """Menyimpan model terpilih ke berkas .env."""
-        model_bersih = model_name.strip()
-        set_key(str(diri.env_path), "GEMINI_MODEL", model_bersih)
-        os.environ["GEMINI_MODEL"] = model_bersih
+        """Menyimpan model terpilih untuk provider yang aktif."""
+        clean_model = model_name.strip()
+        jika diri.ambil_provider() == "omniroute" {
+            set_key(str(diri.env_path), "OMNI_MODEL", clean_model)
+            os.environ["OMNI_MODEL"] = clean_model
+        } selain {
+            set_key(str(diri.env_path), "GEMINI_MODEL", clean_model)
+            os.environ["GEMINI_MODEL"] = clean_model
+        }
     }
 
     fungsi ambil_tema() {

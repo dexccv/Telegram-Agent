@@ -442,3 +442,105 @@ DAFTAR_PANGGILAN_ALAT = [
 
 AVAILABLE_TOOLS = ALAT_TERSEDIA
 TOOL_CALLABLES = DAFTAR_PANGGILAN_ALAT
+
+SKEMA_ALAT_OPENAI = [
+    {
+        "type": "function",
+        "function": {
+            "name": "create_folder",
+            "description": "Membuat direktori/folder baru pada sistem.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Jalur folder yang akan dibuat"}},
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "Mendaftar berkas dan folder di dalam suatu direktori.",
+            "parameters": {
+                "type": "object",
+                "properties": {"directory": {"type": "string", "description": "Jalur direktori (default: .)"}},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Membaca isi teks dari berkas lokal di sistem.",
+            "parameters": {
+                "type": "object",
+                "properties": {"file_path": {"type": "string", "description": "Jalur berkas yang akan dibaca"}},
+                "required": ["file_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Menulis atau membuat berkas baru dengan isi teks tertentu.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string", "description": "Jalur berkas yang akan ditulis"},
+                    "content": {"type": "string", "description": "Isi teks yang akan ditulis ke berkas"},
+                },
+                "required": ["file_path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_command",
+            "description": "Menjalankan perintah shell/terminal di sistem pengguna secara aman.",
+            "parameters": {
+                "type": "object",
+                "properties": {"command": {"type": "string", "description": "Perintah shell/terminal yang akan dieksekusi"}},
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_memory",
+            "description": "Menyimpan fakta atau preferensi pengguna ke memori jangka panjang.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Kunci memori"},
+                    "value": {"type": "string", "description": "Nilai atau isi memori yang disimpan"},
+                },
+                "required": ["key", "value"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "recall_memory",
+            "description": "Mengambil fakta dari memori jangka panjang berdasarkan kata kunci.",
+            "parameters": {
+                "type": "object",
+                "properties": {"key": {"type": "string", "description": "Kunci memori yang dicari"}},
+                "required": ["key"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_memories",
+            "description": "Melihat seluruh fakta yang tersimpan dalam memori jangka panjang.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+]
+OPENAI_TOOLS_SCHEMA = SKEMA_ALAT_OPENAI

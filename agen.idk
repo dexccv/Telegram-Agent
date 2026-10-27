@@ -4,6 +4,8 @@
 # ==============================================================================
 
 impor datetime
+impor json
+impor urllib.request
 dari pathlib impor Path
 dari typing impor Any, Callable, Optional
 dari google impor genai
@@ -13,7 +15,7 @@ dari konfigurasi impor pengelola_konfigurasi
 dari logger impor agent_logger
 dari memori impor pengelola_memori
 dari pengelola_sesi impor pengelola_sesi, Sesi, PesanSesi
-dari perkakas impor ALAT_TERSEDIA, DAFTAR_PANGGILAN_ALAT
+dari perkakas impor ALAT_TERSEDIA, DAFTAR_PANGGILAN_ALAT, SKEMA_ALAT_OPENAI
 
 
 fungsi _buat_http_options() {
@@ -30,9 +32,95 @@ fungsi _buat_http_options() {
 }
 
 
-fungsi pindai_model_tersedia(api_key) {
-    """Mendapatkan daftar model Gemini yang mendukung generateContent dan tool calling secara dinamis."""
-    kunci_bersih = api_key.strip()
+fungsi pindai_model_omniroute(base_url, api_key) {
+    """Memindai model aktif yang tersedia di Omniroute melalui endpoint /v1/models."""
+    coba {
+        clean = base_url.rstrip("/")
+        jika clean.endswith("/v1") {
+            clean = clean[:-3]
+        }
+        target_url = clean + "/v1/models"
+        req = urllib.request.Request(target_url, headers={"Authorization": f"Bearer {api_key}"})
+        dengan urllib.request.urlopen(req, timeout=5) sebagai resp {
+            data = json.loads(resp.read().decode())
+            models = [
+                {
+                    "id": "auto",
+                    "raw_name": "auto",
+                    "display_name": "Omniroute Auto (Rekomendasi)",
+                    "description": "Otomatis memilih model terbaik di Omniroute.",
+                    "input_token_limit": 1000000,
+                    "output_token_limit": 65535,
+                }
+            ]
+            untuk m dalam data.get("data", []) {
+                m_id = m.get("id", "")
+                jika tidak m_id atau m_id == "auto" {
+                    lewati
+                }
+                name = m.get("name") atau m_id
+                desc = f"Provider: {m.get('owned_by', 'omniroute')}"
+                models.append({
+                    "id": m_id,
+                    "raw_name": m_id,
+                    "display_name": name,
+                    "description": desc,
+                    "input_token_limit": m.get("max_input_tokens") atau 1000000,
+                    "output_token_limit": m.get("max_output_tokens") atau 65535,
+                })
+            }
+            kembalikan models
+        }
+    } kecuali exc {
+        agent_logger.log_error("agen.pindai_model_omniroute", f"Gagal memindai model Omniroute: {exc}")
+        kembalikan [
+            {
+                "id": "auto",
+                "raw_name": "auto",
+                "display_name": "Omniroute Auto (Rekomendasi)",
+                "description": "Otomatis memilih model terbaik di Omniroute.",
+                "input_token_limit": 1000000,
+                "output_token_limit": 65535,
+            },
+            {
+                "id": "auto/best-coding",
+                "raw_name": "auto/best-coding",
+                "display_name": "Omniroute Best Coding",
+                "description": "Rute model koding terbaik di Omniroute.",
+                "input_token_limit": 1000000,
+                "output_token_limit": 65535,
+            },
+            {
+                "id": "auto/best-fast",
+                "raw_name": "auto/best-fast",
+                "display_name": "Omniroute Best Fast",
+                "description": "Rute model cepat di Omniroute.",
+                "input_token_limit": 1000000,
+                "output_token_limit": 65535,
+            },
+            {
+                "id": "auto/gemini",
+                "raw_name": "auto/gemini",
+                "display_name": "Omniroute Auto Gemini",
+                "description": "Rute model Gemini di Omniroute.",
+                "input_token_limit": 1000000,
+                "output_token_limit": 65535,
+            },
+        ]
+    }
+}
+
+
+fungsi pindai_model_tersedia(api_key=kosong) {
+    """Mendapatkan daftar model yang kompatibel secara dinamis sesuai provider aktif."""
+    provider = pengelola_konfigurasi.ambil_provider()
+    jika provider == "omniroute" {
+        kunci_omni = api_key atau pengelola_konfigurasi.ambil_omni_api_key() atau ""
+        base_url = pengelola_konfigurasi.ambil_omni_base_url()
+        kembalikan pindai_model_omniroute(base_url, kunci_omni)
+    }
+
+    kunci_bersih = (api_key atau pengelola_konfigurasi.ambil_gemini_api_key() atau "").strip()
     http_opts = _buat_http_options()
     klien = genai.Client(api_key=kunci_bersih, http_options=http_opts) jika http_opts selain genai.Client(api_key=kunci_bersih)
     model_tersaring = []
@@ -157,10 +245,9 @@ kelas AgenGemini {
     """Agent Gemini interaktif dengan loop tool calling otomatis, memori, dan sesi persisten."""
 
     fungsi init(api_key, model_name, session=kosong) {
-        diri.api_key = api_key.strip()
-        diri.model_name = model_name.strip()
-        http_opts = _buat_http_options()
-        diri.client = genai.Client(api_key=diri.api_key, http_options=http_opts) jika http_opts selain genai.Client(api_key=diri.api_key)
+        diri.provider = pengelola_konfigurasi.ambil_provider()
+        diri.api_key = api_key.strip() jika api_key selain (pengelola_konfigurasi.ambil_api_key() atau "")
+        diri.model_name = model_name.strip() jika model_name selain (pengelola_konfigurasi.ambil_model() atau "auto")
         diri.session = session atau pengelola_sesi.ambil_atau_buat_sesi_aktif(model_name=diri.model_name)
 
         jika tidak diri.session.model_name {
@@ -170,7 +257,14 @@ kelas AgenGemini {
         diri.interrupted = salah
         diri.chat = kosong
         diri.last_usage_metadata = {"prompt_tokens": 0, "candidate_tokens": 0, "total_tokens": 0}
-        diri._inisialisasi_sesi_chat()
+
+        jika diri.provider == "gemini" {
+            http_opts = _buat_http_options()
+            diri.client = genai.Client(api_key=diri.api_key, http_options=http_opts) jika http_opts selain genai.Client(api_key=diri.api_key)
+            diri._inisialisasi_sesi_chat()
+        } selain {
+            diri.client = kosong
+        }
     }
 
     fungsi interrupt() {
@@ -328,6 +422,11 @@ kelas AgenGemini {
             }
         }
 
+        diri.provider = pengelola_konfigurasi.ambil_provider()
+        jika diri.provider == "omniroute" {
+            kembalikan diri._kirim_pesan_omniroute(message, on_tool_call, on_tool_result, on_chunk)
+        }
+
         diri.interrupted = salah
         maks_iterasi_tool = 15
         iterasi = 0
@@ -464,6 +563,94 @@ kelas AgenGemini {
         pengelola_sesi.simpan_sesi(diri.session)
 
         kembalikan teks_akhir
+    }
+
+    fungsi _kirim_pesan_omniroute(message, on_tool_call=kosong, on_tool_result=kosong, on_chunk=kosong) {
+        agent_logger.log_info(
+            "agen.omniroute",
+            f"Kirim prompt Omniroute: {message[:80]} (Model: {diri.model_name})",
+        )
+
+        base_url = pengelola_konfigurasi.ambil_omni_base_url().rstrip("/")
+        kunci = pengelola_konfigurasi.ambil_omni_api_key() atau diri.api_key
+        url_target = (base_url jika base_url.endswith("/v1") selain f"{base_url}/v1") + "/chat/completions"
+
+        memori_sistem = pengelola_memori.format_instruksi_sistem()
+        instruksi_sistem = (
+            "Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent. "
+            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
+            "Dilarang keras menggunakan emoji apapun. "
+            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
+            f"{memori_sistem}"
+        )
+
+        pesan_list = [{"role": "system", "content": instruksi_sistem}]
+        untuk m dalam diri.session.ui_messages[-10:] {
+            role = "user" jika m.msg_type == "user" selain "assistant"
+            jika m.text {
+                pesan_list.append({"role": role, "content": m.text})
+            }
+        }
+        jika tidak pesan_list atau pesan_list[-1].get("content") != message {
+            pesan_list.append({"role": "user", "content": message})
+        }
+
+        payload = {
+            "model": diri.model_name,
+            "messages": pesan_list,
+            "stream": benar,
+        }
+
+        teks_akumulasi = ""
+        coba {
+            req = urllib.request.Request(
+                url_target,
+                headers={
+                    "Authorization": f"Bearer {kunci}",
+                    "Content-Type": "application/json",
+                },
+                data=json.dumps(payload).encode("utf-8"),
+            )
+            dengan urllib.request.urlopen(req, timeout=60) sebagai resp {
+                untuk baris_mentah dalam resp {
+                    jika diri.interrupted {
+                        berhenti
+                    }
+                    baris = baris_mentah.decode("utf-8", errors="replace").strip()
+                    jika baris.startswith("data: ") dan baris != "data: [DONE]" {
+                        coba {
+                            data_chunk = json.loads(baris[6:])
+                            pilihan = data_chunk.get("choices", [])
+                            jika pilihan {
+                                delta = pilihan[0].get("delta", {})
+                                token = delta.get("content", "")
+                                jika token {
+                                    teks_akumulasi += token
+                                    jika on_chunk {
+                                        on_chunk(token)
+                                    }
+                                }
+                            }
+                        } kecuali exc_parse {
+                            lewati
+                        }
+                    }
+                }
+            }
+        } kecuali exc_http {
+            agent_logger.log_error("agen.omniroute", f"Galat Omniroute: {exc_http}")
+            pesan_galat = f"[Galat Omniroute: {exc_http}]\nPeriksa apakah server Omniroute aktif di {base_url} dan model '{diri.model_name}' tersedia."
+            teks_akumulasi += pesan_galat
+            jika on_chunk {
+                on_chunk(pesan_galat)
+            }
+        }
+
+        jika teks_akumulasi {
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=teks_akumulasi))
+            pengelola_sesi.simpan_sesi(diri.session)
+        }
+        kembalikan teks_akumulasi
     }
 }
 
