@@ -52,6 +52,22 @@ class ConfigManager:
         set_key(str(self.env_path), "GEMINI_API_KEY", clean_key)
         os.environ["GEMINI_API_KEY"] = clean_key
 
+    def get_base_url(self) -> Optional[str]:
+        """Mengambil custom base URL API dari env atau file .env."""
+        self.reload()
+        url = os.environ.get("GEMINI_BASE_URL")
+        if url:
+            stripped = url.strip()
+            if stripped:
+                return stripped
+        return None
+
+    def save_base_url(self, base_url: str) -> None:
+        """Menyimpan custom base URL API ke file .env dan memperbarui environment aktif."""
+        clean_url = base_url.strip()
+        set_key(str(self.env_path), "GEMINI_BASE_URL", clean_url)
+        os.environ["GEMINI_BASE_URL"] = clean_url
+
     def get_model(self) -> Optional[str]:
         """Mengambil model terpilih dari env atau file .env."""
         self.reload()

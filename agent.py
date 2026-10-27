@@ -13,10 +13,22 @@ from typing import Any, Callable, Optional
 from google import genai
 from google.genai import types
 
+from config import config_manager
 from logger import agent_logger
 from memory import memory_manager
 from session_manager import Session, SessionMessage, session_manager
 from tools import AVAILABLE_TOOLS, TOOL_CALLABLES
+
+
+def _build_http_options() -> Optional[types.HttpOptions]:
+    """Membuat HttpOptions jika GEMINI_BASE_URL (misal: Omniroute) disetel."""
+    base_url = config_manager.get_base_url()
+    if base_url:
+        clean_url = base_url.rstrip("/")
+        if clean_url.endswith("/v1"):
+            clean_url = clean_url[:-3]
+        return types.HttpOptions(base_url=clean_url)
+    return None
 
 
 def fetch_available_models(api_key: str) -> list[dict[str, Any]]:
@@ -32,7 +44,8 @@ def fetch_available_models(api_key: str) -> list[dict[str, Any]]:
         Exception: Jika terjadi kesalahan autentikasi, jaringan, atau kuota.
     """
     clean_key = api_key.strip()
-    client = genai.Client(api_key=clean_key)
+    http_opts = _build_http_options()
+    client = genai.Client(api_key=clean_key, http_options=http_opts) if http_opts else genai.Client(api_key=clean_key)
     filtered_models: list[dict[str, Any]] = []
 
     try:
@@ -68,6 +81,34 @@ def fetch_available_models(api_key: str) -> list[dict[str, Any]]:
                     }
                 )
 
+        if not filtered_models:
+            filtered_models = [
+                {
+                    "id": "gemini-2.5-flash",
+                    "raw_name": "gemini-2.5-flash",
+                    "display_name": "Gemini 2.5 Flash",
+                    "description": "Model cepat dan efisien bawaan Gemini.",
+                    "input_token_limit": 1048576,
+                    "output_token_limit": 8192,
+                },
+                {
+                    "id": "gemini-3-flash-preview",
+                    "raw_name": "gemini-3-flash-preview",
+                    "display_name": "Gemini 3 Flash",
+                    "description": "Model Gemini 3 generasi terbaru.",
+                    "input_token_limit": 1048576,
+                    "output_token_limit": 8192,
+                },
+                {
+                    "id": "auto/gemini",
+                    "raw_name": "auto/gemini",
+                    "display_name": "Omniroute Auto Gemini",
+                    "description": "Rute otomatis Gemini via Omniroute.",
+                    "input_token_limit": 1000000,
+                    "output_token_limit": 65535,
+                },
+            ]
+
         # Urutkan model: prioritaskan seri terbaru (gemini-3) dan varian flash
         filtered_models.sort(
             key=lambda x: (
@@ -89,7 +130,32 @@ def fetch_available_models(api_key: str) -> list[dict[str, Any]]:
             "agent.fetch_available_models",
             f"Gagal mendeteksi model dari API: {exc}",
         )
-        raise exc
+        return [
+            {
+                "id": "gemini-2.5-flash",
+                "raw_name": "gemini-2.5-flash",
+                "display_name": "Gemini 2.5 Flash",
+                "description": "Model cepat dan efisien bawaan Gemini.",
+                "input_token_limit": 1048576,
+                "output_token_limit": 8192,
+            },
+            {
+                "id": "gemini-3-flash-preview",
+                "raw_name": "gemini-3-flash-preview",
+                "display_name": "Gemini 3 Flash",
+                "description": "Model Gemini 3 generasi terbaru.",
+                "input_token_limit": 1048576,
+                "output_token_limit": 8192,
+            },
+            {
+                "id": "auto/gemini",
+                "raw_name": "auto/gemini",
+                "display_name": "Omniroute Auto Gemini",
+                "description": "Rute otomatis Gemini via Omniroute.",
+                "input_token_limit": 1000000,
+                "output_token_limit": 65535,
+            },
+        ]
 
 
 class GeminiAgent:
@@ -103,7 +169,8 @@ class GeminiAgent:
     ) -> None:
         self.api_key: str = api_key.strip()
         self.model_name: str = model_name.strip()
-        self.client: genai.Client = genai.Client(api_key=self.api_key)
+        http_opts = _build_http_options()
+        self.client: genai.Client = genai.Client(api_key=self.api_key, http_options=http_opts) if http_opts else genai.Client(api_key=self.api_key)
         self.session: Session = session or session_manager.get_or_create_active_session(
             model_name=self.model_name
         )

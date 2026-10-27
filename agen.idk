@@ -9,16 +9,32 @@ dari typing impor Any, Callable, Optional
 dari google impor genai
 dari google.genai impor types
 
+dari konfigurasi impor pengelola_konfigurasi
 dari logger impor agent_logger
 dari memori impor pengelola_memori
 dari pengelola_sesi impor pengelola_sesi, Sesi, PesanSesi
 dari perkakas impor ALAT_TERSEDIA, DAFTAR_PANGGILAN_ALAT
 
 
+fungsi _buat_http_options() {
+    """Membuat HttpOptions jika konfigurasi GEMINI_BASE_URL (misal: Omniroute) disetel."""
+    base_url = pengelola_konfigurasi.ambil_base_url()
+    jika base_url {
+        url_bersih = base_url.rstrip("/")
+        jika url_bersih.endswith("/v1") {
+            url_bersih = url_bersih[:-3]
+        }
+        kembalikan types.HttpOptions(base_url=url_bersih)
+    }
+    kembalikan kosong
+}
+
+
 fungsi pindai_model_tersedia(api_key) {
     """Mendapatkan daftar model Gemini yang mendukung generateContent dan tool calling secara dinamis."""
     kunci_bersih = api_key.strip()
-    klien = genai.Client(api_key=kunci_bersih)
+    http_opts = _buat_http_options()
+    klien = genai.Client(api_key=kunci_bersih, http_options=http_opts) jika http_opts selain genai.Client(api_key=kunci_bersih)
     model_tersaring = []
 
     coba {
@@ -64,6 +80,34 @@ fungsi pindai_model_tersedia(api_key) {
                 x["id"].lower(),
             )
         }
+        jika tidak model_tersaring {
+            model_tersaring = [
+                {
+                    "id": "gemini-2.5-flash",
+                    "raw_name": "gemini-2.5-flash",
+                    "display_name": "Gemini 2.5 Flash",
+                    "description": "Model cepat dan efisien bawaan Gemini.",
+                    "input_token_limit": 1048576,
+                    "output_token_limit": 8192,
+                },
+                {
+                    "id": "gemini-3-flash-preview",
+                    "raw_name": "gemini-3-flash-preview",
+                    "display_name": "Gemini 3 Flash",
+                    "description": "Model Gemini 3 generasi terbaru.",
+                    "input_token_limit": 1048576,
+                    "output_token_limit": 8192,
+                },
+                {
+                    "id": "auto/gemini",
+                    "raw_name": "auto/gemini",
+                    "display_name": "Omniroute Auto Gemini",
+                    "description": "Rute otomatis Gemini via Omniroute.",
+                    "input_token_limit": 1000000,
+                    "output_token_limit": 65535,
+                },
+            ]
+        }
         model_tersaring.sort(key=_prioritas_model)
         agent_logger.log_info(
             "agen.pindai_model_tersedia",
@@ -75,7 +119,32 @@ fungsi pindai_model_tersedia(api_key) {
             "agen.pindai_model_tersedia",
             f"Gagal mendeteksi model dari API: {exc}",
         )
-        naikkan exc
+        kembalikan [
+            {
+                "id": "gemini-2.5-flash",
+                "raw_name": "gemini-2.5-flash",
+                "display_name": "Gemini 2.5 Flash",
+                "description": "Model cepat dan efisien bawaan Gemini.",
+                "input_token_limit": 1048576,
+                "output_token_limit": 8192,
+            },
+            {
+                "id": "gemini-3-flash-preview",
+                "raw_name": "gemini-3-flash-preview",
+                "display_name": "Gemini 3 Flash",
+                "description": "Model Gemini 3 generasi terbaru.",
+                "input_token_limit": 1048576,
+                "output_token_limit": 8192,
+            },
+            {
+                "id": "auto/gemini",
+                "raw_name": "auto/gemini",
+                "display_name": "Omniroute Auto Gemini",
+                "description": "Rute otomatis Gemini via Omniroute.",
+                "input_token_limit": 1000000,
+                "output_token_limit": 65535,
+            },
+        ]
     }
 }
 
@@ -90,7 +159,8 @@ kelas AgenGemini {
     fungsi init(api_key, model_name, session=kosong) {
         diri.api_key = api_key.strip()
         diri.model_name = model_name.strip()
-        diri.client = genai.Client(api_key=diri.api_key)
+        http_opts = _buat_http_options()
+        diri.client = genai.Client(api_key=diri.api_key, http_options=http_opts) jika http_opts selain genai.Client(api_key=diri.api_key)
         diri.session = session atau pengelola_sesi.ambil_atau_buat_sesi_aktif(model_name=diri.model_name)
 
         jika tidak diri.session.model_name {

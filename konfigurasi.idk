@@ -58,6 +58,26 @@ kelas PengelolaKonfigurasi {
         os.environ["GEMINI_API_KEY"] = kunci_bersih
     }
 
+    fungsi ambil_base_url() {
+        """Mengambil custom base URL API dari env atau berkas .env."""
+        diri.muat_ulang()
+        url = os.environ.get("GEMINI_BASE_URL")
+        jika url {
+            url_bersih = url.strip()
+            jika url_bersih {
+                kembalikan url_bersih
+            }
+        }
+        kembalikan kosong
+    }
+
+    fungsi simpan_base_url(base_url) {
+        """Menyimpan custom base URL API ke berkas .env."""
+        url_bersih = base_url.strip()
+        set_key(str(diri.env_path), "GEMINI_BASE_URL", url_bersih)
+        os.environ["GEMINI_BASE_URL"] = url_bersih
+    }
+
     fungsi ambil_model() {
         """Mengambil model aktif terpilih dari env atau berkas .env."""
         diri.muat_ulang()
