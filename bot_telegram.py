@@ -19,31 +19,23 @@ from typing import Any
 
 import psutil
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich import box
+
+console = Console(highlight=False)
+
 # Aktifkan runtime loader Indonesiaku-Lang
 from penerjemah_idk import aktifkan_hook_idk
 
 aktifkan_hook_idk()
 
-import telegram.error
-from telegram import (
-    BotCommand,
-    BotCommandScopeAllPrivateChats,
-    BotCommandScopeChat,
-    BotCommandScopeDefault,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    MenuButtonCommands,
-    Update,
-)
-from telegram.constants import ParseMode
-from telegram.ext import (
-    Application,
-    CallbackQueryHandler,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters,
-)
 
 # Modul logika ditulis dalam Indonesiaku-Lang (.idk) dan dimuat dinamis via hook penerjemah_idk
 import agen  # type: ignore[import-not-found]
@@ -51,6 +43,35 @@ import konfigurasi  # type: ignore[import-not-found]
 import memori  # type: ignore[import-not-found]
 import pengelola_sesi  # type: ignore[import-not-found]
 from logger import agent_logger
+
+
+def get_user_info(update: Update) -> str:
+    """Mendapatkan identitas pengirim pesan Telegram secara ringkas."""
+    user = update.effective_user
+    if not user:
+        return "Anonim"
+    name = user.first_name or "Pengguna"
+    if user.last_name:
+        name += f" {user.last_name}"
+    u_name = f"@{user.username}" if user.username else ""
+    return f"{name} (ID: {user.id}{' | ' + u_name if u_name else ''})"
+
+
+def log_terminal_box(category: str, title: str, details: list[tuple[str, str]], color: str = "bright_cyan") -> None:
+    """Mencetak log peristiwa Telegram yang rapi, profesional, berwarna dengan garis box bersambung."""
+    now = datetime.datetime.now().strftime("%H:%M:%S")
+    w = 70
+    tag = f"[{now}] {category.upper()}: {title}"
+    head = f"[{color}]┌─── {tag} "
+    fill_len = max(2, w - len(tag) - 5)
+    head += ("─" * fill_len) + f"[/{color}]"
+    console.print(head)
+    for k, v in details:
+        clean_v = str(v).replace("\n", " ").strip()
+        if len(clean_v) > 75:
+            clean_v = clean_v[:72] + "..."
+        console.print(f"[{color}]│[/{color}] [bold]{k:<11}[/bold]: {clean_v}")
+    console.print(f"[{color}]└" + ("─" * (w - 1)) + f"[/{color}]\n")
 
 GUI_PROCESSES: dict[str, str] = {
     "code.exe": "Visual Studio Code",
@@ -244,10 +265,10 @@ class TelegramAgentGateway:
             print(f"[Galat] API Key untuk provider '{self.provider}' belum disetel di ~/.gemini-agent/.env")
             sys.exit(1)
 
-        print(f"[*] Menginisialisasi Terminal Agent [Provider: {self.provider.upper()}, Model: {self.model_name}]...")
+        console.print(f"[dim]• Menginisialisasi Agen ({self.provider.upper()} - {self.model_name})...[/dim]")
         self.agent = agen.AgenGemini(api_key=self.api_key, model_name=self.model_name)
         self.file_picker_state: dict[int, dict] = {}
-        print(f"[OK] Agen siap. Whitelist Telegram User ID: {self.allowed_user_id or 'Semua User (Hati-hati!)'}")
+        console.print("[dim green]✓ Agen AI & modul sistem siap.[/dim green]")
 
     def is_authorized(self, update: Update) -> bool:
         """Memeriksa apakah pengirim pesan adalah pemilik sah laptop."""
@@ -259,10 +280,14 @@ class TelegramAgentGateway:
         return str(user.id) == str(self.allowed_user_id)
 
     async def unauthorized_handler(self, update: Update) -> None:
+        u_info = get_user_info(update)
+        agent_logger.log_warning("telegram_gateway", f"Percobaan akses tidak dikenal dari {u_info}")
+        log_terminal_box(
+            "Keamanan", "Akses Ditolak",
+            [("Pengguna", u_info), ("Status", "Ditolak oleh sistem keamanan whitelist")],
+            color="bright_red",
+        )
         if update.message:
-            user = update.effective_user
-            u_info = f"{user.id} (@{user.username})" if user else "Anonim"
-            agent_logger.log_warning("telegram_gateway", f"Percobaan akses tidak dikenal dari {u_info}")
             await update.message.reply_text(
                 "⛔ Akses Ditolak: Bot ini dikunci secara privat untuk pemilik laptop ini."
             )
@@ -271,6 +296,9 @@ class TelegramAgentGateway:
         if not self.is_authorized(update):
             await self.unauthorized_handler(update)
             return
+
+        u_info = get_user_info(update)
+        log_terminal_box("Command", "/start", [("Pengguna", u_info), ("Aksi", "Mengirim menu awal & perkenalan")], color="bright_yellow")
 
         user_name = update.effective_user.first_name if update.effective_user else "Pengguna"
         prov = self.config.ambil_provider().upper()
@@ -394,6 +422,9 @@ class TelegramAgentGateway:
             await self.unauthorized_handler(update)
             return
 
+        u_info = get_user_info(update)
+        log_terminal_box("Command", "/status", [("Pengguna", u_info), ("Aksi", "Mengirim dashboard monitoring laptop real-time")], color="bright_yellow")
+
         text, markup = self._build_status_dashboard()
         if update.message:
             await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
@@ -463,6 +494,8 @@ class TelegramAgentGateway:
             return
 
         data = query.data
+        u_info = get_user_info(update)
+        log_terminal_box("Tombol Interaktif", str(data)[:35], [("Pengguna", u_info), ("Data", str(data))], color="bright_magenta")
         if data == "refresh_status":
             text, markup = self._build_status_dashboard()
             try:
@@ -1666,10 +1699,12 @@ class TelegramAgentGateway:
         if not user_text:
             return
 
+        u_info = get_user_info(update)
         u_clean = user_text.lower().strip()
 
         # Deteksi langsung: Pertanyaan seputar tab browser
         if any(w in u_clean for w in ["berapa tab", "daftar tab", "list tab", "tab browser", "tab chrome", "tab edge", "buka tab"]):
+            log_terminal_box("Pesan Masuk", "Cek Tab Browser", [("Pengguna", u_info), ("Pesan", f'"{user_text}"'), ("Aksi", "Mengirim daftar tab browser")], color="bright_blue")
             text, markup = self._build_browser_tabs_markup()
             await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
             return
@@ -1684,8 +1719,11 @@ class TelegramAgentGateway:
             ).strip()
             if not cleaned_query:
                 cleaned_query = user_text
+            log_terminal_box("Pesan Masuk", "Pencarian YouTube", [("Pengguna", u_info), ("Pesan", f'"{user_text}"'), ("Query", cleaned_query)], color="bright_cyan")
             await self.search_and_send_youtube(update.message, cleaned_query)
             return
+
+        log_terminal_box("Pesan Masuk", "Chat AI Agent", [("Pengguna", u_info), ("Pesan", f'"{user_text}"'), ("Status", "Memproses instruksi ke model AI...")], color="bright_cyan")
 
         status_msg = await update.message.reply_text("⏳ *Memproses instruksi di laptop...*", parse_mode=ParseMode.MARKDOWN)
         loop = asyncio.get_running_loop()
@@ -1706,7 +1744,8 @@ class TelegramAgentGateway:
             pass
 
         def _on_tool_call(tool_name: str, args: dict) -> None:
-            brief = ", ".join([f"{k}={v}" for k, v in args.items()])[:50]
+            brief = ", ".join([f"{k}={v}" for k, v in args.items()])[:60]
+            log_terminal_box("Eksekusi Perkakas", tool_name, [("Parameter", brief)], color="bright_blue")
             try:
                 asyncio.run_coroutine_threadsafe(
                     context.bot.send_message(
@@ -1739,6 +1778,12 @@ class TelegramAgentGateway:
 
             if not response_text or not response_text.strip():
                 response_text = "✅ Perintah telah diproses oleh Agen di laptop."
+
+            log_terminal_box(
+                "Respon AI Selesai", f"{self.agent.model_name} ({ai_duration:.2f}s)",
+                [("Pengguna", u_info), ("Balasan", f'"{response_text[:75]}..."')],
+                color="bright_green"
+            )
 
             # Tambahkan footer indikator latency kecepatan eksekusi
             footer_latency = f"\n\n_⏱ Respon: {ai_duration:.2f}s_"
@@ -1889,14 +1934,29 @@ class TelegramAgentGateway:
         except Exception:
             pass
 
-        print("=" * 60)
-        print("  TERMINAL LAPTOP AGENT - TELEGRAM MOBILE GATEWAY")
-        print("=" * 60)
-        print(f"* Provider Aktif: {self.provider.upper()} (Model: {self.model_name})")
-        print(f"* Bot Token: {self.bot_token[:10]}... (Aman)")
-        print(f"* Whitelist User ID: {self.allowed_user_id}")
-        print("* Status: Sedang mendengarkan pesan dari HP Anda...")
-        print("* Tekan Ctrl+C di terminal ini untuk berhenti.\n")
+        table = Table.grid(padding=(0, 1))
+        table.add_column(style="bold cyan", justify="right")
+        table.add_column(style="white")
+
+        table.add_row("Status Gateway", f": [bold green]ONLINE 🟢[/bold green] (Mendengarkan instruksi HP)")
+        table.add_row("Provider AI", f": [bold yellow]{self.provider.upper()}[/bold yellow] (Model: [bold white]{self.model_name}[/bold white])")
+        table.add_row("Whitelist User", f": [bold green]{self.allowed_user_id}[/bold green] (Akses privat terkunci)")
+        table.add_row("Bot Token", f": [dim]{self.bot_token[:10]}... (Tervalidasi)[/dim]")
+        table.add_row("Sistem Host", f": {platform.system()} {platform.release()} (Python {platform.python_version()})")
+        table.add_row("", "")
+        table.add_row("Petunjuk", ": [dim italic]Kirim chat atau perintah dari Telegram di HP Anda.[/dim italic]")
+        table.add_row("Pintasan", ": [dim italic]Tekan Ctrl+C di terminal ini untuk mematikan gateway.[/dim italic]")
+
+        p = Panel(
+            table,
+            title="[bold bright_cyan]⌬ GEMINI TERMINAL AGENT - TELEGRAM MOBILE GATEWAY[/bold bright_cyan]",
+            border_style="bright_blue",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+        console.print()
+        console.print(p)
+        console.print()
 
         app = Application.builder().token(self.bot_token).post_init(self.post_init).build()
 
