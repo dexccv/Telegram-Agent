@@ -20,7 +20,7 @@ dari textual.containers impor Container, Horizontal, Vertical, VerticalScroll
 dari textual.screen impor ModalScreen, Screen
 dari textual.widgets impor Button, Input, Label, ListItem, ListView, LoadingIndicator, Static
 
-dari agen impor AgenGemini, GeminiAgent, pindai_model_tersedia, fetch_available_models
+dari agen impor AgenGemini, GeminiAgent, pindai_model_tersedia, fetch_available_models, pindai_model_omniroute
 dari konfigurasi impor pengelola_konfigurasi, config_manager
 dari logger impor agent_logger
 dari memori impor pengelola_memori, memory_manager
@@ -828,11 +828,21 @@ kelas TypingMessageCard < Static {
     fungsi init(full_text="", animate=salah) {
         super().init(classes="msg-agent-box")
         diri.full_text = full_text
+        diri._widget_mounted = salah
     }
 
     fungsi compose() {
-        yield Label("⌬ GEMINI:", classes="msg-agent-title")
-        yield Static(Markdown(diri.full_text) jika diri.full_text selain "", id="typed_content")
+        provider_name = pengelola_konfigurasi.ambil_provider().upper()
+        yield Label(f"⌬ {provider_name} AGENT:", classes="msg-agent-title")
+        content = diri.full_text jika diri.full_text selain ""
+        yield Static(Markdown(content) jika content selain "", id="typed_content")
+    }
+
+    fungsi on_mount() {
+        diri._widget_mounted = benar
+        jika diri.full_text {
+            diri.finalize(diri.full_text)
+        }
     }
 
     fungsi append_delta(delta) {
@@ -849,7 +859,7 @@ kelas TypingMessageCard < Static {
         diri.full_text = final_text
         coba {
             content_widget = diri.query_one("#typed_content", Static)
-            content_widget.update(Markdown(diri.full_text))
+            content_widget.update(Markdown(diri.full_text) jika diri.full_text selain "(tidak ada respon)")
         } kecuali exc {
             lewati
         }
@@ -862,10 +872,10 @@ kelas TypingMessageCard < Static {
 
 
 kelas GeminiTerminalAgentApp < App {
-    """Aplikasi TUI Textual utama untuk Gemini Terminal Agent dengan Memori & Sesi."""
+    """Aplikasi TUI Textual utama untuk Terminal Agent dengan Memori & Sesi."""
 
     CSS = APP_CSS
-    TITLE = "Gemini Terminal Agent (Indonesiaku-Lang)"
+    TITLE = "Terminal Agent (Indonesiaku-Lang)"
 
     BINDINGS = [
         Binding("ctrl+s", "open_session_modal", "Sesi", show=benar),
@@ -889,7 +899,7 @@ kelas GeminiTerminalAgentApp < App {
 
     fungsi compose() {
         dengan Horizontal(id="app_header") {
-            yield Label("⌬ GEMINI AGENT", id="header_title")
+            yield Label("⌬ TERMINAL AGENT", id="header_title")
             yield Label("LIVE CLOCK", id="header_clock")
         }
 
@@ -931,7 +941,8 @@ kelas GeminiTerminalAgentApp < App {
         now = datetime.datetime.now().strftime("%H:%M:%S")
         m_name = diri.agent.model_name jika diri.agent selain "Inisialisasi"
         s_title = diri.agent.session.title jika diri.agent selain "Sesi"
-        diri.query_one("#header_title", Label).update(f"⌬ GEMINI AGENT ─ {m_name} │ {s_title[:24]}")
+        prov = pengelola_konfigurasi.ambil_provider().upper()
+        diri.query_one("#header_title", Label).update(f"⌬ {prov} AGENT ─ {m_name} │ {s_title[:24]}")
         diri.query_one("#header_clock", Label).update(f"│ {now}")
     }
 
@@ -1169,6 +1180,35 @@ kelas GeminiTerminalAgentApp < App {
                 themes_list = ", ".join([f"`{t}`" untuk t dalam TEMA_WARNA.keys()])
                 diri.append_system_message(f"Tema `{arg}` tidak ditemukan. Pilihan: {themes_list}")
             }
+        } jika_lain command == "/provider" {
+            p_arg = arg.strip().lower()
+            jika p_arg dalam ["gemini", "omniroute"] {
+                pengelola_konfigurasi.simpan_provider(p_arg)
+                jika diri.agent {
+                    diri.agent.provider = p_arg
+                    model_aktif = pengelola_konfigurasi.ambil_model()
+                    diri.agent.change_model(model_aktif)
+                }
+                diri.append_system_message(f"Provider aktif dialihkan ke: `{p_arg}` (Model: `{pengelola_konfigurasi.ambil_model()}`).")
+                diri.update_status_bar(diri.agent.model_name jika diri.agent selain "-", "READY")
+            } selain {
+                prov_saat_ini = pengelola_konfigurasi.ambil_provider()
+                diri.append_system_message(
+                    f"Provider saat ini: `{prov_saat_ini}`.\n"
+                    "Gunakan `/provider gemini` atau `/provider omniroute` untuk beralih."
+                )
+            }
+        } jika_lain command dalam ["/models", "/model-list"] {
+            prov = pengelola_konfigurasi.ambil_provider()
+            jika prov == "omniroute" {
+                daftar_m = pindai_model_omniroute()
+                teks_m = ", ".join([f"`{m}`" untuk m dalam daftar_m[:15]])
+                diri.append_system_message(f"Daftar Model Omniroute ({len(daftar_m)} ditemukan, 15 pertama):\n{teks_m}\n\nGunakan `/model <nama_model>`.")
+            } selain {
+                daftar_g = pindai_model_tersedia(pengelola_konfigurasi.ambil_gemini_api_key() atau "")
+                teks_g = ", ".join([f"`{m}`" untuk m dalam daftar_g])
+                diri.append_system_message(f"Daftar Model Gemini:\n{teks_g}\n\nGunakan `/model <nama_model>`.")
+            }
         } jika_lain command == "/model" {
             jika arg {
                 pengelola_konfigurasi.simpan_model(arg)
@@ -1200,6 +1240,8 @@ kelas GeminiTerminalAgentApp < App {
                 "| `/memory set <key> <val>`| Simpan instruksi/fakta ke memori persisten |\n"
                 "| `/memory delete <key>` | Hapus kunci memori tertentu |\n"
                 "| `/memory clear` | Kosongkan seluruh memori jangka panjang |\n"
+                "| `/provider [gemini/omniroute]` | Beralih penyedia AI antara Gemini dan Omniroute |\n"
+                "| `/models` | Lihat daftar model yang tersedia untuk provider aktif |\n"
                 "| `/model [nama]` | Buka seleksi model atau langsung ganti model |\n"
                 "| `/theme <nama>` | Ganti tema UI (default, emerald, crimson, amber, purple) |\n"
                 "| `/clear` | Mulai sesi baru & bersihkan layar chat |\n"

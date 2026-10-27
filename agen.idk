@@ -273,6 +273,21 @@ kelas AgenGemini {
 
     fungsi _inisialisasi_sesi_chat() {
         """Membuat instance chat session baru dengan deklarasi tools dan riwayat obrolan tersimpan."""
+        jika diri.provider != "gemini" {
+            diri.chat = kosong
+            kembalikan
+        }
+
+        jika tidak diri.client {
+            gemini_key = pengelola_konfigurasi.ambil_gemini_api_key() atau diri.api_key
+            jika tidak gemini_key {
+                diri.chat = kosong
+                kembalikan
+            }
+            http_opts = _buat_http_options()
+            diri.client = genai.Client(api_key=gemini_key, http_options=http_opts) jika http_opts selain genai.Client(api_key=gemini_key)
+        }
+
         memori_sistem = pengelola_memori.format_instruksi_sistem()
 
         aturan_proyek = ""
@@ -351,14 +366,21 @@ kelas AgenGemini {
     fungsi beralih_sesi(session) {
         """Beralih ke sesi percakapan lain dan memuat seluruh riwayat serta konteksnya."""
         diri.session = session
+        diri.provider = pengelola_konfigurasi.ambil_provider()
         jika session.model_name {
             diri.model_name = session.model_name
         }
+        jika diri.provider == "omniroute" dan tidak (diri.model_name.startswith("auto") atau "/" dalam diri.model_name) {
+            diri.model_name = pengelola_konfigurasi.ambil_omni_model() atau "auto"
+        } jika_lain diri.provider == "gemini" dan ("/" dalam diri.model_name atau diri.model_name == "auto") {
+            diri.model_name = pengelola_konfigurasi.ambil_gemini_model() atau "gemini-2.5-flash"
+        }
+        session.model_name = diri.model_name
         pengelola_sesi.atur_sesi_aktif_id(session.session_id)
         diri._inisialisasi_sesi_chat()
         agent_logger.log_info(
             "agen.beralih_sesi",
-            f"Beralih ke sesi: {session.session_id} ('{session.title}')",
+            f"Beralih ke sesi: {session.session_id} ('{session.title}') [Provider: {diri.provider}, Model: {diri.model_name}]",
         )
     }
 
@@ -637,9 +659,30 @@ kelas AgenGemini {
                     }
                 }
             }
-        } kecuali exc_http {
-            agent_logger.log_error("agen.omniroute", f"Galat Omniroute: {exc_http}")
-            pesan_galat = f"[Galat Omniroute: {exc_http}]\nPeriksa apakah server Omniroute aktif di {base_url} dan model '{diri.model_name}' tersedia."
+        } kecuali urllib.error.HTTPError sebagai exc_http {
+            detail_err = ""
+            coba {
+                body_str = exc_http.read().decode("utf-8", errors="ignore")
+                jika body_str {
+                    coba {
+                        body_json = json.loads(body_str)
+                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
+                    } kecuali exc_j {
+                        detail_err = body_str[:120]
+                    }
+                }
+            } kecuali exc_r {
+                detail_err = str(exc_http)
+            }
+            agent_logger.log_error("agen.omniroute", f"Galat Omniroute: {exc_http} - Detail: {detail_err}")
+            pesan_galat = f"[Galat Omniroute {getattr(exc_http, 'code', 'Error')}]: {detail_err atau exc_http}\nPeriksa server di {base_url} dan model '{diri.model_name}'."
+            teks_akumulasi += pesan_galat
+            jika on_chunk {
+                on_chunk(pesan_galat)
+            }
+        } kecuali Exception sebagai exc_all {
+            agent_logger.log_error("agen.omniroute", f"Galat Omniroute: {exc_all}")
+            pesan_galat = f"[Galat Omniroute]: {exc_all}\nPeriksa server Omniroute di {base_url}."
             teks_akumulasi += pesan_galat
             jika on_chunk {
                 on_chunk(pesan_galat)

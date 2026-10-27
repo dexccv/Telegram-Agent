@@ -249,6 +249,18 @@ class GeminiAgent:
 
     def _init_chat_session(self) -> None:
         """Membuat instance chat session baru dengan deklarasi tools, system instruction, dan riwayat sesi."""
+        if self.provider != "gemini":
+            self.chat = None
+            return
+
+        if not self.client:
+            gemini_key = config_manager.get_gemini_api_key() or self.api_key
+            if not gemini_key:
+                self.chat = None
+                return
+            http_opts = _build_http_options()
+            self.client = genai.Client(api_key=gemini_key, http_options=http_opts) if http_opts else genai.Client(api_key=gemini_key)
+
         persistent_memory = memory_manager.format_for_system_instruction()
 
         system_instruction = (
@@ -301,13 +313,19 @@ class GeminiAgent:
     def switch_session(self, session: Session) -> None:
         """Beralih ke sesi percakapan lain dan memuat seluruh riwayat serta konteksnya."""
         self.session = session
+        self.provider = config_manager.get_provider()
         if session.model_name:
             self.model_name = session.model_name
+        if self.provider == "omniroute" and not (self.model_name.startswith("auto") or "/" in self.model_name):
+            self.model_name = config_manager.get_omni_model() or "auto"
+        elif self.provider == "gemini" and ("/" in self.model_name or self.model_name == "auto"):
+            self.model_name = config_manager.get_gemini_model() or "gemini-2.5-flash"
+        session.model_name = self.model_name
         session_manager.set_active_session_id(session.session_id)
         self._init_chat_session()
         agent_logger.log_info(
             "agent.switch_session",
-            f"Beralih ke sesi: {session.session_id} ('{session.title}')",
+            f"Beralih ke sesi: {session.session_id} ('{session.title}') [Provider: {self.provider}, Model: {self.model_name}]",
         )
 
     def create_new_session(self, title: Optional[str] = None) -> Session:
@@ -505,9 +523,23 @@ class GeminiAgent:
                 choices = data.get("choices", [])
                 if choices:
                     accumulated_text = choices[0].get("message", {}).get("content", "")
+        except urllib.error.HTTPError as exc_http:
+            detail_err = ""
+            try:
+                body_str = exc_http.read().decode("utf-8", errors="ignore")
+                if body_str:
+                    try:
+                        body_json = json.loads(body_str)
+                        detail_err = body_json.get("error", {}).get("message", body_str[:120])
+                    except Exception:
+                        detail_err = body_str[:120]
+            except Exception:
+                detail_err = str(exc_http)
+            agent_logger.log_error("agent.omniroute", f"Galat Omniroute: {exc_http} - Detail: {detail_err}")
+            accumulated_text = f"[Galat Omniroute HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err or exc_http}\nPeriksa server di {base_url} dan model '{self.model_name}'."
         except Exception as exc:
             agent_logger.log_error("agent.omniroute", f"Galat Omniroute: {exc}")
-            accumulated_text = f"[Galat Omniroute: {exc}]\nPastikan server Omniroute aktif di {base_url} dan model '{self.model_name}' tersedia."
+            accumulated_text = f"[Galat Omniroute]: {exc}\nPastikan server Omniroute aktif di {base_url} dan model '{self.model_name}' tersedia."
 
         if accumulated_text:
             self.session.ui_messages.append(SessionMessage(msg_type="agent", text=accumulated_text))
