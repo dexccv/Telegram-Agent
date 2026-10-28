@@ -369,8 +369,8 @@ def ambil_daftar_aplikasi_terbuka() -> list[dict[str, Any]]:
     return apps
 
 
-def focus_window_and_capture_fullscreen(hwnd: int) -> tuple[bool, Optional[Path]]:
-    """Membawa jendela hwnd ke foreground paling depan, klik title bar, dan ambil screenshot fullscreen."""
+def focus_window_and_capture_fullscreen(hwnd: int, click_titlebar: bool = False) -> tuple[bool, Optional[Path]]:
+    """Membawa jendela hwnd ke foreground paling depan dan mengambil screenshot fullscreen (tanpa klik mouse sembarangan)."""
     try:
         user32 = ctypes.windll.user32
         from ctypes import wintypes
@@ -408,26 +408,27 @@ def focus_window_and_capture_fullscreen(hwnd: int) -> tuple[bool, Optional[Path]
         user32.BringWindowToTop(hwnd)
         user32.SetForegroundWindow(hwnd)
 
-        # 4. Klik mouse fisik pada area title bar
-        rect = wintypes.RECT()
-        if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-            w = rect.right - rect.left
-            h = rect.bottom - rect.top
-            if w > 100 and h > 100:
-                click_x = max(rect.left + 80, min(rect.right - 180, rect.left + w // 2))
-                click_y = max(10, rect.top + 20)
-                pt = wintypes.POINT()
-                user32.GetCursorPos(ctypes.byref(pt))
-                orig_x, orig_y = pt.x, pt.y
-                user32.SetCursorPos(int(click_x), int(click_y))
-                time.sleep(0.04)
-                user32.mouse_event(0x0002, 0, 0, 0, 0)
-                time.sleep(0.04)
-                user32.mouse_event(0x0004, 0, 0, 0, 0)
-                time.sleep(0.04)
-                user32.SetCursorPos(orig_x, orig_y)
+        # 4. Klik mouse fisik hanya jika diminta secara eksplisit (hindari salah klik pada tab browser)
+        if click_titlebar:
+            rect = wintypes.RECT()
+            if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+                w = rect.right - rect.left
+                h = rect.bottom - rect.top
+                if w > 100 and h > 100:
+                    click_x = max(rect.left + 80, min(rect.right - 180, rect.left + w // 2))
+                    click_y = max(10, rect.top + 20)
+                    pt = wintypes.POINT()
+                    user32.GetCursorPos(ctypes.byref(pt))
+                    orig_x, orig_y = pt.x, pt.y
+                    user32.SetCursorPos(int(click_x), int(click_y))
+                    time.sleep(0.04)
+                    user32.mouse_event(0x0002, 0, 0, 0, 0)
+                    time.sleep(0.04)
+                    user32.mouse_event(0x0004, 0, 0, 0, 0)
+                    time.sleep(0.04)
+                    user32.SetCursorPos(orig_x, orig_y)
 
-        time.sleep(0.4)
+        time.sleep(0.35)
 
         # 5. Ambil tangkapan layar fullscreen penuh
         target_path = Path.cwd() / "app_focus_capture.png"
@@ -1141,7 +1142,7 @@ class TelegramAgentGateway:
                     app_title = f"{a['icon']} {a['title']} ({a['label']})"
                     break
 
-            ok, shot_path = await asyncio.to_thread(focus_window_and_capture_fullscreen, hwnd_val)
+            ok, shot_path = await asyncio.to_thread(focus_window_and_capture_fullscreen, hwnd_val, False)
             if query.message:
                 if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
                     now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
@@ -1184,7 +1185,7 @@ class TelegramAgentGateway:
                 except Exception:
                     pass
 
-            ok, shot_path = await asyncio.to_thread(focus_window_and_capture_fullscreen, hwnd_val)
+            ok, shot_path = await asyncio.to_thread(focus_window_and_capture_fullscreen, hwnd_val, False)
             if query.message:
                 if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
                     now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
@@ -1677,7 +1678,7 @@ class TelegramAgentGateway:
         # 2. Bagian Tab Browser
         if tabs:
             text_lines.append("**📑 Tab Browser Terbuka:**")
-            for idx, t in enumerate(tabs[:6], 1):
+            for idx, t in enumerate(tabs[:12], 1):
                 icon = "🎬" if t.get("is_youtube") else ("🎧" if t.get("is_media") else "🌐")
                 clean_title = t.get("clean_title", "Tab Browser")
                 if len(clean_title) > 42:

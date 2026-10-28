@@ -1243,12 +1243,13 @@ fungsi focus_window(hwnd: int, tab_index: int = 0) -> str {
                 jika w_ctrl {
                     tab_items = []
                     untuk c, d dalam auto.WalkControl(w_ctrl, maxDepth=8) {
-                        jika c.ControlType == auto.ControlType.TabItemControl dan c.Name {
+                        jika c.ControlType == auto.ControlType.TabItemControl dan c.Name dan c.Name.strip() {
                             tab_items.append(c)
                         }
                     }
                     jika 0 <= tab_index < len(tab_items) {
                         tab_items[tab_index].Click()
+                        time.sleep(0.2)
                     }
                 }
             } kecuali Exception {
