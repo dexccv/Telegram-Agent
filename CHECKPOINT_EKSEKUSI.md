@@ -10,8 +10,8 @@
 
 | Fase | Nama Fase | Prioritas | Status | Target Berkas | Verifikasi |
 |:---:|:---|:---:|:---:|:---|:---:|
-| **Fase 0** | Hotfix & Stabilitas Fondasi | **P0 (Kritis)** | ⏳ Siap Mulai | `bot_telegram.py`, `logger.py`, `memory.py`, `agent.py` | ⏳ Menunggu |
-| **Fase 1** | Keamanan & Token Management | **P0 - P1** | ⏳ Antre | `tools.py`, `agent.py` | ⏳ Menunggu |
+| **Fase 0** | Hotfix & Stabilitas Fondasi | **P0 (Kritis)** | ✅ Selesai | `bot_telegram.py`, `logger.py`, `memory.py`, `agent.py` | ✅ Lolos |
+| **Fase 1** | Keamanan & Token Management | **P0 - P1** | ⏳ Siap Mulai | `tools.py`, `agent.py` | ⏳ Menunggu |
 | **Fase 2** | Integrasi Core AI & Tooling | **P1 - P2** | ⏳ Antre | `agent.py`, `tools.py`, `bot_telegram.py` | ⏳ Menunggu |
 | **Fase 3** | Standarisasi & Automated Testing | **P2** | ⏳ Antre | `config.py`, `penerjemah_idk.py`, `requirements.txt`, `tests/` | ⏳ Menunggu |
 | **Fase 4** | Modern Developer Experience | **P2 - P3** | ⏳ Antre | `agent.py`, `bot_telegram.py`, `session_manager.py` | ⏳ Menunggu |
@@ -24,13 +24,17 @@
 ### 🔹 FASE 0: Hotfix & Stabilitas Fondasi
 > **Fokus:** Perbaikan bug crash runtime fatal, kebocoran logger, dan perlindungan korupsi data memori.
 
-- [ ] **Langkah 0.1**: Perbaiki `BUG-01` NullPointer `camera_cmd` di `bot_telegram.py`.
-- [ ] **Langkah 0.2**: Perbaiki `BUG-06` handler binding `AgentLogger` di `logger.py`.
-- [ ] **Langkah 0.3**: Perbaiki `MEM-01` Atomic Write memori (`.tmp` + `os.replace`) di `memory.py`.
-- [ ] **Langkah 0.4**: Perbaiki `BUG-04` role separation & message filtering OpenAI-compatible di `agent.py`.
+- [x] **Langkah 0.1**: Perbaiki `BUG-01` NullPointer `camera_cmd` di `bot_telegram.py`.
+- [x] **Langkah 0.2**: Perbaiki `BUG-06` handler binding `AgentLogger` di `logger.py`.
+- [x] **Langkah 0.3**: Perbaiki `MEM-01` Atomic Write memori (`.tmp` + `os.replace`) di `memory.py`.
+- [x] **Langkah 0.4**: Perbaiki `BUG-04` role separation & message filtering OpenAI-compatible di `agent.py`.
 
 #### Catatan Eksekusi Fase 0:
-*Belum dieksekusi.*
+- **0.1**: Mengganti target balasan `update.message` menjadi `msg_target = update.message or (update.callback_query.message if update.callback_query else None)`. Menghindari crash saat dipanggil via tombol callback `/status`.
+- **0.2**: Menghubungkan method `log_info`, `log_warning`, `log_error`, dan `log_critical` langsung ke `self.logger` yang memiliki file handler harian aktif.
+- **0.3**: Menambahkan helper atomic write `_atomic_write` pada `MemoryManager` berbasis file temporer `.tmp` dan `replace()` pada `set()`, `delete()`, dan `clear()`.
+- **0.4**: Memperbaiki konstruksi messages pada `_send_message_openai_compatible` agar memfilter pesan `user` dan `agent` saja, serta tidak mencemari role OpenAI dengan log internal `tool`.
+- **Verifikasi**: Uji kompilasi sintaks lolos (`py_compile`), pengujian unit `AgentLogger` lolos, dan pengujian atomic write `MemoryManager` lolos 100%.
 
 ---
 
@@ -101,6 +105,7 @@
 | Waktu | Fase | Perubahan / Aksi | Berkas Terdampak | Status |
 |:---:|:---:|:---|:---|:---:|
 | 29-10-2026 01:31 | Inisialisasi | Pembuatan file checkpoint & roadmap pelacak | `CHECKPOINT_EKSEKUSI.md` | ✅ Selesai |
+| 29-10-2026 01:33 | Fase 0 | Hotfix BUG-01, BUG-06, MEM-01, dan BUG-04 | `bot_telegram.py`, `logger.py`, `memory.py`, `agent.py` | ✅ Lolos |
 
 *(Baris baru akan ditambahkan otomatis di sini setiap kali suatu langkah/fase selesai dieksekusi)*
 

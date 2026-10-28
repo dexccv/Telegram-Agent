@@ -1010,7 +1010,11 @@ class TelegramAgentGateway:
             await self.unauthorized_handler(update)
             return
 
-        status_msg = await update.message.reply_text("📸 *Mengaktifkan kamera laptop & mengambil foto...*", parse_mode=ParseMode.MARKDOWN)
+        msg_target = update.message or (update.callback_query.message if update.callback_query else None)
+        if not msg_target:
+            return
+
+        status_msg = await msg_target.reply_text("📸 *Mengaktifkan kamera laptop & mengambil foto...*", parse_mode=ParseMode.MARKDOWN)
 
         def _take_photo() -> tuple[bool, str, Path | None]:
             try:
@@ -1041,13 +1045,13 @@ class TelegramAgentGateway:
 
         if sukses and out_path and out_path.exists():
             with open(out_path, "rb") as pf:
-                await update.message.reply_photo(
+                await msg_target.reply_photo(
                     photo=pf,
                     caption=f"📸 **Foto Kamera Laptop**\nWaktu: `{datetime.datetime.now().strftime('%H:%M:%S WIB')}`",
                     parse_mode=ParseMode.MARKDOWN,
                 )
         else:
-            await update.message.reply_text(f"❌ Gagal mengambil foto: {pesan}")
+            await msg_target.reply_text(f"❌ Gagal mengambil foto: {pesan}")
 
     async def capture_screen_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Mengambil screenshot layar display laptop dan langsung mengirimkannya ke Telegram."""

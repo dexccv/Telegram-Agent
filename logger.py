@@ -89,20 +89,22 @@ class AgentLogger:
     def log_info(self, module: str, message: str) -> None:
         """Mencatat informasi reguler ke file log."""
         self._ensure_handler()
-        logger_instance = logging.getLogger(module)
-        logger_instance.info(message)
+        self.logger.info(f"[{module}] {message}")
 
     def log_warning(self, module: str, message: str) -> None:
         """Mencatat peringatan ke file log."""
         self._ensure_handler()
-        logger_instance = logging.getLogger(module)
-        logger_instance.warning(message)
+        self.logger.warning(f"[{module}] {message}")
 
     def log_error(self, module: str, message: str) -> None:
         """Mencatat kesalahan ke file log."""
         self._ensure_handler()
-        logger_instance = logging.getLogger(module)
-        logger_instance.error(message)
+        self.logger.error(f"[{module}] {message}")
+
+    def log_critical(self, module: str, message: str) -> None:
+        """Mencatat insiden kritis ke file log."""
+        self._ensure_handler()
+        self.logger.critical(f"[{module}] {message}")
 
     def diagnose_and_format_error(
         self,

@@ -22,11 +22,17 @@ class MemoryManager:
         self.memory_file: Path = memory_file or (config_manager.app_dir / "memory.json")
         self._ensure_file()
 
+    def _atomic_write(self, content: str) -> None:
+        """Menulis konten ke file memori secara atomic menggunakan file temporer."""
+        temp_path = self.memory_file.with_suffix(".tmp")
+        temp_path.write_text(content, encoding="utf-8")
+        temp_path.replace(self.memory_file)
+
     def _ensure_file(self) -> None:
         """Memastikan file memory.json tersedia."""
         try:
             if not self.memory_file.exists():
-                self.memory_file.write_text("{}", encoding="utf-8")
+                self._atomic_write("{}")
         except Exception as exc:
             agent_logger.log_error("memory.ensure_file", f"Gagal membuat file memori: {exc}")
 
@@ -49,7 +55,7 @@ class MemoryManager:
         return memories.get(key.strip())
 
     def set(self, key: str, value: str) -> None:
-        """Menyimpan atau memperbarui pasangan key-value memori."""
+        """Menyimpan atau memperbarui pasangan key-value memori secara atomic."""
         clean_key = key.strip()
         clean_val = value.strip()
         if not clean_key:
@@ -59,11 +65,8 @@ class MemoryManager:
         memories[clean_key] = clean_val
 
         try:
-            self.memory_file.write_text(
-                json.dumps(memories, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            agent_logger.log_info("memory.set", f"Memori disimpan: '{clean_key}' -> '{clean_val}'")
+            self._atomic_write(json.dumps(memories, indent=2, ensure_ascii=False))
+            agent_logger.log_info("memory.set", f"Memori disimpan (atomic): '{clean_key}' -> '{clean_val}'")
         except Exception as exc:
             agent_logger.log_error("memory.set", f"Gagal menulis memori: {exc}")
 
@@ -74,21 +77,18 @@ class MemoryManager:
         if clean_key in memories:
             del memories[clean_key]
             try:
-                self.memory_file.write_text(
-                    json.dumps(memories, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
-                agent_logger.log_info("memory.delete", f"Memori dihapus: '{clean_key}'")
+                self._atomic_write(json.dumps(memories, indent=2, ensure_ascii=False))
+                agent_logger.log_info("memory.delete", f"Memori dihapus (atomic): '{clean_key}'")
                 return True
             except Exception as exc:
                 agent_logger.log_error("memory.delete", f"Gagal menghapus memori: {exc}")
         return False
 
     def clear(self) -> None:
-        """Mengosongkan seluruh memori jangka panjang."""
+        """Mengosongkan seluruh memori jangka panjang secara atomic."""
         try:
-            self.memory_file.write_text("{}", encoding="utf-8")
-            agent_logger.log_info("memory.clear", "Seluruh memori persisten dikosongkan.")
+            self._atomic_write("{}")
+            agent_logger.log_info("memory.clear", "Seluruh memori persisten dikosongkan (atomic).")
         except Exception as exc:
             agent_logger.log_error("memory.clear", f"Gagal mengosongkan memori: {exc}")
 

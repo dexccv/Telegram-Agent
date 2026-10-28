@@ -840,11 +840,17 @@ class GeminiAgent:
         )
 
         messages = [{"role": "system", "content": system_instruction}]
-        for m in self.session.ui_messages[-10:]:
+        # Filter hanya pesan user dan agent, abaikan log internal/tool di level ini
+        history_entries = [
+            m for m in self.session.ui_messages
+            if m.msg_type in ("user", "agent") and (m.text or "").strip()
+        ]
+        for m in history_entries[-20:]:
             role = "user" if m.msg_type == "user" else "assistant"
-            if m.text:
-                messages.append({"role": role, "content": m.text})
-        if not messages or messages[-1].get("content") != message:
+            messages.append({"role": role, "content": m.text})
+
+        # Pastikan pesan user saat ini berada di posisi paling akhir
+        if not messages or messages[-1].get("role") != "user" or messages[-1].get("content") != message:
             messages.append({"role": "user", "content": message})
 
         max_iterations = 10
