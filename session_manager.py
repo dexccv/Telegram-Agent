@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -224,6 +225,47 @@ class SessionManager:
 
         # Jika sama sekali belum ada sesi, buat sesi awal
         return self.create_session(title="Sesi Perdana", model_name=model_name)
+
+    def export_to_markdown(self, session: Session, target_path: Optional[str] = None) -> Path:
+        """Mengekspor percakapan sesi ke format file Markdown."""
+        if not target_path or not str(target_path).strip():
+            clean_title = re.sub(r"[^\w\-_]", "_", session.title.lower())[:30].strip("_") or "percakapan"
+            short_id = session.session_id[:8]
+            target_path = f"ekspor_{clean_title}_{short_id}.md"
+
+        jalur = Path(target_path)
+        if not jalur.suffix:
+            jalur = jalur.with_suffix(".md")
+
+        baris = [
+            f"# Ekspor Percakapan: {session.title}",
+            f"- **ID Sesi**: `{session.session_id}`",
+            f"- **Model**: `{session.model_name}`",
+            f"- **Waktu Pembuatan**: {session.created_at[:19].replace('T', ' ')}",
+            f"- **Terakhir Diperbarui**: {session.updated_at[:19].replace('T', ' ')}",
+            "",
+            "---",
+            "",
+        ]
+
+        if session.ui_messages:
+            for m in session.ui_messages:
+                if m.msg_type == "user":
+                    baris.append(f"### ❯ Anda\n\n{m.text}\n")
+                elif m.msg_type == "agent":
+                    baris.append(f"### ⌬ Agen AI\n\n{m.text}\n")
+                elif m.msg_type == "tool":
+                    baris.append(f"> ⚙ **[Tool]** `{m.tool_name}`: {m.tool_preview}\n")
+                elif m.msg_type in ("error", "system"):
+                    baris.append(f"> ℹ **[{m.msg_type.upper()}]** {m.text}\n")
+        elif session.history:
+            for h in session.history:
+                role = "❯ Anda" if h.get("role") == "user" else "⌬ Agen AI"
+                baris.append(f"### {role}\n\n{h.get('text', '')}\n")
+
+        jalur.write_text("\n".join(baris), encoding="utf-8")
+        agent_logger.log_info("session.export", f"Sesi '{session.session_id}' diekspor ke: {jalur.resolve()}")
+        return jalur.resolve()
 
 
 session_manager = SessionManager()

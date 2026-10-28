@@ -435,6 +435,108 @@ class GeminiAgent:
         else:
             self.client = None
 
+    def _load_project_rules(self) -> str:
+        """Muat aturan proyek dari AGENTS.md, ATURAN.md, .agentrules, atau CLAUDE.md jika ada."""
+        rules_files = ["AGENTS.md", "ATURAN.md", ".agentrules", "CLAUDE.md"]
+        for fname in rules_files:
+            candidate = Path.cwd() / fname
+            if candidate.exists() and candidate.is_file():
+                try:
+                    content = candidate.read_text(encoding="utf-8", errors="replace")
+                    if content.strip():
+                        agent_logger.log_info(
+                            "agent.project_rules",
+                            f"Memuat aturan proyek dari '{fname}' ({len(content)} karakter).",
+                        )
+                        return (
+                            f"\n\n[ATURAN PROYEK LOKAL — dari {fname}]:\n"
+                            f"Instruksi berikut adalah konvensi khusus repositori ini yang harus selalu dipatuhi:\n"
+                            f"{content[:4000]}\n"
+                            f"────────────────────────────────────────────────────────────\n"
+                        )
+                except Exception as exc:
+                    agent_logger.log_warning("agent.project_rules", f"Gagal membaca '{fname}': {exc}")
+        return ""
+
+    def _build_system_instruction(self, provider_label: Optional[str] = None) -> str:
+        """Menyusun system instruction lengkap dengan menyertakan memori persisten dan aturan proyek."""
+        persistent_memory = memory_manager.format_for_system_instruction()
+        project_rules = self._load_project_rules()
+
+        if provider_label:
+            header = (
+                f"Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis {provider_label}). "
+                "Anda memiliki akses PENUH ke sistem laptop pengguna. "
+                "Gunakan tool/fungsi yang tersedia untuk mengeksekusi perintah kontrol laptop pengguna seperti: "
+                "mengatur volume (set_volume), kontrol musik/lagu/YouTube/Spotify (media_control), "
+                "membuka aplikasi desktop atau browser (open_application), "
+                "menutup aplikasi atau proses (close_application), "
+                "mencari dan memutar video di YouTube (search_youtube_videos, play_youtube_video), "
+                "mengambil screenshot layar laptop (capture_screen), mengambil foto webcam (capture_camera), "
+                "melihat tab browser yang terbuka (get_open_browser_tabs), "
+                "membaca status CPU/RAM/Baterai/Storage (get_system_status), "
+                "membaca/menulis/edit berkas, menjalankan perintah terminal aman (run_command), atau menyimpan memori. "
+                "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis."
+            )
+        else:
+            header = (
+                "Anda adalah AI Agent terminal profesional dan cerdas bernama gemini-terminal-agent. "
+                "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
+                "Jangan gunakan salam berlebihan atau basa-basi generik. Dilarang keras menggunakan emoji apapun. "
+                "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori."
+            )
+
+        return f"{header}\n{persistent_memory}{project_rules}"
+
+    def _preprocess_at_mentions(self, message: str, workspace: Optional[Path] = None) -> str:
+        """Mendeteksi @filename dalam prompt dan menyisipkan isi file ke konteks."""
+        if not message or "@" not in message:
+            return message
+
+        if workspace is None:
+            workspace = Path.cwd()
+
+        pattern = r'@([\w./\\-]+\.[\w]+)'
+        matches = re.findall(pattern, message)
+        if not matches:
+            return message
+
+        appended_contexts = []
+        for filename in matches:
+            candidates = [
+                workspace / filename,
+                Path(filename).expanduser(),
+            ]
+            found = next((p for p in candidates if p.exists() and p.is_file()), None)
+
+            if found:
+                try:
+                    from tools import validate_sandbox_path
+                    is_safe, err_msg = validate_sandbox_path(str(found))
+                    if not is_safe:
+                        agent_logger.log_warning("agent.at_mention", f"File '@{filename}' diblokir sandbox: {err_msg}")
+                        continue
+
+                    content = found.read_text(encoding="utf-8", errors="replace")
+                    if len(content) > 8000:
+                        content = content[:8000] + f"\n... (terpotong, total {len(content)} karakter)"
+                    appended_contexts.append(
+                        f"\n\n---\n**[Konteks File: {filename}]**\n```\n{content}\n```\n---"
+                    )
+                    message = message.replace(f"@{filename}", f"`@{filename}`")
+                except Exception as exc:
+                    agent_logger.log_warning("agent.at_mention", f"Gagal membaca '@{filename}': {exc}")
+            else:
+                agent_logger.log_warning("agent.at_mention", f"File '@{filename}' tidak ditemukan.")
+
+        if appended_contexts:
+            return message + "".join(appended_contexts)
+        return message
+
+    def export_session(self, filename: Optional[str] = None) -> Path:
+        """Mengekspor sesi aktif saat ini ke berkas Markdown."""
+        return session_manager.export_to_markdown(self.session, filename)
+
     def _init_chat_session(self) -> None:
         """Membuat instance chat session baru dengan deklarasi tools, system instruction, dan riwayat sesi."""
         if self.provider != "gemini":
@@ -449,15 +551,7 @@ class GeminiAgent:
             http_opts = _build_http_options()
             self.client = genai.Client(api_key=gemini_key, http_options=http_opts) if http_opts else genai.Client(api_key=gemini_key)
 
-        persistent_memory = memory_manager.format_for_system_instruction()
-
-        system_instruction = (
-            "Anda adalah AI Agent terminal profesional dan cerdas bernama gemini-terminal-agent. "
-            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
-            "Jangan gunakan salam berlebihan atau basa-basi generik. Dilarang keras menggunakan emoji apapun. "
-            "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
-            f"{persistent_memory}"
-        )
+        system_instruction = self._build_system_instruction()
 
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
@@ -554,14 +648,7 @@ class GeminiAgent:
                 ),
             ]
 
-            persistent_memory = memory_manager.format_for_system_instruction()
-            system_instruction = (
-                "Anda adalah AI Agent terminal profesional dan cerdas bernama gemini-terminal-agent. "
-                "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
-                "Jangan gunakan salam berlebihan atau basa-basi generik. Dilarang keras menggunakan emoji apapun. "
-                "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
-                f"{persistent_memory}"
-            )
+            system_instruction = self._build_system_instruction()
             config = types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 tools=TOOL_CALLABLES,
@@ -747,6 +834,9 @@ class GeminiAgent:
         Returns:
             Teks respon final dari agent.
         """
+        # Preprocessing @filename context injection
+        message = self._preprocess_at_mentions(message)
+
         agent_logger.log_info(
             "agent.send_message",
             f"Mengirim pesan user: {message[:80]} (Sesi: {self.session.session_id}, Model: {self.model_name})",
@@ -1037,22 +1127,7 @@ class GeminiAgent:
         on_tool_call: Optional[Callable[[str, dict[str, Any]], None]] = None,
         on_tool_result: Optional[Callable[[str, str], None]] = None,
     ) -> str:
-        persistent_memory = memory_manager.format_for_system_instruction()
-        system_instruction = (
-            f"Anda adalah AI Agent terminal profesional dan cerdas bernama Terminal Agent (berbasis {provider_label}). "
-            "Anda memiliki akses PENUH ke sistem laptop pengguna. "
-            "Gunakan tool/fungsi yang tersedia untuk mengeksekusi perintah kontrol laptop pengguna seperti: "
-            "mengatur volume (set_volume), kontrol musik/lagu/YouTube/Spotify (media_control), "
-            "membuka aplikasi desktop atau browser (open_application), "
-            "menutup aplikasi atau proses (close_application), "
-            "mencari dan memutar video di YouTube (search_youtube_videos, play_youtube_video), "
-            "mengambil screenshot layar laptop (capture_screen), mengambil foto webcam (capture_camera), "
-            "melihat tab browser yang terbuka (get_open_browser_tabs), "
-            "membaca status CPU/RAM/Baterai/Storage (get_system_status), "
-            "membaca/menulis berkas, menjalankan perintah terminal aman (run_command), atau menyimpan memori. "
-            "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis.\n"
-            f"{persistent_memory}"
-        )
+        system_instruction = self._build_system_instruction(provider_label=provider_label)
 
         messages = [{"role": "system", "content": system_instruction}]
         # Filter hanya pesan user dan agent, abaikan log internal/tool di level ini

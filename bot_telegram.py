@@ -63,6 +63,7 @@ import agen  # type: ignore[import-not-found]
 import konfigurasi  # type: ignore[import-not-found]
 import memori  # type: ignore[import-not-found]
 import pengelola_sesi  # type: ignore[import-not-found]
+from session_manager import session_manager
 from logger import agent_logger
 
 
@@ -377,6 +378,7 @@ class TelegramAgentGateway:
             "• `/new [judul]` : Mulai sesi percakapan baru yang bersih.\n"
             "• `/sessions` : Lihat daftar sesi yang tersimpan di laptop.\n"
             "• `/load <no/id>` : Beralih ke sesi percakapan lama.\n"
+            "• `/export [nama.md]` : Ekspor percakapan sesi aktif ke file Markdown dan kirimkan ke chat.\n"
             "• `/memory` : Lihat fakta memori jangka panjang agent.\n"
             "• `/stop` : Batalkan respon agen yang sedang berjalan.\n"
             "• **Kirim File/Foto**: Kirim berkas dari HP ke Telegram bot untuk disimpan di laptop."
@@ -1935,6 +1937,36 @@ class TelegramAgentGateway:
             lines.append(f"• **{k}**: {v}")
         await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
+    async def export_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Mengekspor riwayat percakapan sesi aktif ke file Markdown dan mengirimkannya ke chat."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        agent = self.get_agent()
+        if not agent or not getattr(agent, "session", None):
+            await update.message.reply_text("❌ Agen belum siap atau tidak ada sesi aktif yang dapat diekspor.")
+            return
+
+        target_name = context.args[0].strip() if context.args else None
+        try:
+            exported_path = session_manager.export_to_markdown(agent.session, target_name)
+            with open(exported_path, "rb") as doc_file:
+                await update.message.reply_document(
+                    document=doc_file,
+                    filename=exported_path.name,
+                    caption=(
+                        f"📄 **Ekspor Percakapan Selesai**\n"
+                        f"• Sesi: `{agent.session.title}`\n"
+                        f"• Model: `{agent.session.model_name}`\n"
+                        f"• Total Pesan: {len(agent.session.ui_messages)}"
+                    ),
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+        except Exception as exc:
+            agent_logger.log_error("telegram.export_cmd", f"Gagal mengekspor sesi: {exc}")
+            await update.message.reply_text(f"❌ Gagal mengekspor sesi: {exc}")
+
     async def provider_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Melihat atau beralih provider AI (gemini atau omniroute)."""
         if not self.is_authorized(update):
@@ -2567,6 +2599,8 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("sessions", self.list_sessions_cmd))
         app.add_handler(CommandHandler("load", self.load_session_cmd))
         app.add_handler(CommandHandler("memory", self.memory_cmd))
+        app.add_handler(CommandHandler("export", self.export_cmd))
+        app.add_handler(CommandHandler("ekspor", self.export_cmd))
 
         app.add_handler(CallbackQueryHandler(self.handle_callback_query))
 

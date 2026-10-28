@@ -1,8 +1,8 @@
 # 📌 CHECKPOINT & LOG EKSEKUSI PROYEK
 **Proyek:** Gemini Terminal Agent  
 **Dokumen Referensi:** `AUDIT_DAN_REKOMENDASI.md` (v3.0)  
-**Status Keseluruhan:** 🟢 FASE 0, 1, 2, 3 SELESAI  
-**Terakhir Diperbarui:** 29 Oktober 2026, 02:37 WIB  
+**Status Keseluruhan:** 🟢 FASE 0, 1, 2, 3, 4 SELESAI  
+**Terakhir Diperbarui:** 29 Oktober 2026, 02:48 WIB  
 
 ---
 
@@ -14,8 +14,8 @@
 | **Fase 1** | Keamanan & Token Management | **P0 - P1** | ✅ Selesai | `tools.py`, `agent.py` | ✅ Lolos |
 | **Fase 2** | Integrasi Core AI & Tooling | **P1 - P2** | ✅ Selesai | `agent.py`, `tools.py`, `bot_telegram.py` | ✅ Lolos |
 | **Fase 3** | Standarisasi & Automated Testing | **P2** | ✅ Selesai | `config.py`, `penerjemah_idk.py`, `requirements.txt`, `tests/` | ✅ Lolos (11/11 tests) |
-| **Fase 4** | Modern Developer Experience | **P2 - P3** | ⏳ Siap Mulai | `agent.py`, `bot_telegram.py`, `session_manager.py` | ⏳ Menunggu |
-| **Fase 5** | Remote Antigravity & Sandboxed Shell | **P1 - P2** | ⏳ Antre | `antigravity_bridge.py`, `tools.py`, `bot_telegram.py` | ⏳ Menunggu |
+| **Fase 4** | Modern Developer Experience | **P2 - P3** | ✅ Selesai | `agent.py`, `bot_telegram.py`, `session_manager.py`, `tests/` | ✅ Lolos (15/15 tests) |
+| **Fase 5** | Remote Antigravity & Sandboxed Shell | **P1 - P2** | ⏳ Siap Mulai | `antigravity_bridge.py`, `tools.py`, `bot_telegram.py` | ⏳ Menunggu |
 
 ---
 
@@ -94,12 +94,15 @@
 ### 🔹 FASE 4: Modern Developer Experience
 > **Fokus:** Injeksi file instan `@filename`, pemuatan aturan lokal proyek, dan ekspor percakapan.
 
-- [ ] **Langkah 4.1**: Parser context injection `@filename` di `agent.py`.
-- [ ] **Langkah 4.2**: Auto-load file instruksi proyek (`AGENTS.md` / `ATURAN.md`) di `agent.py`.
-- [ ] **Langkah 4.3**: Command `/export` riwayat percakapan ke format Markdown.
+- [x] **Langkah 4.1**: Parser context injection `@filename` di `agent.py` (`_preprocess_at_mentions`).
+- [x] **Langkah 4.2**: Auto-load file instruksi proyek (`AGENTS.md` / `ATURAN.md`) di `agent.py` (`_load_project_rules` & `_build_system_instruction`).
+- [x] **Langkah 4.3**: Command `/export` riwayat percakapan ke format Markdown di `session_manager.py`, `agent.py`, dan `bot_telegram.py`.
 
 #### Catatan Eksekusi Fase 4:
-*Belum dieksekusi.*
+- **4.1**: Mengimplementasikan `_preprocess_at_mentions(message)` langsung di `agent.py` sehingga mendeteksi pola `@filename` di semua antarmuka (CLI, TUI, Telegram Bot). File dibaca dan disisipkan sebagai blok konteks Markdown (dibatasi 8.000 karakter) dengan validasi sandbox path keamanan (`validate_sandbox_path`).
+- **4.2**: Mengimplementasikan `_load_project_rules` dan `_build_system_instruction` di `agent.py` yang otomatis mendeteksi keberadaan file instruksi lokal repositori (`AGENTS.md`, `ATURAN.md`, `.agentrules`, `CLAUDE.md`) dan menyematkannya ke `system_instruction` pada semua provider AI (Gemini, Groq, Ollama, Omniroute).
+- **4.3**: Mengimplementasikan `export_to_markdown` di `SessionManager` (`session_manager.py`) serta helper `export_session` di `GeminiAgent`. Menambahkan command handler `/export` (dan `/ekspor`) di `bot_telegram.py` yang memungkinkan pengguna Telegram mengekspor sesi percakapan dan langsung menerima dokumen `.md` terstruktur di chat.
+- **Verifikasi**: Dibuat test suite baru `tests/test_features_fase4.py` (uji mention file aman, pemblokiran mention sensitif, pemuatan aturan proyek lokal, dan ekspor percakapan ke format markdown). Total 15 unit test lolos 100% (`15 passed in 2.85s`).
 
 ---
 
@@ -127,6 +130,7 @@
 | 29-10-2026 02:05 | Hotfix TUI | Fix MarkupError [/{color}] pada rendering Label riwayat chat di Textual | `aplikasi.idk`, `app_legacy.py` | ✅ Lolos |
 | 29-10-2026 02:24 | Responsivitas UI | Optimasi input terminal: auto-focus timer, click-to-focus di baris input & seamless typing keyboard forwarding ke `#chat_input` | `aplikasi.idk` | ✅ Lolos |
 | 29-10-2026 02:37 | Fase 3 | Throttling Config Reload, Fix BUG-02 Triple Quote Parser IDK, Setup pytest & 11 Automated Tests | `config.py`, `penerjemah_idk.py`, `requirements.txt`, `pytest.ini`, `tests/` | ✅ Lolos |
+| 29-10-2026 02:48 | Fase 4 | Parser Context @filename Universal, Auto-Load Project Rules (AGENTS.md) & Command /export Markdown | `agent.py`, `bot_telegram.py`, `session_manager.py`, `tests/test_features_fase4.py` | ✅ Lolos |
 
 *(Baris baru akan ditambahkan otomatis di sini setiap kali suatu langkah/fase selesai dieksekusi)*
 
