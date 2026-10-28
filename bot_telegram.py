@@ -65,6 +65,8 @@ import memori  # type: ignore[import-not-found]
 import pengelola_sesi  # type: ignore[import-not-found]
 from session_manager import session_manager
 from logger import agent_logger
+from antigravity_bridge import antigravity_bridge
+from tools import run_sandboxed_command
 
 
 def get_user_info(update: Update) -> str:
@@ -379,6 +381,8 @@ class TelegramAgentGateway:
             "• `/sessions` : Lihat daftar sesi yang tersimpan di laptop.\n"
             "• `/load <no/id>` : Beralih ke sesi percakapan lama.\n"
             "• `/export [nama.md]` : Ekspor percakapan sesi aktif ke file Markdown dan kirimkan ke chat.\n"
+            "• `/agy [prompt/open/proceed/ss/term]` : Kendalikan Google Antigravity IDE dari jauh.\n"
+            "• `/sh <perintah>` : Eksekusi perintah terminal terisolasi (sandboxed) di laptop.\n"
             "• `/memory` : Lihat fakta memori jangka panjang agent.\n"
             "• `/stop` : Batalkan respon agen yang sedang berjalan.\n"
             "• **Kirim File/Foto**: Kirim berkas dari HP ke Telegram bot untuk disimpan di laptop."
@@ -1967,6 +1971,111 @@ class TelegramAgentGateway:
             agent_logger.log_error("telegram.export_cmd", f"Gagal mengekspor sesi: {exc}")
             await update.message.reply_text(f"❌ Gagal mengekspor sesi: {exc}")
 
+    async def agy_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Mengendalikan Google Antigravity IDE dari Telegram."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        args = context.args or []
+        if not args:
+            is_on = "Aktif (Running)" if antigravity_bridge.is_running() else "Mati (Offline)"
+            guide = (
+                f"🪐 **REMOTE GOOGLE ANTIGRAVITY CONTROLLER**\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"• Status IDE: `{is_on}`\n\n"
+                f"**Perintah Tersedia**:\n"
+                f"• `/agy prompt <instruksi>` : Kirim prompt instruksi coding ke Antigravity IDE\n"
+                f"• `/agy open [folder]` : Buka workspace proyek di Antigravity / bawa ke depan\n"
+                f"• `/agy proceed` : Klik tombol Proceed / Allow pada dialog persetujuan Antigravity\n"
+                f"• `/agy ss` : Tangkap layar tampilan jendela Antigravity IDE\n"
+                f"• `/agy term <perintah>` : Eksekusi perintah di terminal internal Antigravity"
+            )
+            await update.message.reply_text(guide, parse_mode=ParseMode.MARKDOWN)
+            return
+
+        subcmd = args[0].lower()
+        subargs = " ".join(args[1:]).strip()
+
+        if subcmd == "open":
+            ok = antigravity_bridge.launch_or_focus(subargs if subargs else None)
+            res = "✅ Jendela Antigravity IDE berhasil difokuskan ke depan." if ok else "⚠️ Proses diluncurkan atau dicari di latar belakang."
+            await update.message.reply_text(res)
+
+        elif subcmd == "prompt":
+            if not subargs:
+                await update.message.reply_text("⚠️ Berikan teks prompt. Contoh: `/agy prompt Buatkan endpoint /status dengan FastAPI`")
+                return
+            await update.message.reply_text("⏳ Mengirim prompt ke Antigravity IDE...")
+            ok = antigravity_bridge.send_prompt(subargs, auto_submit=True)
+            if ok:
+                await update.message.reply_text(f"✅ Prompt berhasil dikirim ke Antigravity IDE:\n\n`{subargs[:120]}`...", parse_mode=ParseMode.MARKDOWN)
+            else:
+                await update.message.reply_text("❌ Gagal mengirimkan prompt ke jendela Antigravity IDE.")
+
+        elif subcmd in ["proceed", "ok", "lanjut"]:
+            ok = antigravity_bridge.trigger_proceed()
+            if ok:
+                await update.message.reply_text("✅ Tombol Proceed / Konfirmasi Antigravity berhasil dipicu.")
+            else:
+                await update.message.reply_text("⚠️ Tombol Proceed tidak ditemukan atau gagal dipicu.")
+
+        elif subcmd in ["ss", "screenshot"]:
+            await update.message.reply_text("📸 Mengambil screenshot jendela Antigravity IDE...")
+            shot_path = antigravity_bridge.capture_window_screenshot()
+            if shot_path and shot_path.exists():
+                with open(shot_path, "rb") as photo:
+                    await update.message.reply_photo(
+                        photo=photo,
+                        caption="🪐 **Tangkapan Layar Antigravity IDE**",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+            else:
+                await update.message.reply_text("❌ Gagal mengambil screenshot jendela Antigravity.")
+
+        elif subcmd == "term":
+            if not subargs:
+                await update.message.reply_text("⚠️ Berikan perintah shell. Contoh: `/agy term git status`")
+                return
+            ok = antigravity_bridge.open_integrated_terminal_and_run(subargs)
+            if ok:
+                await update.message.reply_text(f"✅ Perintah `{subargs}` berhasil dikirim ke terminal Antigravity.", parse_mode=ParseMode.MARKDOWN)
+            else:
+                await update.message.reply_text("❌ Gagal mengirim perintah ke terminal Antigravity.")
+        else:
+            await update.message.reply_text("⚠️ Sub-perintah `/agy` tidak dikenal. Ketik `/agy` untuk melihat panduan.")
+
+    async def sh_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Menjalankan perintah shell terisolasi (sandbox) di workspace laptop via Telegram."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        command = " ".join(context.args).strip() if context.args else ""
+        if not command:
+            await update.message.reply_text("⚠️ Berikan perintah yang ingin dijalankan.\nContoh: `/sh dir` atau `/sh python -m pytest tests/`")
+            return
+
+        status_msg = await update.message.reply_text(f"⏳ Mengeksekusi di workspace:\n`{command}`...", parse_mode=ParseMode.MARKDOWN)
+
+        res = run_sandboxed_command(command)
+        code = res["returncode"]
+        stdout = res["stdout"].strip()
+        stderr = res["stderr"].strip()
+
+        status_icon = "✅" if res["success"] else "❌"
+        parts = [f"{status_icon} **Hasil Eksekusi Shell (Exit Code: {code})**\n"]
+
+        if stdout:
+            parts.append(f"**STDOUT**:\n```\n{stdout[:3000]}\n```")
+        if stderr:
+            parts.append(f"**STDERR**:\n```\n{stderr[:1500]}\n```")
+        if not stdout and not stderr:
+            parts.append("_(Tidak ada output teks)_")
+
+        msg_text = "\n\n".join(parts)
+        await status_msg.edit_text(msg_text, parse_mode=ParseMode.MARKDOWN)
+
     async def provider_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Melihat atau beralih provider AI (gemini atau omniroute)."""
         if not self.is_authorized(update):
@@ -2601,6 +2710,10 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("memory", self.memory_cmd))
         app.add_handler(CommandHandler("export", self.export_cmd))
         app.add_handler(CommandHandler("ekspor", self.export_cmd))
+        app.add_handler(CommandHandler("agy", self.agy_cmd))
+        app.add_handler(CommandHandler("antigravity", self.agy_cmd))
+        app.add_handler(CommandHandler("sh", self.sh_cmd))
+        app.add_handler(CommandHandler("shell", self.sh_cmd))
 
         app.add_handler(CallbackQueryHandler(self.handle_callback_query))
 

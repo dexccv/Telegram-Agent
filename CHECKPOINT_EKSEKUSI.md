@@ -1,8 +1,8 @@
 # 📌 CHECKPOINT & LOG EKSEKUSI PROYEK
 **Proyek:** Gemini Terminal Agent  
 **Dokumen Referensi:** `AUDIT_DAN_REKOMENDASI.md` (v3.0)  
-**Status Keseluruhan:** 🟢 FASE 0, 1, 2, 3, 4 SELESAI  
-**Terakhir Diperbarui:** 29 Oktober 2026, 02:48 WIB  
+**Status Keseluruhan:** 🏆 SEMUA FASE (0 s.d. 5) SELESAI 100%  
+**Terakhir Diperbarui:** 29 Oktober 2026, 02:54 WIB  
 
 ---
 
@@ -15,7 +15,7 @@
 | **Fase 2** | Integrasi Core AI & Tooling | **P1 - P2** | ✅ Selesai | `agent.py`, `tools.py`, `bot_telegram.py` | ✅ Lolos |
 | **Fase 3** | Standarisasi & Automated Testing | **P2** | ✅ Selesai | `config.py`, `penerjemah_idk.py`, `requirements.txt`, `tests/` | ✅ Lolos (11/11 tests) |
 | **Fase 4** | Modern Developer Experience | **P2 - P3** | ✅ Selesai | `agent.py`, `bot_telegram.py`, `session_manager.py`, `tests/` | ✅ Lolos (15/15 tests) |
-| **Fase 5** | Remote Antigravity & Sandboxed Shell | **P1 - P2** | ⏳ Siap Mulai | `antigravity_bridge.py`, `tools.py`, `bot_telegram.py` | ⏳ Menunggu |
+| **Fase 5** | Remote Antigravity & Sandboxed Shell | **P1 - P2** | ✅ Selesai | `antigravity_bridge.py`, `tools.py`, `bot_telegram.py`, `tests/` | ✅ Lolos (20/20 tests) |
 
 ---
 
@@ -109,12 +109,21 @@
 ### 🔹 FASE 5: Remote Antigravity & Sandboxed Terminal Controller
 > **Fokus:** Kendali desktop Google Antigravity IDE & terminal terisolasi dari ponsel via Telegram.
 
-- [ ] **Langkah 5.1**: Buat engine `antigravity_bridge.py` (Win32 / UIAutomation focus, prompt paste, screenshot).
-- [ ] **Langkah 5.2**: Shell isolasi `run_sandboxed_command` dengan proteksi command berbahaya dan `.venv` injection.
-- [ ] **Langkah 5.3**: Integrasi perintah Telegram `/agy` (`prompt`, `open`, `term`, `proceed`, `ss`) dan `/sh`.
+- [x] **Langkah 5.1**: Buat engine `antigravity_bridge.py` (Win32 / UIAutomation focus, prompt paste, screenshot, proceed).
+- [x] **Langkah 5.2**: Shell isolasi `run_sandboxed_command` di `tools.py` dengan proteksi command berbahaya dan `.venv` injection otomatis.
+- [x] **Langkah 5.3**: Integrasi perintah Telegram `/agy` (`prompt`, `open`, `term`, `proceed`, `ss`) dan `/sh` di `bot_telegram.py`.
 
 #### Catatan Eksekusi Fase 5:
-*Belum dieksekusi.*
+- **5.1**: Membuat modul `antigravity_bridge.py` yang menyediakan kelas `AntigravityBridge` berbasis `uiautomation`, `psutil`, Win32 API (`ctypes`), dan `PIL.ImageGrab`. Menyediakan fitur: deteksi proses IDE (`is_running`), peluncuran & pemfokusan jendela (`launch_or_focus`), injeksi prompt instruksi coding langsung ke kotak input chat (`send_prompt`), penekanan tombol konfirmasi / persetujuan otomatis (`trigger_proceed`), eksekusi terminal internal (`open_integrated_terminal_and_run`), dan tangkapan layar bounding-box jendela Antigravity (`capture_window_screenshot`).
+- **5.2**: Mengimplementasikan `run_sandboxed_command` di `tools.py` dengan filter proteksi `DANGEROUS_COMMANDS` (`format`, `del /s /q`, `rm -rf /`, `shutdown`, `diskpart`, dll.), injeksi otomatis path virtualenv `.venv/Scripts` saat memanggil tool python, batas waktu timeout 60 detik, serta output terstruktur (`success`, `stdout`, `stderr`, `returncode`). Fungsi `run_command` ditingkatkan untuk menggunakan engine sandboxed ini.
+- **5.3**: Mengintegrasikan perintah Telegram gateway di `bot_telegram.py`:
+  - `/agy prompt <instruksi>`: Mengirimkan instruksi coding ke Antigravity IDE dari HP.
+  - `/agy open [workspace]`: Membuka / memfokuskan jendela Antigravity IDE.
+  - `/agy proceed`: Mengklik tombol konfirmasi Proceed / Allow secara jarak jauh.
+  - `/agy ss`: Mengambil tangkapan layar jendela Antigravity dan mengirimkannya ke chat Telegram.
+  - `/agy term <perintah>`: Menjalankan perintah di terminal Antigravity.
+  - `/sh <perintah>`: Menjalankan perintah shell terisolasi di laptop dan mengirimkan output stdout/stderr.
+- **Verifikasi**: Dibuat test suite baru `tests/test_features_fase5.py` (uji inisiasi bridge, eksekusi perintah aman, pemblokiran perintah berbahaya, wrapper integrasi, dan batas timeout). Total 20 unit test lolos 100% (`20 passed in 5.85s`).
 
 ---
 
@@ -131,6 +140,7 @@
 | 29-10-2026 02:24 | Responsivitas UI | Optimasi input terminal: auto-focus timer, click-to-focus di baris input & seamless typing keyboard forwarding ke `#chat_input` | `aplikasi.idk` | ✅ Lolos |
 | 29-10-2026 02:37 | Fase 3 | Throttling Config Reload, Fix BUG-02 Triple Quote Parser IDK, Setup pytest & 11 Automated Tests | `config.py`, `penerjemah_idk.py`, `requirements.txt`, `pytest.ini`, `tests/` | ✅ Lolos |
 | 29-10-2026 02:48 | Fase 4 | Parser Context @filename Universal, Auto-Load Project Rules (AGENTS.md) & Command /export Markdown | `agent.py`, `bot_telegram.py`, `session_manager.py`, `tests/test_features_fase4.py` | ✅ Lolos |
+| 29-10-2026 02:54 | Fase 5 | Antigravity Desktop Automation Bridge, Sandboxed Shell Guard (.venv) & Remote Telegram Controller (/agy, /sh) | `antigravity_bridge.py`, `tools.py`, `bot_telegram.py`, `tests/test_features_fase5.py` | ✅ Lolos |
 
 *(Baris baru akan ditambahkan otomatis di sini setiap kali suatu langkah/fase selesai dieksekusi)*
 

@@ -290,8 +290,105 @@ def edit_file(path: str, target_text: str, replacement_text: str) -> str:
         return f"[GAGAL] Kesalahan saat mengedit file '{path}': {exc}"
 
 
+DANGEROUS_COMMANDS = [
+    "format",
+    "del /f /s /q c:\\",
+    "del /s /q c:\\",
+    "rmdir /s /q c:\\",
+    "diskpart",
+    "bcdedit",
+    "shutdown",
+    "reg delete",
+    "mkfs",
+    "rm -rf /",
+    ":(){ :|:& };:",
+]
+
+
+def run_sandboxed_command(
+    command: str,
+    workspace_root: Optional[Path] = None,
+    timeout: int = 60,
+) -> dict[str, Any]:
+    """Menjalankan perintah terminal dalam lingkungan sandbox terisolasi dengan proteksi perintah berbahaya.
+
+    Args:
+        command: Perintah shell yang akan dijalankan.
+        workspace_root: Direktori kerja eksekusi (default: Path.cwd()).
+        timeout: Batas waktu eksekusi dalam detik (default: 60).
+
+    Returns:
+        Dictionary berisikan success (bool), stdout (str), stderr (str), returncode (int).
+    """
+    root = (workspace_root or Path.cwd()).resolve()
+    cmd_lower = command.strip().lower()
+
+    # 1. Pengecekan daftar hitam perintah destruktif
+    is_safe, reason = is_command_safe(command)
+    if not is_safe:
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": f"[SANDBOX BLOCKED] Perintah ditolak demi keamanan sistem: {reason}",
+            "returncode": -1,
+        }
+
+    for bad in DANGEROUS_COMMANDS:
+        if bad in cmd_lower:
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": f"[SANDBOX BLOCKED] Perintah '{command}' ditolak karena mengandung pola terlarang '{bad}'.",
+                "returncode": -1,
+            }
+
+    # 2. Injeksi lingkungan .venv otomatis jika tersedia di workspace
+    env = os.environ.copy()
+    venv_dir = root / ".venv"
+    venv_scripts = venv_dir / ("Scripts" if os.name == "nt" else "bin")
+    if venv_scripts.exists():
+        env["VIRTUAL_ENV"] = str(venv_dir)
+        env["PATH"] = f"{venv_scripts}{os.pathsep}{env.get('PATH', '')}"
+
+    try:
+        agent_logger.log_info("tools.sandboxed_command", f"Menjalankan di '{root}': {command}")
+        proc = subprocess.run(
+            command,
+            shell=True,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+            encoding="utf-8",
+            errors="replace",
+        )
+        return {
+            "success": proc.returncode == 0,
+            "stdout": proc.stdout[:6000],
+            "stderr": proc.stderr[:3000],
+            "returncode": proc.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        agent_logger.log_error("tools.sandboxed_command", f"Timeout {timeout}s: {command}")
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": f"[SANDBOX TIMEOUT] Perintah melebihi batas waktu {timeout} detik.",
+            "returncode": -1,
+        }
+    except Exception as exc:
+        agent_logger.log_error("tools.sandboxed_command", f"Kesalahan eksekusi '{command}': {exc}")
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": f"[SANDBOX ERROR] Gagal mengeksekusi perintah: {exc}",
+            "returncode": -1,
+        }
+
+
 def run_command(command: str) -> str:
-    """Menjalankan perintah terminal/shell secara aman dengan proteksi blacklist.
+    """Menjalankan perintah terminal/shell secara aman dengan proteksi sandboxing.
 
     Args:
         command: String perintah shell yang akan dieksekusi.
@@ -299,42 +396,22 @@ def run_command(command: str) -> str:
     Returns:
         Output stdout dan stderr dari hasil eksekusi perintah terminal.
     """
-    is_safe, reason = is_command_safe(command)
-    if not is_safe:
-        agent_logger.log_warning("tools.run_command", f"Perintah diblokir: {command} - Alasan: {reason}")
-        return f"[BLOCKED] Perintah ditolak demi keamanan sistem: {reason}"
+    res = run_sandboxed_command(command)
+    code = res["returncode"]
+    stdout = res["stdout"].strip()
+    stderr = res["stderr"].strip()
 
-    try:
-        agent_logger.log_info("tools.run_command", f"Menjalankan perintah: {command}")
-        process = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+    output_parts = [f"[KODE KELUAR: {code}]"]
+    if stdout:
+        output_parts.append(f"STDOUT:\n{stdout}")
+    if stderr:
+        output_parts.append(f"STDERR:\n{stderr}")
+    if not stdout and not stderr:
+        output_parts.append("(Tidak ada output)")
 
-        stdout = process.stdout.strip()
-        stderr = process.stderr.strip()
-        code = process.returncode
-
-        output_parts = [f"[KODE KELUAR: {code}]"]
-        if stdout:
-            output_parts.append(f"STDOUT:\n{stdout}")
-        if stderr:
-            output_parts.append(f"STDERR:\n{stderr}")
-        if not stdout and not stderr:
-            output_parts.append("(Tidak ada output)")
-
-        result = "\n\n".join(output_parts)
-        agent_logger.log_info("tools.run_command", f"Selesai (kode {code}): {command[:60]}")
-        return result
-    except subprocess.TimeoutExpired:
-        agent_logger.log_error("tools.run_command", f"Timeout 60 detik pada perintah: {command}")
-        return "[TIMEOUT] Eksekusi perintah melebihi batas waktu 60 detik."
-    except Exception as exc:
-        agent_logger.log_error("tools.run_command", f"Kesalahan saat menjalankan '{command}': {exc}")
-        return f"[GAGAL] Kesalahan saat menjalankan perintah: {exc}"
+    result = "\n\n".join(output_parts)
+    agent_logger.log_info("tools.run_command", f"Selesai (kode {code}): {command[:60]}")
+    return result
 
 
 def save_memory(key: str, value: str) -> str:
