@@ -15,6 +15,7 @@ import re
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -228,6 +229,174 @@ GUI_PROCESSES: dict[str, str] = {
     "ollama.exe": "Ollama Service",
     "slack.exe": "Slack",
 }
+
+
+def ambil_daftar_aplikasi_terbuka() -> list[dict[str, Any]]:
+    """Mengambil daftar jendela aplikasi desktop yang sedang terbuka di layar laptop."""
+    user32 = ctypes.windll.user32
+    try:
+        user32.OpenInputDesktop.restype = ctypes.c_void_p
+        user32.OpenInputDesktop.argtypes = [ctypes.c_uint, ctypes.c_bool, ctypes.c_uint]
+        user32.SetThreadDesktop.restype = ctypes.c_bool
+        user32.SetThreadDesktop.argtypes = [ctypes.c_void_p]
+        hdesk = user32.OpenInputDesktop(0, False, 0x01FF)
+        if hdesk:
+            user32.SetThreadDesktop(hdesk)
+    except Exception:
+        pass
+
+    apps: list[dict[str, Any]] = []
+
+    def enum_cb(hwnd: int, extra: Any) -> bool:
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        if user32.GetWindow(hwnd, 4) != 0:  # GW_OWNER != 0
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length == 0:
+            return True
+        buff = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buff, length + 1)
+        title = buff.value.strip()
+        if not title:
+            return True
+
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        try:
+            pname = psutil.Process(pid.value).name()
+        except Exception:
+            pname = "unknown.exe"
+
+        p_lower = pname.lower()
+        t_lower = title.lower()
+
+        ignored = [
+            "searchhost.exe", "shellexperiencehost.exe", "startmenuexperiencehost.exe",
+            "textinputhost.exe", "applicationframehost.exe", "systemsettings.exe"
+        ]
+        if p_lower in ignored or t_lower in ["program manager", "settings"]:
+            return True
+
+        icon = "📱"
+        label = pname.replace(".exe", "").title()
+        if "antigravity" in p_lower:
+            icon = "🪐"
+            label = "Antigravity IDE"
+        elif "code" in p_lower:
+            icon = "💻"
+            label = "VS Code"
+        elif "chrome" in p_lower:
+            icon = "💬" if "whatsapp" in t_lower else "🌐"
+            label = "WhatsApp" if "whatsapp" in t_lower else "Chrome"
+        elif "msedge" in p_lower:
+            icon = "🌐"
+            label = "MS Edge"
+        elif "explorer" in p_lower:
+            icon = "📁"
+            label = "File Explorer"
+        elif "terminal" in p_lower or "cmd" in p_lower or "powershell" in p_lower:
+            icon = "⌨️"
+            label = "Terminal / CMD"
+        elif "spotify" in p_lower:
+            icon = "🎧"
+            label = "Spotify"
+        elif "telegram" in p_lower:
+            icon = "✈️"
+            label = "Telegram"
+        elif "notepad" in p_lower:
+            icon = "📝"
+            label = "Notepad"
+
+        apps.append({
+            "hwnd": hwnd,
+            "title": title,
+            "process_name": pname,
+            "label": label,
+            "icon": icon,
+            "pid": pid.value,
+        })
+        return True
+
+    try:
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+    except Exception as exc:
+        agent_logger.log_warning("ambil_daftar_aplikasi_terbuka", f"Gagal enum windows: {exc}")
+
+    return apps
+
+
+def focus_window_and_capture_fullscreen(hwnd: int) -> tuple[bool, Optional[Path]]:
+    """Membawa jendela hwnd ke foreground paling depan, klik title bar, dan ambil screenshot fullscreen."""
+    try:
+        user32 = ctypes.windll.user32
+        from ctypes import wintypes
+        from PIL import ImageGrab
+
+        try:
+            user32.OpenInputDesktop.restype = ctypes.c_void_p
+            user32.OpenInputDesktop.argtypes = [ctypes.c_uint, ctypes.c_bool, ctypes.c_uint]
+            user32.SetThreadDesktop.restype = ctypes.c_bool
+            user32.SetThreadDesktop.argtypes = [ctypes.c_void_p]
+            hdesk = user32.OpenInputDesktop(0, False, 0x01FF)
+            if hdesk:
+                user32.SetThreadDesktop(hdesk)
+        except Exception:
+            pass
+
+        # 1. Restore bila minimized, atau show
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        else:
+            user32.ShowWindow(hwnd, 5)  # SW_SHOW
+
+        # 2. Paksa Z-order ke tumpukan paling atas dengan toggle HWND_TOPMOST -> HWND_NOTOPMOST
+        HWND_TOPMOST = -1
+        HWND_NOTOPMOST = -2
+        SWP_NOMOVE = 0x0002
+        SWP_NOSIZE = 0x0001
+        SWP_SHOWWINDOW = 0x0040
+        user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+        user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+
+        # 3. Lepas ALT key lock & SetForegroundWindow
+        user32.keybd_event(0x12, 0, 0, 0)
+        user32.keybd_event(0x12, 0, 2, 0)
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+
+        # 4. Klik mouse fisik pada area title bar
+        rect = wintypes.RECT()
+        if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            w = rect.right - rect.left
+            h = rect.bottom - rect.top
+            if w > 100 and h > 100:
+                click_x = max(rect.left + 80, min(rect.right - 180, rect.left + w // 2))
+                click_y = max(10, rect.top + 20)
+                pt = wintypes.POINT()
+                user32.GetCursorPos(ctypes.byref(pt))
+                orig_x, orig_y = pt.x, pt.y
+                user32.SetCursorPos(int(click_x), int(click_y))
+                time.sleep(0.04)
+                user32.mouse_event(0x0002, 0, 0, 0, 0)
+                time.sleep(0.04)
+                user32.mouse_event(0x0004, 0, 0, 0, 0)
+                time.sleep(0.04)
+                user32.SetCursorPos(orig_x, orig_y)
+
+        time.sleep(0.4)
+
+        # 5. Ambil tangkapan layar fullscreen penuh
+        target_path = Path.cwd() / "app_focus_capture.png"
+        img = ImageGrab.grab(all_screens=True)
+        img.save(str(target_path), format="PNG")
+        if target_path.exists() and target_path.stat().st_size > 500:
+            return True, target_path
+        return True, None
+    except Exception as exc:
+        agent_logger.log_error("focus_and_capture", f"Gagal fokus & ss: {exc}")
+        return False, None
 
 
 def ambil_metrik_realtime() -> dict[str, Any]:
@@ -921,17 +1090,75 @@ class TelegramAgentGateway:
                     await query.message.reply_text(
                         f"▶️ **Memutar Video di Laptop:**\n{res}\n🔗 https://www.youtube.com/watch?v={vid}"
                     )
+        elif data.startswith("app_focus:"):
+            hwnd_val = int(data.split(":")[1])
+            await query.answer("🎯 Memfokuskan aplikasi & mengambil screenshot fullscreen...")
+
+            app_title = "Aplikasi Desktop"
+            for a in ambil_daftar_aplikasi_terbuka():
+                if a["hwnd"] == hwnd_val:
+                    app_title = f"{a['icon']} {a['title']} ({a['label']})"
+                    break
+
+            ok, shot_path = await asyncio.to_thread(focus_window_and_capture_fullscreen, hwnd_val)
+            if query.message:
+                if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                    now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
+                    caption = (
+                        f"🎯 **Aplikasi Berhasil Difokuskan!**\n"
+                        f"📱 **Jendela**: `{app_title}`\n"
+                        f"🖥️ **Tampilan Layar Laptop Saat Ini (Fullscreen)**\n"
+                        f"⏱ **Waktu**: `{now_str}`"
+                    )
+                    with open(shot_path, "rb") as pf:
+                        await query.message.reply_photo(photo=pf, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                    log_chat_outgoing("Fokus Aplikasi", f"Jendela '{app_title}' difokuskan + screenshot fullscreen terkirim")
+                else:
+                    await query.message.reply_text(f"✅ Jendela `{app_title}` berhasil dibawa ke depan.", parse_mode=ParseMode.MARKDOWN)
+
+        elif data.startswith("app_close:"):
+            hwnd_val = int(data.split(":")[1])
+            await query.answer("❌ Mengirim perintah tutup aplikasi...")
+            user32 = ctypes.windll.user32
+            user32.PostMessageW(hwnd_val, 0x0010, 0, 0)  # WM_CLOSE
+            await asyncio.sleep(0.6)
+            text, markup = self._build_browser_tabs_markup()
+            try:
+                await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                pass
+            log_chat_outgoing("Tutup Aplikasi", f"Perintah tutup dikirim ke HWND={hwnd_val}")
+
         elif data.startswith("tab_focus:"):
             parts = data.split(":")
             hwnd_val = int(parts[1])
             tab_idx = int(parts[2]) if len(parts) > 2 else -1
+            await query.answer("🎯 Memfokuskan tab & mengambil screenshot fullscreen...")
+
             import perkakas
             fn_focus = getattr(perkakas, "focus_window", None)
             if fn_focus:
-                res = fn_focus(hwnd_val, tab_idx)
-                await query.answer("🎯 Tab/Jendela dibawa ke depan!")
-                if query.message:
-                    await query.message.reply_text(f"🖥️ {res}")
+                try:
+                    await asyncio.to_thread(fn_focus, hwnd_val, tab_idx)
+                except Exception:
+                    pass
+
+            ok, shot_path = await asyncio.to_thread(focus_window_and_capture_fullscreen, hwnd_val)
+            if query.message:
+                if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                    now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
+                    caption = (
+                        f"🎯 **Tab Browser Berhasil Difokuskan!**\n"
+                        f"🌐 **Jendela/Tab**: `HWND={hwnd_val}` (Tab #{tab_idx})\n"
+                        f"🖥️ **Tampilan Layar Laptop Saat Ini (Fullscreen)**\n"
+                        f"⏱ **Waktu**: `{now_str}`"
+                    )
+                    with open(shot_path, "rb") as pf:
+                        await query.message.reply_photo(photo=pf, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                    log_chat_outgoing("Fokus Tab", f"Tab browser HWND={hwnd_val} difokuskan + screenshot fullscreen terkirim")
+                else:
+                    await query.message.reply_text(f"✅ Tab browser `HWND={hwnd_val}` berhasil dibawa ke depan.", parse_mode=ParseMode.MARKDOWN)
+
         elif data.startswith("tab_close:"):
             parts = data.split(":")
             hwnd_val = int(parts[1])
@@ -939,7 +1166,7 @@ class TelegramAgentGateway:
             import perkakas
             fn_close_tab = getattr(perkakas, "close_window_tab", None)
             if fn_close_tab:
-                res = fn_close_tab(hwnd_val, tab_idx)
+                res = await asyncio.to_thread(fn_close_tab, hwnd_val, tab_idx)
                 await query.answer("❌ Perintah tutup tab dikirim!")
                 await asyncio.sleep(0.6)
                 text, markup = self._build_browser_tabs_markup()
@@ -1405,16 +1632,18 @@ class TelegramAgentGateway:
         )
 
     def _build_browser_tabs_markup(self) -> tuple[str, InlineKeyboardMarkup]:
-        """Membuat tampilan dan tombol kontrol interaktif untuk jendela & tab browser yang sedang berjalan."""
+        """Membuat tampilan dan tombol kontrol interaktif untuk jendela aplikasi & tab browser yang sedang berjalan."""
+        apps = ambil_daftar_aplikasi_terbuka()
+
         import perkakas
         fn_tabs = getattr(perkakas, "get_open_browser_tabs", None)
         tabs = fn_tabs() if fn_tabs else []
 
-        if not tabs:
+        if not apps and not tabs:
             text = (
-                "📑 **TAB & JENDELA BROWSER LAPTOP**\n\n"
-                "ℹ️ Tidak ada jendela Google Chrome atau Microsoft Edge yang sedang terbuka di laptop saat ini.\n"
-                "Gunakan tombol di bawah untuk membuka browser atau kembali ke menu:"
+                "📱 **JENDELA APLIKASI & TAB LAPTOP**\n\n"
+                "ℹ️ Tidak ada jendela aplikasi atau tab browser aktif yang terdeteksi saat ini.\n"
+                "Gunakan tombol di bawah untuk membuka aplikasi atau kembali ke menu:"
             )
             markup = InlineKeyboardMarkup(
                 [
@@ -1428,26 +1657,47 @@ class TelegramAgentGateway:
             return text, markup
 
         text_lines = [
-            f"📑 **TAB & JENDELA BROWSER AKTIF ({len(tabs)} Ditemukan)**\n",
-            "Berikut tab/jendela yang sedang aktif di laptop:\n",
+            f"📱 **MANAJER APLIKASI & TAB LAPTOP**\n",
+            f"Ditemukan `{len(apps)}` Aplikasi Desktop & `{len(tabs)}` Tab Browser aktif.\n",
+            "*(Klik '🎯 Fokus' untuk membawa jendela ke depan + otomatis kirim Screenshot Fullscreen)*\n",
         ]
         buttons = []
-        for idx, t in enumerate(tabs, 1):
-            icon = "🎬" if t.get("is_youtube") else ("🎧" if t.get("is_media") else "🌐")
-            clean_title = t.get("clean_title", "Tab Browser")
-            if len(clean_title) > 60:
-                clean_title = clean_title[:57] + "..."
-            proc = t.get("process_name", "browser")
-            text_lines.append(f"{idx}. {icon} `{clean_title}` ({proc})")
 
-            t_idx = t.get("tab_index", -1)
-            row = [
-                InlineKeyboardButton(f"🎯 Fokus #{idx}", callback_data=f"tab_focus:{t['hwnd']}:{t_idx}"),
-            ]
-            if t.get("is_media") or t.get("is_youtube"):
-                row.append(InlineKeyboardButton("⏸️ Play/Pause", callback_data=f"tab_media:{t['hwnd']}"))
-            row.append(InlineKeyboardButton("❌ Tutup", callback_data=f"tab_close:{t['hwnd']}:{t_idx}"))
-            buttons.append(row)
+        # 1. Bagian Aplikasi Desktop
+        if apps:
+            text_lines.append("**💻 Aplikasi Desktop Terbuka:**")
+            for idx, a in enumerate(apps[:8], 1):
+                clean_title = a["title"]
+                if len(clean_title) > 42:
+                    clean_title = clean_title[:39] + "..."
+                text_lines.append(f"{idx}. {a['icon']} `{clean_title}` ({a['label']})")
+
+                row = [
+                    InlineKeyboardButton(f"🎯 Fokus #{idx} ({a['label']})", callback_data=f"app_focus:{a['hwnd']}"),
+                    InlineKeyboardButton("❌ Tutup", callback_data=f"app_close:{a['hwnd']}"),
+                ]
+                buttons.append(row)
+            text_lines.append("")
+
+        # 2. Bagian Tab Browser
+        if tabs:
+            text_lines.append("**📑 Tab Browser Terbuka:**")
+            for idx, t in enumerate(tabs[:6], 1):
+                icon = "🎬" if t.get("is_youtube") else ("🎧" if t.get("is_media") else "🌐")
+                clean_title = t.get("clean_title", "Tab Browser")
+                if len(clean_title) > 42:
+                    clean_title = clean_title[:39] + "..."
+                proc = t.get("process_name", "browser")
+                text_lines.append(f"{idx}. {icon} `{clean_title}` ({proc})")
+
+                t_idx = t.get("tab_index", -1)
+                row = [
+                    InlineKeyboardButton(f"🎯 Fokus Tab #{idx}", callback_data=f"tab_focus:{t['hwnd']}:{t_idx}"),
+                ]
+                if t.get("is_media") or t.get("is_youtube"):
+                    row.append(InlineKeyboardButton("⏸️ Play", callback_data=f"tab_media:{t['hwnd']}"))
+                row.append(InlineKeyboardButton("❌ Tutup", callback_data=f"tab_close:{t['hwnd']}:{t_idx}"))
+                buttons.append(row)
 
         buttons.append(
             [
