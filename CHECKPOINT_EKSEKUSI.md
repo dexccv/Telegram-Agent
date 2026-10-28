@@ -106,6 +106,7 @@
 |:---:|:---:|:---|:---|:---:|
 | 29-10-2026 01:31 | Inisialisasi | Pembuatan file checkpoint & roadmap pelacak | `CHECKPOINT_EKSEKUSI.md` | ✅ Selesai |
 | 29-10-2026 01:33 | Fase 0 | Hotfix BUG-01, BUG-06, MEM-01, dan BUG-04 | `bot_telegram.py`, `logger.py`, `memory.py`, `agent.py` | ✅ Lolos |
+| 29-10-2026 01:38 | Maintenance | Perbaikan force-close run.bat & run_bot.bat (syntax subshell, UTF-8 & escaping) | `run.bat`, `run_bot.bat`, `run_with_healing.py` | ✅ Lolos |
 
 *(Baris baru akan ditambahkan otomatis di sini setiap kali suatu langkah/fase selesai dieksekusi)*
 
