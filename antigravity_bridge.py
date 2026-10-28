@@ -10,14 +10,66 @@ from pathlib import Path
 from typing import Any, Optional
 
 import psutil
-import pyautogui
-import pyperclip
 from PIL import ImageGrab
 
 from logger import agent_logger
 
-# Hindari fail-safe crash jika mouse di pojok layar saat automasi
-pyautogui.FAILSAFE = False
+
+def _win32_mouse_click(x: int, y: int) -> None:
+    """Melakukan klik mouse fisik pada koordinat (x, y) menggunakan Win32 API murni (zero-dependency)."""
+    try:
+        user32 = ctypes.windll.user32
+        from ctypes import wintypes
+
+        pt = wintypes.POINT()
+        user32.GetCursorPos(ctypes.byref(pt))
+        orig_x, orig_y = pt.x, pt.y
+
+        user32.SetCursorPos(int(x), int(y))
+        time.sleep(0.04)
+        user32.mouse_event(0x0002, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTDOWN
+        time.sleep(0.04)
+        user32.mouse_event(0x0004, 0, 0, 0, 0)  # MOUSEEVENTF_LEFTUP
+        time.sleep(0.04)
+        user32.SetCursorPos(orig_x, orig_y)
+    except Exception as exc:
+        agent_logger.log_warning("antigravity_bridge", f"Gagal _win32_mouse_click: {exc}")
+
+
+def _win32_send_hotkey(*keys: str) -> None:
+    """Mengirim kombinasi tombol keyboard menggunakan Win32 keybd_event murni (zero-dependency)."""
+    VK_MAP = {
+        "ctrl": 0x11,
+        "alt": 0x12,
+        "shift": 0x10,
+        "enter": 0x0D,
+        "return": 0x0D,
+        "l": ord("L"),
+        "v": ord("V"),
+        "`": 0xC0,  # VK_OEM_3 (backtick)
+        "backtick": 0xC0,
+    }
+    KEYEVENTF_KEYUP = 0x0002
+    user32 = ctypes.windll.user32
+
+    vk_list = [VK_MAP.get(k.lower(), ord(k.upper()) if len(k) == 1 else 0) for k in keys]
+    vk_list = [vk for vk in vk_list if vk != 0]
+
+    for vk in vk_list:
+        user32.keybd_event(vk, 0, 0, 0)
+    time.sleep(0.04)
+    for vk in reversed(vk_list):
+        user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
+    time.sleep(0.04)
+
+
+def _win32_copy_to_clipboard(text: str) -> None:
+    """Menyalin teks ke clipboard menggunakan tool clip.exe bawaan Windows (zero-dependency)."""
+    try:
+        proc = subprocess.Popen(["clip"], stdin=subprocess.PIPE, text=True, encoding="utf-8")
+        proc.communicate(input=text)
+    except Exception as exc:
+        agent_logger.log_warning("antigravity_bridge", f"Gagal copy to clipboard: {exc}")
 
 
 class AntigravityBridge:
@@ -163,12 +215,7 @@ class AntigravityBridge:
                     if w > 100 and h > 100:
                         click_x = max(rect.left + 80, min(rect.right - 180, rect.left + w // 2))
                         click_y = max(10, rect.top + 20)
-                        try:
-                            orig_x, orig_y = pyautogui.position()
-                            pyautogui.click(click_x, click_y)
-                            pyautogui.moveTo(orig_x, orig_y)
-                        except Exception as click_err:
-                            agent_logger.log_warning("antigravity_bridge", f"Gagal klik title bar: {click_err}")
+                        _win32_mouse_click(click_x, click_y)
 
                 time.sleep(0.3)
                 return True
@@ -220,23 +267,19 @@ class AntigravityBridge:
 
         try:
             # 1. Salin teks prompt ke clipboard
-            try:
-                pyperclip.copy(prompt_text)
-            except Exception:
-                proc = subprocess.Popen(["clip"], stdin=subprocess.PIPE, text=True, encoding="utf-8")
-                proc.communicate(input=prompt_text)
+            _win32_copy_to_clipboard(prompt_text)
 
             # 2. Buka / fokus ke panel input chat Antigravity Agent (Ctrl+L)
-            pyautogui.hotkey("ctrl", "l")
+            _win32_send_hotkey("ctrl", "l")
             time.sleep(0.25)
 
             # 3. Tempelkan teks prompt (Ctrl+V)
-            pyautogui.hotkey("ctrl", "v")
+            _win32_send_hotkey("ctrl", "v")
             time.sleep(0.2)
 
             # 4. Kirim enter jika auto_submit
             if auto_submit:
-                pyautogui.press("enter")
+                _win32_send_hotkey("enter")
 
             agent_logger.log_info(
                 "antigravity_bridge",
@@ -267,10 +310,10 @@ class AntigravityBridge:
         except Exception:
             pass
 
-        # Fallback andal: Kirim tombol Enter langsung ke jendela aktif Antigravity
+        # Fallback andal: Kirim tombol Enter langsung ke jendela aktif Antigravity via Win32 murni
         try:
-            pyautogui.press("enter")
-            agent_logger.log_info("antigravity_bridge", "Proceed dipicu via Enter sendinput.")
+            _win32_send_hotkey("enter")
+            agent_logger.log_info("antigravity_bridge", "Proceed dipicu via Enter Win32 keybd_event.")
             return True
         except Exception as exc:
             agent_logger.log_error("antigravity_bridge", f"Gagal trigger proceed: {exc}")
@@ -283,20 +326,16 @@ class AntigravityBridge:
 
         try:
             # 1. Buka/fokus terminal terintegrasi (Ctrl+`)
-            pyautogui.hotkey("ctrl", "`")
+            _win32_send_hotkey("ctrl", "`")
             time.sleep(0.35)
 
             # 2. Salin perintah ke clipboard
-            try:
-                pyperclip.copy(command)
-            except Exception:
-                proc = subprocess.Popen(["clip"], stdin=subprocess.PIPE, text=True, encoding="utf-8")
-                proc.communicate(input=command)
+            _win32_copy_to_clipboard(command)
 
             # 3. Tempel dan eksekusi
-            pyautogui.hotkey("ctrl", "v")
+            _win32_send_hotkey("ctrl", "v")
             time.sleep(0.15)
-            pyautogui.press("enter")
+            _win32_send_hotkey("enter")
 
             agent_logger.log_info("antigravity_bridge", f"Perintah terminal dikirim: {command}")
             return True
@@ -327,16 +366,10 @@ class AntigravityBridge:
                         # 2. Verifikasi apakah jendela aktif di foreground benar-benar Antigravity
                         fg_hwnd = user32.GetForegroundWindow()
                         if fg_hwnd != hwnd:
-                            # Klik sekali lagi di title bar untuk memastikan jendela naik ke paling depan
                             click_x = max(rect.left + 80, min(rect.right - 180, rect.left + w // 2))
                             click_y = max(10, rect.top + 20)
-                            try:
-                                orig_x, orig_y = pyautogui.position()
-                                pyautogui.click(click_x, click_y)
-                                pyautogui.moveTo(orig_x, orig_y)
-                                time.sleep(0.25)
-                            except Exception:
-                                pass
+                            _win32_mouse_click(click_x, click_y)
+                            time.sleep(0.25)
 
                         bbox = (rect.left, rect.top, rect.right, rect.bottom)
                         try:
