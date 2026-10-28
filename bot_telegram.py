@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import datetime
+import logging
 import os
 import platform
 import re
@@ -208,6 +209,47 @@ def log_terminal_box(category: str, title: str, details: list[tuple[str, str]], 
             if len(lines) > 10:
                 console.print(f"[{color}]│[/{color}]   ... ({len(lines)} baris)")
     console.print(f"[{color}]└" + ("─" * (w - 1)) + f"[/{color}]\n")
+
+
+class CmdLiveLogHandler(logging.Handler):
+    """Menampilkan live logs aktivitas internal sistem dan agent ke layar CMD."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            name = record.name.lower()
+            # Saring polling noise dari http request telegram
+            if any(skip in name for skip in ["httpx", "httpcore", "urllib3", "apscheduler"]):
+                return
+            msg = record.getMessage()
+            if "HTTP Request: POST https://api.telegram.org/bot" in msg:
+                return
+
+            now = datetime.datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
+            lvl = record.levelname
+            badge = "INFO"
+            color = "cyan"
+
+            if lvl == "WARNING":
+                color = "yellow"
+                badge = "WARN"
+            elif lvl in ("ERROR", "CRITICAL"):
+                color = "bold red"
+                badge = "FAIL"
+            elif lvl == "DEBUG":
+                color = "dim cyan"
+                badge = "DEBG"
+
+            clean_msg = msg if len(msg) <= 160 else msg[:157] + "..."
+            console.print(f"[dim]{now}[/dim] [{color}][{badge:<4}][/{color}] [bold]{record.name}[/bold]: {clean_msg}")
+        except Exception:
+            pass
+
+
+# Hubungkan live log handler ke agent_logger dan root logger
+_cmd_live_log_handler = CmdLiveLogHandler()
+_cmd_live_log_handler.setLevel(logging.INFO)
+agent_logger.logger.addHandler(_cmd_live_log_handler)
+logging.getLogger("gemini_terminal_agent").addHandler(_cmd_live_log_handler)
 
 GUI_PROCESSES: dict[str, str] = {
     "code.exe": "Visual Studio Code",
@@ -618,16 +660,20 @@ class TelegramAgentGateway:
         prov = self.config.ambil_provider().upper()
         m = ambil_metrik_realtime()
         msg = (
-            f"Halo **{user_name}**! 👋\n\n"
-            f"⌬ **Terminal Laptop Agent Siap Melayani**\n"
-            f"• **Status Laptop**: ONLINE 🟢\n"
-            f"• **Jaringan Wi-Fi**: `{m['wifi_full']}`\n"
-            f"• **Daya Baterai**: `{m['battery_str']}`\n"
-            f"• **Jendela Aktif**: `{m['active_window']}`\n"
-            f"• **Provider AI**: `{prov}` (Model: `{self.agent.model_name}`)\n"
-            f"• **Sesi Aktif**: `{self.agent.session.title}`\n\n"
-            "Ketik instruksi apa saja (misal: *'buatkan script otomatisasi'*), "
-            "ketik `/status` untuk memantau laptop secara lengkap, atau ketik `/help` untuk panduan."
+            f"👋 Halo, **{user_name}**!\n"
+            f"Selamat datang di **Gemini Terminal Agent Gateway**.\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🟢 **Status Host** : `ONLINE (Siaga)`\n"
+            f"🤖 **Engine AI**   : `{prov}` (`{self.agent.model_name}`)\n"
+            f"🔋 **Baterai**     : `{m['battery_percent']}%` ({m['battery_status']})\n"
+            f"📶 **Wi-Fi**       : `{m['wifi_ssid']}` ({m['wifi_signal']})\n"
+            f"🪟 **Jendela**     : `{m['active_window']}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"💡 **Panduan Memulai**:\n"
+            f"• Kirim pesan langsung untuk eksekusi tugas AI di laptop\n"
+            f"• Ketik `/status` untuk membuka dashboard monitoring\n"
+            f"• Ketik `/tabs` untuk mengelola aplikasi & tab laptop\n"
+            f"• Ketik `/help` untuk daftar perintah lengkap"
         )
         if update.message:
             await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
@@ -638,34 +684,35 @@ class TelegramAgentGateway:
             return
 
         help_text = (
-            "📋 **Panduan Perintah Telegram Gateway (Real-Time Monitor)**\n\n"
-            "• **Kirim Pesan Biasa**: Instruksi langsung ke AI Agent untuk eksekusi perintah di laptop.\n"
-            "• `/status` : Dashboard real-time laptop (baterai, wifi, jendela aktif, CPU, RAM).\n"
-            "• `/speed` : Uji kecepatan respon agent AI & pengiriman Telegram (latency & token/s).\n"
-            "• `/wifi` : Pantau SSID dan kekuatan sinyal Wi-Fi laptop secara instan.\n"
-            "• `/baterai` : Pantau persentase baterai & status pengisian charger.\n"
-            "• `/jendela` : Pantau jendela yang sedang dibuka di layar & daftar aplikasi aktif.\n"
-            "• `/kamera` : Ambil foto langsung dari webcam laptop dan kirimkan ke sini.\n"
-            "• `/capture` : Ambil tangkapan layar (screenshot) tampilan display laptop saat ini.\n"
-            "• `/cari <aplikasi> <keyword>` : Cari lagu/video di YouTube, Google, Spotify, dsb (misal: `/cari youtube the jansen`).\n"
-            "• `/buka [target]` : Buka aplikasi desktop atau pantau tab browser (misal: `/buka chrome` atau `/buka spotify`).\n"
-            "• `/tutup <nama>` : Tutup aplikasi desktop tertentu (misal: `/tutup chrome` atau `/tutup notepad`).\n"
-            "• `/volume [level]` : Atur volume master laptop (0-100, +10, -10, mute, unmute) atau buka panel volume.\n"
-            "• `/mute` / `/unmute` : Matikan atau nyalakan suara speaker laptop.\n"
-            "• `/baca <file>` : Baca isi file teks dari laptop langsung di Telegram.\n"
-            "• `/get <nama_berkas>` : Unduh berkas dari laptop langsung ke Telegram HP Anda.\n"
-            "• `/provider [groq/gemini/ollama/omniroute]` : Cek atau ganti provider AI aktif.\n"
-            "• `/models` : Pindai & tampilkan daftar model AI yang tersedia.\n"
-            "• `/model <nama>` : Ganti model aktif (misal: `/model qwen2.5-coder:7b`).\n"
-            "• `/new [judul]` : Mulai sesi percakapan baru yang bersih.\n"
-            "• `/sessions` : Lihat daftar sesi yang tersimpan di laptop.\n"
-            "• `/load <no/id>` : Beralih ke sesi percakapan lama.\n"
-            "• `/export [nama.md]` : Ekspor percakapan sesi aktif ke file Markdown dan kirimkan ke chat.\n"
-            "• `/agy [prompt/open/proceed/ss/term]` : Kendalikan Google Antigravity IDE dari jauh.\n"
-            "• `/sh <perintah>` : Eksekusi perintah terminal terisolasi (sandboxed) di laptop.\n"
-            "• `/memory` : Lihat fakta memori jangka panjang agent.\n"
-            "• `/stop` : Batalkan respon agen yang sedang berjalan.\n"
-            "• **Kirim File/Foto**: Kirim berkas dari HP ke Telegram bot untuk disimpan di laptop."
+            "🧭 **PANDUAN PERINTAH TELEGRAM GATEWAY**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Kirim instruksi bahasa bebas untuk dieksekusi langsung oleh AI Agent di laptop Anda.\n\n"
+            "🎮 **Hardware & Monitoring**\n"
+            "• `/status` — Dashboard performa & metrik laptop real-time\n"
+            "• `/tabs` — Kelola jendela aplikasi & tab (+ Fokus SS)\n"
+            "• `/capture` — Ambil screenshot tampilan display utama\n"
+            "• `/kamera` — Ambil foto langsung dari webcam laptop\n"
+            "• `/volume` — Atur volume audio master laptop (0-100)\n"
+            "• `/lock` — Kunci layar laptop seketika (`Ctrl+L`)\n\n"
+            "🪐 **Antigravity IDE & Terminal**\n"
+            "• `/agy ss` — Bawa Antigravity ke depan & screenshot fullscreen\n"
+            "• `/agy prompt <teks>` — Suntikkan instruksi ke Antigravity Agent\n"
+            "• `/agy proceed` — Setujui dialog persetujuan (Proceed/Allow)\n"
+            "• `/agy term <cmd>` — Jalankan perintah di terminal IDE + output\n"
+            "• `/sh <cmd>` — Eksekusi perintah terminal sandboxed di laptop\n\n"
+            "🤖 **Kecerdasan AI & Sesi**\n"
+            "• `/new [judul]` — Mulai sesi percakapan baru\n"
+            "• `/sessions` — Lihat daftar riwayat sesi tersimpan\n"
+            "• `/export` — Unduh catatan percakapan sesi aktif (.md)\n"
+            "• `/models` & `/model` — Pindai dan ganti model AI aktif\n"
+            "• `/memory` — Pantau fakta memori jangka panjang agent\n\n"
+            "📁 **Berkas & Media**\n"
+            "• `/cari youtube <judul>` — Cari video YouTube langsung\n"
+            "• `/baca <file>` — Baca berkas teks di laptop via Telegram\n"
+            "• `/get <file>` — Unduh berkas dari laptop ke Telegram HP\n"
+            "• *Kirim File / Foto* — Otomatis tersimpan ke workspace\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "💡 _Tip: Gunakan tombol Menu di pojok kiri bawah untuk akses instan._"
         )
         if update.message:
             await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
@@ -685,31 +732,25 @@ class TelegramAgentGateway:
         )
 
         text = (
-            "📊 **MONITORING LAPTOP REAL-TIME**\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            f"🟢 **Status Laptop**: `{metrics['status']}`\n"
-            f"🌐 **IP Jaringan**: `{metrics['ip']}`\n"
-            f"⏱ **Laptop Menyala**: `{metrics['uptime']}`\n\n"
-            f"📶 **Koneksi Wi-Fi**:\n"
-            f"• SSID: `{metrics['wifi_ssid']}`\n"
-            f"• Sinyal: `{metrics['wifi_signal']}` (Status: {metrics['wifi_state']})\n\n"
-            f"🔋 **Baterai Laptop**:\n"
-            f"• Daya: `{metrics['battery_percent']}%`\n"
-            f"• Kondisi: {metrics['battery_status']}\n\n"
-            f"🪟 **Jendela & Aplikasi Aktif**:\n"
-            f"• Jendela Fokus: `{metrics['active_window']}`\n"
-            f"• Aplikasi Terbuka: {app_list_str}\n\n"
-            f"⚡ **Performa Hardware**:\n"
-            f"• Beban CPU: `{metrics['cpu']}`\n"
-            f"• Memori RAM: `{metrics['ram']}`\n"
-            f"• Penyimpanan: `{metrics['disk']}`\n\n"
-            f"🤖 **Terminal AI Agent**:\n"
-            f"• Provider: `{self.provider.upper()}`\n"
-            f"• Model AI: `{self.agent.model_name}`\n"
-            f"• Sesi Aktif: `{self.agent.session.title}`\n"
-            f"• Token Sesi: `{tokens:,} tokens`\n"
-            f"• Lokasi: `{Path.cwd().name}`\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
+            "📊 **DASHBOARD MONITORING LAPTOP**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🟢 **Status Host** : `{metrics['status']}`\n"
+            f"🌐 **IP Jaringan** : `{metrics['ip']}`\n"
+            f"⏱ **Uptime Host**  : `{metrics['uptime']}`\n\n"
+            f"⚡ **PERFORMA HARDWARE & DAYA**\n"
+            f"• 🔋 Baterai : `{metrics['battery_percent']}%` ({metrics['battery_status']})\n"
+            f"• 🧠 RAM     : `{metrics['ram']}`\n"
+            f"• ⚡ CPU     : `{metrics['cpu']}` • Disk: `{metrics['disk']}`\n"
+            f"• 📶 Wi-Fi   : `{metrics['wifi_ssid']}` ({metrics['wifi_signal']})\n\n"
+            f"🪟 **TAMPILAN AKTIF**\n"
+            f"• Fokus   : `{metrics['active_window']}`\n"
+            f"• Terbuka : {app_list_str}\n\n"
+            f"🤖 **CORE AI AGENT**\n"
+            f"• Provider: `{self.provider.upper()}` • Model: `{self.agent.model_name}`\n"
+            f"• Sesi    : `{self.agent.session.title}`\n"
+            f"• Token   : `{tokens:,} tokens`\n"
+            f"• Folder  : `{Path.cwd().name}`\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"_Diperbarui pada: {metrics['timestamp']}_"
         )
 
@@ -2954,16 +2995,16 @@ class TelegramAgentGateway:
                 prov = self.config.ambil_provider().upper()
                 waktu_now = datetime.datetime.now().strftime("%H:%M:%S WIB")
                 conn_msg = (
-                    "🟢 **LAPTOP AGENT CONNECTED** 🚀\n\n"
-                    "⌬ **Terminal Agent Berhasil Terhubung ke Telegram!**\n"
-                    f"• **Status**: ONLINE 🟢\n"
-                    f"• **Waktu**: `{waktu_now}`\n"
-                    f"• **Daya Baterai**: `{m['battery_str']}`\n"
-                    f"• **Jaringan Wi-Fi**: `{m['wifi_full']}`\n"
-                    f"• **Jendela Aktif**: `{m['active_window']}`\n"
-                    f"• **Provider AI**: `{prov}` (Model: `{self.agent.model_name}`)\n\n"
-                    "Perangkat laptop siap dikendalikan dari HP.\n"
-                    "Ketik `/status` untuk membuka dashboard monitoring atau `/buka` untuk pusat media."
+                    "⚡ **GEMINI TERMINAL AGENT — ONLINE**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🟢 **Koneksi** : Terhubung aman ke Telegram (`ID: {chat_id}`)\n"
+                    f"🤖 **Engine**  : `{prov}` (`{self.agent.model_name}`)\n"
+                    f"🔋 **Baterai** : `{m['battery_percent']}%` ({m['battery_status']})\n"
+                    f"📶 **Wi-Fi**   : `{m['wifi_ssid']}` ({m['wifi_signal']})\n"
+                    f"🪟 **Jendela** : `{m['active_window']}`\n"
+                    f"⏱ **Waktu**   : `{waktu_now}`\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "💡 _Ketik instruksi coding atau buka /status untuk monitoring._"
                 )
                 await application.bot.send_message(
                     chat_id=chat_id,
