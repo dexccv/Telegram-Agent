@@ -1530,7 +1530,7 @@ class TelegramAgentGateway:
                 "🔒 **LAPTOP BERHASIL DIKUNCI!**\n\n"
                 "• Layar Windows telah beralih ke mode Lock Screen.\n"
                 "• Sesi kerja dan laptop Anda kini aman terkunci.\n"
-                "• Pintasan keyboard lokal: **Ctrl + L** juga aktif di laptop."
+                "• Pintasan bawaan fisik keyboard laptop: **Win + L**."
             )
         except Exception as exc:
             pesan = f"❌ Gagal mengunci workstation laptop: {exc}"
@@ -1599,54 +1599,8 @@ class TelegramAgentGateway:
             await update.message.reply_text(f"❌ Gagal menyalin ke clipboard laptop: {exc}")
 
     def _start_global_lock_hotkey_listener(self, application: Application, loop: Any = None) -> None:
-        """Menjalankan thread latar belakang untuk mendengarkan tombol kombinasi Ctrl + L di laptop."""
-        import threading
-
-        def _hotkey_worker():
-            try:
-                import ctypes
-                from ctypes import wintypes
-                user32 = ctypes.windll.user32
-                HOTKEY_ID = 9988
-                MOD_CONTROL = 0x0002
-                VK_L = 0x4C  # Tombol 'L'
-
-                if not user32.RegisterHotKey(None, HOTKEY_ID, MOD_CONTROL, VK_L):
-                    agent_logger.log_warning("hotkey_listener", "Hotkey Ctrl + L gagal didaftarkan (mungkin telah dipakai aplikasi lain).")
-                    return
-
-                agent_logger.log_info("hotkey_listener", "Pintasan keyboard global Ctrl + L aktif untuk mengunci laptop.")
-                msg = wintypes.MSG()
-                while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-                    if msg.message == 0x0312 and msg.wParam == HOTKEY_ID:
-                        # Kunci layar laptop
-                        user32.LockWorkStation()
-                        # Kirim notifikasi instan ke Telegram jika whitelist chat_id terdaftar
-                        if self.allowed_user_id and str(self.allowed_user_id).isdigit():
-                            try:
-                                notif_text = (
-                                    "🔒 **PINTASAN KEYBOARD: LAPTOP DIKUNCI!**\n\n"
-                                    "Laptop baru saja dikunci menggunakan kombinasi tombol **Ctrl + L** di laptop.\n"
-                                    f"⏱ Waktu: `{datetime.datetime.now().strftime('%H:%M:%S WIB')}`"
-                                )
-                                if loop and loop.is_running():
-                                    asyncio.run_coroutine_threadsafe(
-                                        application.bot.send_message(
-                                            chat_id=int(self.allowed_user_id),
-                                            text=notif_text,
-                                            parse_mode=ParseMode.MARKDOWN,
-                                        ),
-                                        loop,
-                                    )
-                            except Exception:
-                                pass
-                    user32.TranslateMessage(ctypes.byref(msg))
-                    user32.DispatchMessageW(ctypes.byref(msg))
-            except Exception as exc_hk:
-                agent_logger.log_error("hotkey_listener", f"Galat pada listener Ctrl+L: {exc_hk}")
-
-        listener_thread = threading.Thread(target=_hotkey_worker, daemon=True, name="CtrlL_LockListener")
-        listener_thread.start()
+        """Listener hotkey global dinonaktifkan untuk mencegah konflik dengan pintasan universal browser & terminal."""
+        pass
 
     def _build_open_hub_markup(self, tab_count: int = 0) -> InlineKeyboardMarkup:
         """Membuat tombol peluncur aplikasi desktop dan tab browser laptop."""
@@ -3014,12 +2968,6 @@ class TelegramAgentGateway:
                 print(f"[OK] Notifikasi koneksi berhasil dikirim ke Telegram User ID: {chat_id}")
             except Exception as exc:
                 agent_logger.log_error("telegram_gateway.post_init", f"Gagal mengirim notifikasi koneksi: {exc}")
-
-        # Jalankan global listener hotkey Ctrl+L untuk lock workstation
-        try:
-            self._start_global_lock_hotkey_listener(application, asyncio.get_running_loop())
-        except Exception:
-            pass
 
         # Jalankan loop monitoring baterai background
         try:

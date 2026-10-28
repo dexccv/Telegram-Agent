@@ -1055,13 +1055,15 @@ fungsi play_youtube_video(video_id_or_url: str) -> str {
                 subprocess.run(["clip"], input=final_url.encode("utf-16le"), timeout=3)
                 time.sleep(0.15)
 
+                VK_MENU = 0x12  # Tombol Alt (Standar Windows Address Bar)
+                VK_D = ord('D')
                 VK_CONTROL = 0x11
                 KEYEVENTF_KEYUP = 0x0002
-                # Kirim Ctrl + L (Fokus Address Bar)
-                user32.keybd_event(VK_CONTROL, 0, 0, 0)
-                user32.keybd_event(ord('L'), 0, 0, 0)
-                user32.keybd_event(ord('L'), 0, KEYEVENTF_KEYUP, 0)
-                user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+                # Kirim Alt + D (Fokus Address Bar browser standar Windows tanpa konflik Ctrl+L)
+                user32.keybd_event(VK_MENU, 0, 0, 0)
+                user32.keybd_event(VK_D, 0, 0, 0)
+                user32.keybd_event(VK_D, 0, KEYEVENTF_KEYUP, 0)
+                user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
                 time.sleep(0.15)
 
                 # Kirim Ctrl + V (Paste URL)
