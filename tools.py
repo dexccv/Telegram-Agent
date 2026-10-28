@@ -234,9 +234,60 @@ def write_file(path: str, content: str) -> str:
     except Exception as exc:
         agent_logger.log_error("tools.write_file", f"Gagal menulis file {path}: {exc}")
         return f"[GAGAL] Gagal menulis ke file '{path}': {exc}"
+
+
+def edit_file(path: str, target_text: str, replacement_text: str) -> str:
+    """Mengganti blok teks spesifik dalam file tanpa menimpa seluruh konten.
+
+    Lebih efisien dari write_file karena hanya memodifikasi bagian yang diperlukan,
+    menghemat kuota output token model AI secara signifikan.
+
+    Args:
+        path: Path file yang akan diedit.
+        target_text: Teks yang akan dicari dan diganti (harus unik dalam file).
+        replacement_text: Teks pengganti.
+
+    Returns:
+        Pesan status keberhasilan atau kegagalan.
+    """
+    is_safe, reason = validate_sandbox_path(path)
+    if not is_safe:
+        agent_logger.log_warning("tools.edit_file", f"Path diblokir: {path} - {reason}")
+        return f"[DIBLOKIR KEAMANAN] {reason}"
+
+    try:
+        target = Path(path).expanduser().resolve()
+        if not target.exists():
+            return f"[GAGAL] File tidak ditemukan: {target}"
+        if not target.is_file():
+            return f"[GAGAL] Path bukan sebuah file: {target}"
+
+        content = target.read_text(encoding="utf-8", errors="replace")
+        occurrences = content.count(target_text)
+
+        if occurrences == 0:
+            return f"[GAGAL] Teks target tidak ditemukan dalam file '{path}'. Pastikan teks target identik persis."
+        if occurrences > 1:
+            return (
+                f"[PERINGATAN] Teks target ditemukan {occurrences} kali. "
+                f"Hanya penggantian pertama yang akan dilakukan. "
+                f"Gunakan target_text yang lebih spesifik untuk penggantian tepat."
+            )
+
+        new_content = content.replace(target_text, replacement_text, 1)
+
+        # Atomic write
+        temp_path = target.with_suffix(target.suffix + ".tmp")
+        temp_path.write_text(new_content, encoding="utf-8")
+        temp_path.replace(target)
+
+        lines_changed = abs(replacement_text.count("\n") - target_text.count("\n"))
+        msg = f"[SUKSES] File '{path}' berhasil diedit. {lines_changed} baris diubah."
+        agent_logger.log_info("tools.edit_file", msg)
+        return msg
     except Exception as exc:
-        agent_logger.log_error("tools.write_file", f"Gagal menulis file {path}: {exc}")
-        return f"[GAGAL] Gagal menulis ke file '{path}': {exc}"
+        agent_logger.log_error("tools.edit_file", f"Gagal mengedit file {path}: {exc}")
+        return f"[GAGAL] Kesalahan saat mengedit file '{path}': {exc}"
 
 
 def run_command(command: str) -> str:
@@ -342,6 +393,7 @@ AVAILABLE_TOOLS: dict[str, Any] = {
     "list_files": list_files,
     "read_file": read_file,
     "write_file": write_file,
+    "edit_file": edit_file,
     "run_command": run_command,
     "save_memory": save_memory,
     "recall_memory": recall_memory,
@@ -353,6 +405,7 @@ TOOL_CALLABLES = [
     list_files,
     read_file,
     write_file,
+    edit_file,
     run_command,
     save_memory,
     recall_memory,
@@ -414,6 +467,22 @@ OPENAI_TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
+            "name": "edit_file",
+            "description": "Mengganti blok teks spesifik di dalam file teks tanpa menimpa seluruh file.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Jalur file yang akan diedit"},
+                    "target_text": {"type": "string", "description": "Teks eksak yang akan dicari dan diganti"},
+                    "replacement_text": {"type": "string", "description": "Teks baru pengganti"},
+                },
+                "required": ["path", "target_text", "replacement_text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_command",
             "description": "Menjalankan perintah shell/terminal di sistem pengguna secara aman.",
             "parameters": {
@@ -465,10 +534,27 @@ try:
     from penerjemah_idk import aktifkan_hook_idk
     aktifkan_hook_idk()
     import perkakas
-    if hasattr(perkakas, "ALAT_TERSEDIA") or hasattr(perkakas, "AVAILABLE_TOOLS"):
-        AVAILABLE_TOOLS = getattr(perkakas, "ALAT_TERSEDIA", getattr(perkakas, "AVAILABLE_TOOLS", AVAILABLE_TOOLS))
-        TOOL_CALLABLES = getattr(perkakas, "DAFTAR_PANGGILAN_ALAT", getattr(perkakas, "TOOL_CALLABLES", TOOL_CALLABLES))
-        OPENAI_TOOLS_SCHEMA = getattr(perkakas, "SKEMA_ALAT_OPENAI", getattr(perkakas, "OPENAI_TOOLS_SCHEMA", OPENAI_TOOLS_SCHEMA))
+    p_tools = getattr(perkakas, "ALAT_TERSEDIA", getattr(perkakas, "AVAILABLE_TOOLS", None))
+    if p_tools:
+        AVAILABLE_TOOLS.update(p_tools)
+        existing_names = {getattr(f, "__name__", "") for f in TOOL_CALLABLES}
+        p_callables = getattr(perkakas, "DAFTAR_PANGGILAN_ALAT", getattr(perkakas, "TOOL_CALLABLES", []))
+        for fn in p_callables:
+            fn_name = getattr(fn, "__name__", "")
+            if fn_name and fn_name not in existing_names:
+                TOOL_CALLABLES.append(fn)
+                existing_names.add(fn_name)
+
+        p_schemas = getattr(perkakas, "SKEMA_ALAT_OPENAI", getattr(perkakas, "OPENAI_TOOLS_SCHEMA", []))
+        existing_schema_names = {
+            s.get("function", {}).get("name") for s in OPENAI_TOOLS_SCHEMA if isinstance(s, dict)
+        }
+        for s in p_schemas:
+            s_name = s.get("function", {}).get("name") if isinstance(s, dict) else None
+            if s_name and s_name not in existing_schema_names:
+                OPENAI_TOOLS_SCHEMA.append(s)
+                existing_schema_names.add(s_name)
+
         for _name, _func in AVAILABLE_TOOLS.items():
             if _name not in globals():
                 globals()[_name] = _func

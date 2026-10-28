@@ -12,8 +12,8 @@
 |:---:|:---|:---:|:---:|:---|:---:|
 | **Fase 0** | Hotfix & Stabilitas Fondasi | **P0 (Kritis)** | ✅ Selesai | `bot_telegram.py`, `logger.py`, `memory.py`, `agent.py` | ✅ Lolos |
 | **Fase 1** | Keamanan & Token Management | **P0 - P1** | ✅ Selesai | `tools.py`, `agent.py` | ✅ Lolos |
-| **Fase 2** | Integrasi Core AI & Tooling | **P1 - P2** | ⏳ Siap Mulai | `agent.py`, `tools.py`, `bot_telegram.py` | ⏳ Menunggu |
-| **Fase 3** | Standarisasi & Automated Testing | **P2** | ⏳ Antre | `config.py`, `penerjemah_idk.py`, `requirements.txt`, `tests/` | ⏳ Menunggu |
+| **Fase 2** | Integrasi Core AI & Tooling | **P1 - P2** | ✅ Selesai | `agent.py`, `tools.py`, `bot_telegram.py` | ✅ Lolos |
+| **Fase 3** | Standarisasi & Automated Testing | **P2** | ⏳ Siap Mulai | `config.py`, `penerjemah_idk.py`, `requirements.txt`, `tests/` | ⏳ Menunggu |
 | **Fase 4** | Modern Developer Experience | **P2 - P3** | ⏳ Antre | `agent.py`, `bot_telegram.py`, `session_manager.py` | ⏳ Menunggu |
 | **Fase 5** | Remote Antigravity & Sandboxed Shell | **P1 - P2** | ⏳ Antre | `antigravity_bridge.py`, `tools.py`, `bot_telegram.py` | ⏳ Menunggu |
 
@@ -56,13 +56,17 @@
 ### 🔹 FASE 2: Integrasi Fitur AI & Tooling Efisiensi
 > **Fokus:** Sinkronisasi aksi offline ke memori AI, peremajaan model API, tool hemat token, dan background alerts.
 
-- [ ] **Langkah 2.1**: Sinkronisasi Fast-Path Intent ke riwayat chat AI di `agent.py` (`_execute_fast_path_and_sync`).
-- [ ] **Langkah 2.2**: Dynamic Groq Model Fetching via endpoint resmi di `agent.py`.
-- [ ] **Langkah 2.3**: Tool baru `edit_file(path, target, replacement)` di `tools.py`.
-- [ ] **Langkah 2.4**: Background Battery Monitor Loop via Telegram di `bot_telegram.py`.
+- [x] **Langkah 2.1**: Sinkronisasi Fast-Path Intent ke riwayat chat AI di `agent.py` (`_execute_fast_path_and_sync`).
+- [x] **Langkah 2.2**: Dynamic Groq Model Fetching via endpoint resmi di `agent.py`.
+- [x] **Langkah 2.3**: Tool baru `edit_file(path, target, replacement)` di `tools.py`.
+- [x] **Langkah 2.4**: Background Battery Monitor Loop via Telegram di `bot_telegram.py`.
 
 #### Catatan Eksekusi Fase 2:
-*Belum dieksekusi.*
+- **2.1**: Mengimplementasikan `_execute_fast_path_and_sync` pada `GeminiAgent`. Perintah cepat (tutup app, kamera, status sistem, open app, volume, media control, screenshot, lock) kini dieksekusi sekaligus disinkronkan ke riwayat chat API Gemini sehingga model tidak lagi kehilangan jejak konteks percakapan.
+- **2.2**: Mengganti daftar model hardcoded Groq yang usang dengan fungsi `fetch_groq_models(api_key)` yang mengambil daftar model aktif secara dinamis via endpoint `/v1/models`, dengan fallback aman ke `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, dan `mixtral-8x7b-32768`.
+- **2.3**: Membuat tool baru `edit_file(path, target_text, replacement_text)` di `tools.py` yang mengganti bagian teks file secara presisi dengan penulisan atomic, mendaftarkannya ke `AVAILABLE_TOOLS`, `TOOL_CALLABLES`, dan `OPENAI_TOOLS_SCHEMA`.
+- **2.4**: Mengimplementasikan background loop `_battery_monitor_loop` pada `bot_telegram.py` yang memantau status daya baterai via `psutil` dan mengirimkan pesan peringatan darurat ke Telegram saat daya ≤ 20% tanpa charger atau notifikasi saat baterai penuh.
+- **Verifikasi**: Uji penggantian teks atomic `edit_file` di direktori workspace lolos, deteksi model dinamis Groq lolos, registrasi skema tool lolos, dan keberadaan method background battery monitor terverifikasi.
 
 ---
 
@@ -111,6 +115,8 @@
 | 29-10-2026 01:33 | Fase 0 | Hotfix BUG-01, BUG-06, MEM-01, dan BUG-04 | `bot_telegram.py`, `logger.py`, `memory.py`, `agent.py` | ✅ Lolos |
 | 29-10-2026 01:38 | Maintenance | Perbaikan force-close run.bat & run_bot.bat (syntax subshell, UTF-8 & escaping) | `run.bat`, `run_bot.bat`, `run_with_healing.py` | ✅ Lolos |
 | 29-10-2026 01:42 | Fase 1 | Keamanan Sandbox Path Validation, Counter Token Riil & Context Pruning | `tools.py`, `agent.py` | ✅ Lolos |
+| 29-10-2026 01:55 | Fase 2 | Fast-Path AI Sync, Dynamic Groq Fetching, Tool edit_file & Battery Alert Loop | `agent.py`, `tools.py`, `bot_telegram.py` | ✅ Lolos |
+| 29-10-2026 02:05 | Hotfix TUI | Fix MarkupError [/{color}] pada rendering Label riwayat chat di Textual | `aplikasi.idk`, `app_legacy.py` | ✅ Lolos |
 
 *(Baris baru akan ditambahkan otomatis di sini setiap kali suatu langkah/fase selesai dieksekusi)*
 

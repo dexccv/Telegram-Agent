@@ -881,7 +881,7 @@ class GeminiTerminalAgentApp(App[None]):
                     if msg.msg_type == "user":
                         box = Vertical(
                             Label("📱 ANDA (TELEGRAM):", classes="msg-user-title"),
-                            Label(msg.text),
+                            Label(msg.text, markup=False),
                             classes="msg-user-box",
                         )
                         scroll.mount(box)
@@ -998,7 +998,7 @@ class GeminiTerminalAgentApp(App[None]):
         scroll = self.query_one("#chat_messages", VerticalScroll)
         box = Vertical(
             Label("⌬ ANDA:", classes="msg-user-title"),
-            Label(text),
+            Label(text, markup=False),
             classes="msg-user-box",
         )
         scroll.mount(box)
@@ -1016,7 +1016,7 @@ class GeminiTerminalAgentApp(App[None]):
     def append_error_message(self, formatted_error: str) -> None:
         scroll = self.query_one("#chat_messages", VerticalScroll)
         box = Vertical(
-            Label(formatted_error),
+            Label(formatted_error, markup=False),
             classes="msg-error-box",
         )
         scroll.mount(box)
@@ -1032,7 +1032,7 @@ class GeminiTerminalAgentApp(App[None]):
             if msg.msg_type == "user":
                 box = Vertical(
                     Label("⌬ ANDA:", classes="msg-user-title"),
-                    Label(msg.text),
+                    Label(msg.text, markup=False),
                     classes="msg-user-box",
                 )
                 scroll.mount(box)

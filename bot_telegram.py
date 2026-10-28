@@ -2399,6 +2399,76 @@ class TelegramAgentGateway:
         except Exception:
             pass
 
+        # Jalankan loop monitoring baterai background
+        try:
+            asyncio.create_task(self._battery_monitor_loop(application))
+            agent_logger.log_info("telegram_gateway", "Background battery monitor loop aktif.")
+        except Exception as e:
+            agent_logger.log_error("telegram_gateway", f"Gagal memulai battery monitor: {e}")
+
+    async def _battery_monitor_loop(self, application: Application) -> None:
+        """Loop monitoring baterai background - kirim alert otomatis ke Telegram saat daya kritis."""
+        import psutil
+        last_low_alert_sent = False
+        last_full_alert_sent = False
+        ALERT_LOW_THRESHOLD = 20
+        ALERT_HIGH_THRESHOLD = 95
+        CHECK_INTERVAL_SECONDS = 120
+
+        while True:
+            try:
+                await asyncio.sleep(CHECK_INTERVAL_SECONDS)
+                if not self.allowed_user_id or not str(self.allowed_user_id).isdigit():
+                    continue
+
+                battery = psutil.sensors_battery()
+                if not battery:
+                    continue
+
+                pct = battery.percent
+                is_plugged = battery.power_plugged
+
+                if pct <= ALERT_LOW_THRESHOLD and not is_plugged and not last_low_alert_sent:
+                    alert_text = (
+                        f"⚠️ **PERINGATAN BATERAI KRITIS!**\n\n"
+                        f"🔋 Daya baterai laptop: **{pct:.0f}%**\n"
+                        f"Status: Tidak tercolok charger\n\n"
+                        f"⚡ Segera colokkan charger untuk mencegah laptop mati mendadak!\n"
+                        f"_Waktu: {datetime.datetime.now().strftime('%H:%M:%S WIB')}_"
+                    )
+                    await application.bot.send_message(
+                        chat_id=int(self.allowed_user_id),
+                        text=alert_text,
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                    last_low_alert_sent = True
+                    last_full_alert_sent = False
+
+                elif pct > ALERT_LOW_THRESHOLD + 5:
+                    last_low_alert_sent = False
+
+                if pct >= ALERT_HIGH_THRESHOLD and is_plugged and not last_full_alert_sent:
+                    alert_text = (
+                        f"🔋 **BATERAI HAMPIR PENUH**\n\n"
+                        f"Daya: **{pct:.0f}%** — Anda boleh mencabut charger.\n"
+                        f"_Waktu: {datetime.datetime.now().strftime('%H:%M:%S WIB')}_"
+                    )
+                    await application.bot.send_message(
+                        chat_id=int(self.allowed_user_id),
+                        text=alert_text,
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+                    last_full_alert_sent = True
+
+                elif not is_plugged or pct < ALERT_HIGH_THRESHOLD - 5:
+                    last_full_alert_sent = False
+
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                agent_logger.log_error("battery_monitor", f"Error monitoring baterai: {exc}")
+                await asyncio.sleep(60)
+
     def run(self) -> None:
         """Menjalankan bot Telegram polling daemon."""
         # Bersihkan instance bot_telegram.py lain jika ada untuk mencegah Conflict 409

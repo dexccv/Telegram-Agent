@@ -842,11 +842,11 @@ kelas ToolCallCard < Horizontal {
         jika len(args_str) > 36 {
             args_str = args_str[:33] + "..."
         }
-        yield Label(f"⚙ [alat] {diri.tool_name}({args_str}) ", classes="tool-title")
+        yield Label(f"⚙ [alat] {diri.tool_name}({args_str}) ", classes="tool-title", markup=salah)
         jika diri.initial_preview {
-            yield Label(f"─ Selesai: {diri.initial_preview[:45]}", id="status_label", classes="tool-status-done")
+            yield Label(f"─ Selesai: {diri.initial_preview[:45]}", id="status_label", classes="tool-status-done", markup=salah)
         } selain {
-            yield Label("─ [▒▒▒▒] Menjalankan...", id="status_label", classes="tool-status-running")
+            yield Label("─ [▒▒▒▒] Menjalankan...", id="status_label", classes="tool-status-running", markup=salah)
         }
     }
 
@@ -1099,7 +1099,7 @@ kelas GeminiTerminalAgentApp < App {
 
                 untuk msg dalam pesan_baru {
                     jika msg.msg_type == "user" {
-                        box = Vertical(Label("📱 ANDA (TELEGRAM):", classes="msg-user-title"), Label(msg.text), classes="msg-user-box")
+                        box = Vertical(Label("📱 ANDA (TELEGRAM):", classes="msg-user-title"), Label(msg.text, markup=salah), classes="msg-user-box")
                         scroll.mount(box)
                     } jika_lain msg.msg_type == "tool" {
                         card = ToolCallCard(tool_name=msg.tool_name, args=msg.tool_args, initial_preview=msg.tool_preview)
@@ -1231,7 +1231,7 @@ kelas GeminiTerminalAgentApp < App {
 
     fungsi append_user_message(text) {
         scroll = diri.query_one("#chat_messages", VerticalScroll)
-        box = Vertical(Label("❯ ANDA:", classes="msg-user-title"), Label(text), classes="msg-user-box")
+        box = Vertical(Label("❯ ANDA:", classes="msg-user-title"), Label(text, markup=salah), classes="msg-user-box")
         scroll.mount(box)
         scroll.scroll_end(animate=benar)
     }
@@ -1245,7 +1245,7 @@ kelas GeminiTerminalAgentApp < App {
 
     fungsi append_error_message(formatted_error) {
         scroll = diri.query_one("#chat_messages", VerticalScroll)
-        box = Vertical(Label(formatted_error), classes="msg-error-box")
+        box = Vertical(Label(formatted_error, markup=salah), classes="msg-error-box")
         scroll.mount(box)
         scroll.scroll_end(animate=benar)
     }
@@ -1258,7 +1258,7 @@ kelas GeminiTerminalAgentApp < App {
 
         untuk msg dalam session.ui_messages {
             jika msg.msg_type == "user" {
-                box = Vertical(Label("⌬ ANDA:", classes="msg-user-title"), Label(msg.text), classes="msg-user-box")
+                box = Vertical(Label("⌬ ANDA:", classes="msg-user-title"), Label(msg.text, markup=salah), classes="msg-user-box")
                 scroll.mount(box)
             } jika_lain msg.msg_type == "tool" {
                 card = ToolCallCard(tool_name=msg.tool_name, args=msg.tool_args, initial_preview=msg.tool_preview)

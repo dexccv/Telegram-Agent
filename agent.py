@@ -104,6 +104,73 @@ def fetch_omniroute_models(base_url: str, api_key: str) -> list[dict[str, Any]]:
         ]
 
 
+def _groq_fallback_models() -> list[dict[str, Any]]:
+    """Daftar model resmi Groq fallback jika koneksi atau fetch API gagal."""
+    return [
+        {
+            "id": "llama-3.3-70b-versatile",
+            "raw_name": "llama-3.3-70b-versatile",
+            "display_name": "Llama 3.3 70B Versatile (Groq)",
+            "description": "Model 70B Meta Llama 3.3 unggulan di Groq LPU.",
+            "input_token_limit": 128000,
+            "output_token_limit": 32768,
+        },
+        {
+            "id": "llama-3.1-8b-instant",
+            "raw_name": "llama-3.1-8b-instant",
+            "display_name": "Llama 3.1 8B Instant (Groq)",
+            "description": "Model ultra cepat Llama 8B di Groq LPU.",
+            "input_token_limit": 128000,
+            "output_token_limit": 8192,
+        },
+        {
+            "id": "mixtral-8x7b-32768",
+            "raw_name": "mixtral-8x7b-32768",
+            "display_name": "Mixtral 8x7B (Groq)",
+            "description": "Mixtral MoE 8x7B di Groq LPU.",
+            "input_token_limit": 32768,
+            "output_token_limit": 32768,
+        },
+    ]
+
+
+def fetch_groq_models(api_key: str) -> list[dict[str, Any]]:
+    """Mengambil model yang aktif di Groq secara dinamis via endpoint /v1/models."""
+    if not api_key:
+        return _groq_fallback_models()
+    try:
+        req = urllib.request.Request(
+            "https://api.groq.com/openai/v1/models",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "User-Agent": "Terminal-Agent",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+            raw_models = data.get("data", [])
+            models = []
+            for m in raw_models:
+                mid = m.get("id", "")
+                if not mid:
+                    continue
+                # Filter model chat / non-whisper
+                if "whisper" in mid.lower():
+                    continue
+                models.append({
+                    "id": mid,
+                    "raw_name": mid,
+                    "display_name": f"{mid} (Groq)",
+                    "description": f"Model Groq aktif: {m.get('owned_by', 'groq')}",
+                    "input_token_limit": m.get("context_window", 131072),
+                    "output_token_limit": 32768,
+                })
+            return models if models else _groq_fallback_models()
+    except Exception as exc:
+        agent_logger.log_error("agent.fetch_groq_models", f"Gagal fetch model Groq: {exc}")
+        return _groq_fallback_models()
+
+
 def fetch_available_models(api_key: Optional[str] = None) -> list[dict[str, Any]]:
     """Mendapatkan daftar model yang kompatibel secara dinamis sesuai provider aktif."""
     provider = config_manager.get_provider()
@@ -113,40 +180,8 @@ def fetch_available_models(api_key: Optional[str] = None) -> list[dict[str, Any]
         return fetch_omniroute_models(base_url, omni_key)
 
     if provider == "groq":
-        return [
-            {
-                "id": "openai/gpt-oss-120b",
-                "raw_name": "openai/gpt-oss-120b",
-                "display_name": "OpenAI GPT OSS 120B (Terbesar & Cerdas ⚡)",
-                "description": "Model 120B OpenAI generasi terbaru di Groq, sangat cerdas & respons ~0.8s.",
-                "input_token_limit": 131072,
-                "output_token_limit": 65536,
-            },
-            {
-                "id": "openai/gpt-oss-20b",
-                "raw_name": "openai/gpt-oss-20b",
-                "display_name": "OpenAI GPT OSS 20B (Ultra Fast ~0.4s)",
-                "description": "Model 20B OpenAI berkecepatan tinggi dan pintar di Groq LPU.",
-                "input_token_limit": 131072,
-                "output_token_limit": 65536,
-            },
-            {
-                "id": "qwen/qwen3.8-27b",
-                "raw_name": "qwen/qwen3.8-27b",
-                "display_name": "Qwen 3.8 27B (Alibaba Cloud)",
-                "description": "Model Qwen 27B handal untuk penalaran dan instruksi teks.",
-                "input_token_limit": 131072,
-                "output_token_limit": 16384,
-            },
-            {
-                "id": "llama-3.3-70b-versatile",
-                "raw_name": "llama-3.3-70b-versatile",
-                "display_name": "Llama 3.3 70B Versatile",
-                "description": "Model 70B Meta Llama 3.3 di Groq.",
-                "input_token_limit": 128000,
-                "output_token_limit": 32768,
-            },
-        ]
+        groq_key = (api_key or config_manager.get_groq_api_key() or "").strip()
+        return fetch_groq_models(groq_key)
 
     clean_key = (api_key or config_manager.get_gemini_api_key() or "").strip()
     http_opts = _build_http_options()
@@ -576,6 +611,100 @@ class GeminiAgent:
         except Exception as exc:
             agent_logger.log_error("agent.sync_history", f"Gagal sinkronisasi riwayat: {exc}")
 
+    def _execute_fast_path_and_sync(
+        self,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        user_message: str,
+        on_tool_call: Optional[Callable[[str, dict[str, Any]], None]] = None,
+        on_tool_result: Optional[Callable[[str, str], None]] = None,
+    ) -> str:
+        """Eksekusi tool cepat dan sinkronkan ke riwayat chat AI agar konteks percakapan tetap utuh."""
+        func = AVAILABLE_TOOLS.get(tool_name)
+        if not func:
+            try:
+                import perkakas
+                func = getattr(perkakas, tool_name, None)
+            except Exception:
+                func = None
+
+        if not func:
+            err = f"[GAGAL] Tool '{tool_name}' tidak tersedia di sistem."
+            self.session.ui_messages.append(SessionMessage(msg_type="agent", text=err))
+            session_manager.save_session(self.session)
+            return err
+
+        if on_tool_call:
+            on_tool_call(tool_name, tool_args)
+
+        try:
+            result_str = str(func(**tool_args))
+        except Exception as exc:
+            result_str = f"[GAGAL] Eksekusi {tool_name}: {exc}"
+
+        preview = (
+            result_str[:120].replace("\n", " ") + "..."
+            if len(result_str) > 120
+            else result_str.replace("\n", " ")
+        )
+        if on_tool_result:
+            on_tool_result(tool_name, preview)
+
+        # Catat pemanggilan tool ke UI messages
+        self.session.ui_messages.append(
+            SessionMessage(
+                msg_type="tool",
+                tool_name=tool_name,
+                tool_args=tool_args,
+                tool_preview=preview,
+            )
+        )
+        self.session.ui_messages.append(SessionMessage(msg_type="agent", text=result_str))
+
+        # Sinkronkan ke chat Gemini jika aktif agar AI mengingat tindakan ini
+        if self.chat and self.provider == "gemini":
+            try:
+                current_history = list(self.chat.get_history() or [])
+                current_history.append(
+                    types.Content(role="user", parts=[types.Part.from_text(text=user_message)])
+                )
+                current_history.append(
+                    types.Content(
+                        role="model",
+                        parts=[
+                            types.Part.from_text(
+                                text=f"[Tindakan Langsung: Tool '{tool_name}' dieksekusi]\nHasil: {result_str[:800]}"
+                            )
+                        ],
+                    )
+                )
+
+                persistent_memory = memory_manager.format_for_system_instruction()
+                system_instruction = (
+                    "Anda adalah AI Agent terminal profesional dan cerdas bernama gemini-terminal-agent. "
+                    "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
+                    "Jangan gunakan salam berlebihan atau basa-basi generik. Dilarang keras menggunakan emoji apapun. "
+                    "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
+                    f"{persistent_memory}"
+                )
+                config = types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    tools=TOOL_CALLABLES,
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                    temperature=0.2,
+                )
+                self.chat = self.client.chats.create(
+                    model=self.model_name,
+                    config=config,
+                    history=current_history,
+                )
+            except Exception as e:
+                agent_logger.log_warning("agent.fast_path", f"Gagal sinkron riwayat fast-path: {e}")
+
+        self._sync_history_from_chat()
+        session_manager.save_session(self.session)
+        return result_str
+
     def send_message(
         self,
         message: str,
@@ -626,70 +755,55 @@ class GeminiAgent:
                 parts = message.strip().split(maxsplit=2 if msg_lower.startswith("tutup aplikasi ") else 1)
                 target_app = parts[-1].strip().strip('"').strip("'")
                 if target_app:
-                    fn_tutup = AVAILABLE_TOOLS.get("close_application")
-                    if fn_tutup:
-                        if on_tool_call:
-                            on_tool_call("close_application", {"app_name_or_pid": target_app})
-                        res = str(fn_tutup(target_app))
-                        if on_tool_result:
-                            on_tool_result("close_application", res)
-                        self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                        session_manager.save_session(self.session)
-                        return res
+                    return self._execute_fast_path_and_sync(
+                        "close_application",
+                        {"app_name_or_pid": target_app},
+                        message,
+                        on_tool_call,
+                        on_tool_result,
+                    )
 
             # 2. Buka kamera webcam & foto
             if any(k in msg_lower for k in ["buka kamera", "ambil foto", "foto kamera", "capture kamera", "foto webcam", "kamera laptop"]):
-                fn_cam = AVAILABLE_TOOLS.get("capture_camera")
-                if fn_cam:
-                    if on_tool_call:
-                        on_tool_call("capture_camera", {"output_path": "kamera_capture.jpg"})
-                    res = str(fn_cam("kamera_capture.jpg"))
-                    if on_tool_result:
-                        on_tool_result("capture_camera", res)
-                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                    session_manager.save_session(self.session)
-                    return res
+                return self._execute_fast_path_and_sync(
+                    "capture_camera",
+                    {"output_path": "kamera_capture.jpg"},
+                    message,
+                    on_tool_call,
+                    on_tool_result,
+                )
 
             # 3. Status sistem / hardware
             if any(k in msg_lower for k in ["status sistem", "persentase sistem", "persentase penyimpanan", "persentase baterai", "cek baterai", "cek penyimpanan", "cek ram", "cek cpu", "cek storage"]):
-                fn_stat = AVAILABLE_TOOLS.get("get_system_status")
-                if fn_stat:
-                    if on_tool_call:
-                        on_tool_call("get_system_status", {})
-                    res = str(fn_stat())
-                    if on_tool_result:
-                        on_tool_result("get_system_status", res)
-                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                    session_manager.save_session(self.session)
-                    return res
+                return self._execute_fast_path_and_sync(
+                    "get_system_status",
+                    {},
+                    message,
+                    on_tool_call,
+                    on_tool_result,
+                )
 
             # 4. Buka aplikasi desktop / YouTube / URL
             if (msg_lower.startswith("buka ") or msg_lower.startswith("open ") or "buka chrome" in msg_lower or "buka youtube" in msg_lower or (("putar " in msg_lower or "play " in msg_lower) and ("youtube" in msg_lower or "yt" in msg_lower))) and not ("kamera" in msg_lower or "webcam" in msg_lower):
                 if ("youtube" in msg_lower or "yt" in msg_lower) and ("putar" in msg_lower or "play" in msg_lower):
-                    fn_yt = AVAILABLE_TOOLS.get("play_youtube_video")
-                    if fn_yt:
-                        q_yt = message.strip()
-                        for w in ["putar", "putarkan", "play", "lagu", "video", "musik", "di", "pada", "youtube", "yt", "tolong", "coba"]:
-                            q_yt = re.sub(r"\b" + w + r"\b", "", q_yt, flags=re.IGNORECASE).strip()
-                        if on_tool_call:
-                            on_tool_call("play_youtube_video", {"video_id_or_url": q_yt})
-                        res = str(fn_yt(q_yt))
-                        if on_tool_result:
-                            on_tool_result("play_youtube_video", res)
-                        self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                        session_manager.save_session(self.session)
-                        return res
+                    q_yt = message.strip()
+                    for w in ["putar", "putarkan", "play", "lagu", "video", "musik", "di", "pada", "youtube", "yt", "tolong", "coba"]:
+                        q_yt = re.sub(r"\b" + w + r"\b", "", q_yt, flags=re.IGNORECASE).strip()
+                    return self._execute_fast_path_and_sync(
+                        "play_youtube_video",
+                        {"video_id_or_url": q_yt},
+                        message,
+                        on_tool_call,
+                        on_tool_result,
+                    )
 
-                fn_open = AVAILABLE_TOOLS.get("open_application")
-                if fn_open:
-                    if on_tool_call:
-                        on_tool_call("open_application", {"app_or_query": message.strip()})
-                    res = str(fn_open(message.strip()))
-                    if on_tool_result:
-                        on_tool_result("open_application", res)
-                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                    session_manager.save_session(self.session)
-                    return res
+                return self._execute_fast_path_and_sync(
+                    "open_application",
+                    {"app_or_query": message.strip()},
+                    message,
+                    on_tool_call,
+                    on_tool_result,
+                )
 
             # 5. Atur volume laptop
             if any(k in msg_lower for k in ["atur volume", "set volume", "ganti volume", "ubah volume", "volume laptop", "besarkan volume", "naikkan volume", "kecilkan volume", "turunkan volume", "mute", "unmute", "senyap"]):
@@ -703,16 +817,13 @@ class GeminiAgent:
                     vol_arg = "unmute"
                 elif any(w in msg_lower for w in ["mute", "senyap", "matikan suara"]):
                     vol_arg = "mute"
-                fn_vol = AVAILABLE_TOOLS.get("set_volume")
-                if fn_vol:
-                    if on_tool_call:
-                        on_tool_call("set_volume", {"level": vol_arg})
-                    res = str(fn_vol(vol_arg))
-                    if on_tool_result:
-                        on_tool_result("set_volume", res)
-                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                    session_manager.save_session(self.session)
-                    return res
+                return self._execute_fast_path_and_sync(
+                    "set_volume",
+                    {"level": vol_arg},
+                    message,
+                    on_tool_call,
+                    on_tool_result,
+                )
 
             # 6. Kontrol musik / pemutar lagu (Play, Pause, Next, Prev, Stop HANYA jika bukan query lagu spesifik)
             bukan_query_spesifik = not ("youtube" in msg_lower or "yt" in msg_lower or len(msg_lower.split()) > 3)
@@ -728,42 +839,33 @@ class GeminiAgent:
                     act_media = "pause"
                 elif "play" in msg_lower or "putar" in msg_lower or "lanjut" in msg_lower:
                     act_media = "play"
-                fn_med = AVAILABLE_TOOLS.get("media_control")
-                if fn_med:
-                    if on_tool_call:
-                        on_tool_call("media_control", {"action": act_media})
-                    res = str(fn_med(act_media))
-                    if on_tool_result:
-                        on_tool_result("media_control", res)
-                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                    session_manager.save_session(self.session)
-                    return res
+                return self._execute_fast_path_and_sync(
+                    "media_control",
+                    {"action": act_media},
+                    message,
+                    on_tool_call,
+                    on_tool_result,
+                )
 
             # 7. Screenshot
             if any(k in msg_lower for k in ["screenshot", "screen capture", "capture layar", "tangkapan layar", "foto layar", "ss laptop", "ss layar"]):
-                fn_ss = AVAILABLE_TOOLS.get("capture_screen")
-                if fn_ss:
-                    if on_tool_call:
-                        on_tool_call("capture_screen", {"output_path": "screen_capture.png"})
-                    res = str(fn_ss("screen_capture.png"))
-                    if on_tool_result:
-                        on_tool_result("capture_screen", res)
-                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                    session_manager.save_session(self.session)
-                    return res
+                return self._execute_fast_path_and_sync(
+                    "capture_screen",
+                    {"output_path": "screen_capture.png"},
+                    message,
+                    on_tool_call,
+                    on_tool_result,
+                )
 
             # 8. Kunci Layar / Lock Laptop (Ctrl + L)
             if any(k in msg_lower for k in ["kunci laptop", "lock laptop", "kunci layar", "lock screen", "kunci pc", "lock pc", "ctrl + l", "ctrl+l"]):
-                fn_lock = AVAILABLE_TOOLS.get("lock_laptop")
-                if fn_lock:
-                    if on_tool_call:
-                        on_tool_call("lock_laptop", {})
-                    res = str(fn_lock())
-                    if on_tool_result:
-                        on_tool_result("lock_laptop", res)
-                    self.session.ui_messages.append(SessionMessage(msg_type="agent", text=res))
-                    session_manager.save_session(self.session)
-                    return res
+                return self._execute_fast_path_and_sync(
+                    "lock_laptop",
+                    {},
+                    message,
+                    on_tool_call,
+                    on_tool_result,
+                )
 
         max_heal_attempts = 3
         heal_attempt = 0
