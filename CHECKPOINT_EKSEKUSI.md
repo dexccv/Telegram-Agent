@@ -152,6 +152,7 @@
 | 29-10-2026 03:56 | UX /agy ss Fullscreen | Tangkapan layar /agy ss diubah ke fullscreen utuh (1920x1080) dengan auto-focus Antigravity ke depan agar tampilan tidak terpotong | `antigravity_bridge.py`, `bot_telegram.py`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
 | 29-10-2026 04:05 | Fitur /tabs App Manager | Perluasan /tabs: deteksi jendela aplikasi desktop terbuka (Antigravity, Chrome, WhatsApp, VS Code, Explorer, Terminal, dll.), tombol Fokus (bawa ke depan + klik mouse + kirim screenshot fullscreen otomatis) dan Tutup (WM_CLOSE) | `bot_telegram.py`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
 | 29-10-2026 04:13 | Markdown & CMD Live Log | Redesain visual pesan Telegram (/start, /help, /status, notifikasi koneksi) dengan hierarki profesional dan divider rapi; integrasi CmdLiveLogHandler untuk streaming live logs sistem ke terminal CMD | `bot_telegram.py`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
+| 29-10-2026 04:18 | Dual-Window Launcher | Modifikasi run.bat agar otomatis meluncurkan 2 jendela CMD sekaligus saat dijalankan: Window 1 (Agent CLI / TUI) dan Window 2 (Telegram Gateway + Live Log) | `run.bat`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
 
 *(Baris baru akan ditambahkan otomatis di sini setiap kali suatu langkah/fase selesai dieksekusi)*
 

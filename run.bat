@@ -10,7 +10,7 @@ set "OLLAMA_MODELS=D:\.ollama\models"
 set "OLLAMA_HOST=127.0.0.1:11434"
 
 echo ========================================================
-echo        Gemini Terminal Agent - Workstation Assistant
+echo        Gemini Terminal Agent - Workstation & Gateway
 echo ========================================================
 echo.
 
@@ -27,7 +27,7 @@ if errorlevel 1 (
 )
 
 :: Deteksi versi Python
-for /f "tokens=*" %%i in ('python --version') do set "PYTHON_VERSION=%%i"
+for /f "tokens=*" %%i in ('python --version 2^>nul') do set "PYTHON_VERSION=%%i"
 echo [i] Python terdeteksi: %PYTHON_VERSION%
 
 :: 2. Pembuatan dan aktivasi Virtual Environment (.venv)
@@ -53,29 +53,38 @@ if not exist ".venv\Scripts\python.exe" (
 :: Pastikan code page tetap UTF-8 setelah aktivasi venv
 chcp 65001 >nul
 
-:: 3. Pemilihan Mode Eksekusi
-echo.
-echo Pilih mode eksekusi:
-echo   1. Mode Normal [Langsung TUI app.py]
-echo   2. Mode Self-Healing [Rekomendasi - Otomatis perbaiki crash]
-echo   3. Mode Bot Telegram [Gateway Mobile - bot_telegram.py]
-echo.
-set "choice=2"
-set /p "choice=Pilih 1, 2, atau 3 (default: 2): "
+:: Cek argumen khusus jika hanya ingin menjalankan salah satu
+if /i "%1"=="--bot" goto run_bot_only
+if /i "%1"=="--cli" goto run_cli_only
 
-if "%choice%"=="1" (
-    echo [*] Menjalankan Gemini Terminal Agent mode Normal...
-    python app.py
-) else (
-    if "%choice%"=="3" (
-        echo [*] Menjalankan Telegram Mobile Gateway...
-        python bot_telegram.py
-    ) else (
-        echo [*] Menjalankan Gemini Terminal Agent mode Self-Healing...
-        python run_with_healing.py tui
-    )
-)
+:: ========================================================
+:: 3. Peluncuran Otomatis Keduanya (Dual-Window)
+:: ========================================================
+echo.
+echo [*] Meluncurkan 2 Jendela Layanan Sekaligus:
+echo     [Window 1] Gemini Terminal Agent (CLI / TUI)
+echo     [Window 2] Telegram Mobile Gateway (Live Monitoring)
+echo.
 
+:: Luncurkan Window 2: Telegram Mobile Gateway di jendela CMD terpisah
+start "Gemini Agent - Telegram Mobile Gateway" cmd /k "title Gemini Agent - Telegram Mobile Gateway && chcp 65001 >nul && cd /d "%~dp0" && call .venv\Scripts\activate.bat && python bot_telegram.py"
+
+:: Jalankan Window 1: Gemini Terminal Agent (TUI) di jendela saat ini
+echo [*] Memulai Gemini Terminal Agent di jendela ini...
+python app.py
+goto end
+
+:run_bot_only
+echo [*] Menjalankan Telegram Mobile Gateway saja...
+python bot_telegram.py
+goto end
+
+:run_cli_only
+echo [*] Menjalankan Gemini Terminal Agent saja...
+python app.py
+goto end
+
+:end
 if errorlevel 1 (
     echo.
     echo [!] Aplikasi berhenti dengan kode status: %errorlevel%
