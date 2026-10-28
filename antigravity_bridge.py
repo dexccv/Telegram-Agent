@@ -344,73 +344,28 @@ class AntigravityBridge:
             return False
 
     def capture_window_screenshot(self, output_path: Optional[Path] = None) -> Optional[Path]:
-        """Mengambil tangkapan layar jendela Antigravity (fokus dan klik jendela ke paling depan terlebih dahulu)."""
+        """Mengambil tangkapan layar fullscreen layar dengan jendela Antigravity difokuskan dan diklik ke paling depan."""
         target = output_path or (Path.cwd() / "antigravity_screenshot.png")
         self._attach_desktop()
 
         # 1. Bawa jendela Antigravity ke Foreground terdepan dengan klik mouse nyata
         self.launch_or_focus(click=True)
-        time.sleep(0.35)
+        time.sleep(0.4)
 
         try:
-            hwnd = self._find_window_hwnd()
-            if hwnd:
-                user32 = ctypes.windll.user32
-                from ctypes import wintypes
-
-                rect = wintypes.RECT()
-                if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-                    w = rect.right - rect.left
-                    h = rect.bottom - rect.top
-                    if w > 100 and h > 100:
-                        # 2. Verifikasi apakah jendela aktif di foreground benar-benar Antigravity
-                        fg_hwnd = user32.GetForegroundWindow()
-                        if fg_hwnd != hwnd:
-                            click_x = max(rect.left + 80, min(rect.right - 180, rect.left + w // 2))
-                            click_y = max(10, rect.top + 20)
-                            _win32_mouse_click(click_x, click_y)
-                            time.sleep(0.25)
-
-                        bbox = (rect.left, rect.top, rect.right, rect.bottom)
-                        try:
-                            img = ImageGrab.grab(bbox=bbox, all_screens=True)
-                            img.save(str(target), format="PNG")
-                            if target.exists() and target.stat().st_size > 500:
-                                agent_logger.log_info(
-                                    "antigravity_bridge",
-                                    f"Window screenshot Antigravity (terdepan diklik) berhasil: {target} ({img.size[0]}x{img.size[1]})",
-                                )
-                                return target
-                        except Exception as grab_err:
-                            agent_logger.log_warning(
-                                "antigravity_bridge",
-                                f"Gagal crop screenshot jendela ({grab_err}), fallback ke fullscreen...",
-                            )
-
-            # 2. Coba via UIAutomation Control bila HWND belum didapat
-            win = self._find_window()
-            if win and not win.IsIconic():
-                rect = win.BoundingRectangle
-                if rect and rect.width() > 100 and rect.height() > 100:
-                    bbox = (rect.left, rect.top, rect.right, rect.bottom)
-                    try:
-                        img = ImageGrab.grab(bbox=bbox, all_screens=True)
-                        img.save(str(target), format="PNG")
-                        if target.exists() and target.stat().st_size > 500:
-                            return target
-                    except Exception:
-                        pass
-
-            # 3. Fallback ke fullscreen grab
+            # 2. Ambil tangkapan layar Fullscreen penuh agar tampilan Antigravity tidak terpotong
             img = ImageGrab.grab(all_screens=True)
             img.save(str(target), format="PNG")
             if target.exists() and target.stat().st_size > 500:
-                agent_logger.log_info("antigravity_bridge", f"Fullscreen screenshot berhasil disimpan: {target}")
+                agent_logger.log_info(
+                    "antigravity_bridge",
+                    f"Fullscreen screenshot Antigravity berhasil disimpan: {target} ({img.size[0]}x{img.size[1]})",
+                )
                 return target
 
             return None
         except Exception as exc:
-            agent_logger.log_error("antigravity_bridge", f"Gagal capture screenshot: {exc}")
+            agent_logger.log_error("antigravity_bridge", f"Gagal capture fullscreen screenshot: {exc}")
             return None
 
 

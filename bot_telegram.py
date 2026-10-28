@@ -2138,20 +2138,20 @@ class TelegramAgentGateway:
                 await update.message.reply_text("⚠️ Tombol Proceed tidak ditemukan atau gagal dipicu.")
 
         elif subcmd in ["ss", "screenshot"]:
-            await update.message.reply_text("📸 Mengambil screenshot jendela Antigravity IDE...")
+            await update.message.reply_text("📸 Memfokuskan Antigravity IDE & mengambil tangkapan layar fullscreen...")
             try:
                 shot_path = await asyncio.to_thread(antigravity_bridge.capture_window_screenshot)
                 if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
                     with open(shot_path, "rb") as photo:
                         await update.message.reply_photo(
                             photo=photo,
-                            caption="🪐 **Tangkapan Layar Antigravity IDE**",
+                            caption="🪐 **Tangkapan Layar Fullscreen Antigravity IDE**",
                             parse_mode=ParseMode.MARKDOWN,
                         )
-                    log_chat_outgoing("Remote Antigravity (/agy ss)", f"Screenshot berhasil dikirim: {shot_path.name}")
+                    log_chat_outgoing("Remote Antigravity (/agy ss)", f"Screenshot fullscreen berhasil dikirim: {shot_path.name}")
                 else:
-                    await update.message.reply_text("❌ Gagal mengambil screenshot jendela Antigravity.")
-                    log_chat_outgoing("Remote Antigravity (/agy ss)", "Gagal mengambil screenshot jendela Antigravity.")
+                    await update.message.reply_text("❌ Gagal mengambil screenshot layar Antigravity.")
+                    log_chat_outgoing("Remote Antigravity (/agy ss)", "Gagal mengambil screenshot layar Antigravity.")
             except Exception as ss_exc:
                 agent_logger.log_error("telegram_agy_ss", f"Gagal proses ss: {ss_exc}")
                 await update.message.reply_text(f"❌ Error screenshot Antigravity: {ss_exc}")
