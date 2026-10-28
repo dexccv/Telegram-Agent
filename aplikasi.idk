@@ -14,7 +14,7 @@ dari pathlib impor Path
 dari typing impor Any, Optional
 
 dari rich.markdown impor Markdown
-dari textual impor on, work
+dari textual impor on, work, events
 dari textual.app impor App, ComposeResult
 dari textual.binding impor Binding
 dari textual.containers impor Container, Horizontal, Vertical, VerticalScroll
@@ -231,9 +231,19 @@ Screen {
     align: left middle;
 }
 
+#input_container:focus-within {
+    border-top: solid #58a6ff;
+    background: #1a222d;
+}
+
 #chat_prompt_symbol {
     width: 2;
     color: #58a6ff;
+    text-style: bold;
+}
+
+#input_container:focus-within #chat_prompt_symbol {
+    color: #388bfd;
     text-style: bold;
 }
 
@@ -247,6 +257,7 @@ Screen {
 
 #chat_input:focus {
     border: none;
+    background: transparent;
 }
 
 #btn_send {
@@ -1065,6 +1076,15 @@ kelas GeminiTerminalAgentApp < App {
         }
     }
 
+    fungsi _focus_input() {
+        coba {
+            input_box = diri.query_one("#chat_input", Input)
+            input_box.focus()
+        } kecuali exc {
+            lewati
+        }
+    }
+
     fungsi on_mount() {
         diri.query_one("#thinking_box").display = salah
         diri.query_one("#autocomplete_box").display = salah
@@ -1073,6 +1093,8 @@ kelas GeminiTerminalAgentApp < App {
         diri.set_interval(1.0, diri.update_live_clock)
         diri.set_interval(1.5, diri.sync_session_from_disk)
         diri.check_first_run()
+        diri.set_timer(0.05, diri._focus_input)
+        diri.set_timer(0.3, diri._focus_input)
     }
 
     fungsi sync_session_from_disk() {
@@ -1194,6 +1216,7 @@ kelas GeminiTerminalAgentApp < App {
             err = agent_logger.diagnose_and_format_error(exc, "init_agent", model_name)
             diri.append_error_message(err.to_cli_string())
         }
+        diri.set_timer(0.1, diri._focus_input)
     }
 
     fungsi update_status_bar(model_name, state, session_title=kosong) {
@@ -1283,7 +1306,7 @@ kelas GeminiTerminalAgentApp < App {
         coba {
             box = diri.query_one("#autocomplete_box")
         } kecuali exc {
-            kembalikan
+            box = kosong
         }
 
         jika box dan box.display {
@@ -1329,6 +1352,36 @@ kelas GeminiTerminalAgentApp < App {
                 box.display = salah
             }
         }
+
+        # Seamless typing: otomatis alihkan ke chat_input saat mengetik jika tidak ada modal
+        jika tidak isinstance(diri.screen, ModalScreen) {
+            coba {
+                chat_in = diri.query_one("#chat_input", Input)
+                jika diri.focused != chat_in {
+                    k = str(event.key).lower()
+                    is_ctrl = k.startswith("ctrl+")
+                    is_alt = k.startswith("alt+")
+                    is_nav = k dalam ["up", "down", "pageup", "pagedown", "home", "end", "escape", "tab", "shift+tab"]
+                    jika tidak is_ctrl dan tidak is_alt dan tidak is_nav {
+                        chat_in.focus()
+                        jika getattr(event, "is_printable", salah) dan event.character {
+                            chat_in.value = chat_in.value + event.character
+                            chat_in.cursor_position = len(chat_in.value)
+                            event.prevent_default()
+                            event.stop()
+                        }
+                    }
+                }
+            } kecuali exc {
+                lewati
+            }
+        }
+    }
+
+    @on(events.Click, "#input_container")
+    @on(events.Click, "#chat_prompt_symbol")
+    fungsi handle_input_container_click() {
+        diri._focus_input()
     }
 
     @on(Input.Changed, "#chat_input")
@@ -1443,9 +1496,11 @@ kelas GeminiTerminalAgentApp < App {
         }
 
         input_widget.value = ""
+        diri.set_timer(0.05, diri._focus_input)
 
         jika raw_msg.startswith("/") {
             diri.handle_slash_command(raw_msg)
+            diri.set_timer(0.05, diri._focus_input)
             kembalikan
         }
 
@@ -1944,6 +1999,9 @@ kelas GeminiTerminalAgentApp < App {
         status = "MEMPROSES..." jika is_thinking selain "READY"
         title = diri.agent.session.title jika diri.agent selain kosong
         diri.update_status_bar(diri.agent.model_name jika diri.agent selain "-", status, title)
+        jika tidak is_thinking {
+            diri.set_timer(0.05, diri._focus_input)
+        }
     }
 
     fungsi _ui_tool_call_start(tool_name, args) {
@@ -1981,6 +2039,7 @@ kelas GeminiTerminalAgentApp < App {
         }
         scroll = diri.query_one("#chat_messages", VerticalScroll)
         scroll.scroll_end(animate=benar)
+        diri.set_timer(0.05, diri._focus_input)
     }
 
     fungsi action_interrupt_agent() {
