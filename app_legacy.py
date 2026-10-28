@@ -810,6 +810,7 @@ class GeminiTerminalAgentApp(App[None]):
         self.agent: Optional[GeminiAgent] = None
         self.active_tool_card: Optional[ToolCallCard] = None
         self.active_theme: str = config_manager.get_theme()
+        self._last_user_message: Optional[str] = None
 
     def compose(self) -> ComposeResult:
         # Header Atas
@@ -1081,6 +1082,7 @@ class GeminiTerminalAgentApp(App[None]):
             return
 
         # Kirim pesan percakapan biasa ke Agent
+        self._last_user_message = raw_msg
         self.append_user_message(raw_msg)
         self.dispatch_agent_message(raw_msg)
 
@@ -1091,6 +1093,48 @@ class GeminiTerminalAgentApp(App[None]):
 
         if command == "/quit":
             self.action_quit_app()
+
+        elif command == "/setkey":
+            if not arg:
+                self.append_error_message("[!] Penggunaan: /setkey <API_KEY_GEMINI>")
+                return
+            config_manager.add_gemini_api_key(arg)
+            if self.agent:
+                self.agent.api_key = arg
+                if hasattr(self.agent, "_init_client"):
+                    self.agent._init_client()
+                if hasattr(self.agent, "_init_chat_session"):
+                    self.agent._init_chat_session()
+            self.append_system_message(f"✓ Kunci API baru berhasil disimpan ({arg[:6]}***).")
+            if getattr(self, "_last_user_message", None):
+                self.append_system_message("Mengirim ulang pesan terakhir secara otomatis...")
+                self.dispatch_agent_message(self._last_user_message)
+
+        elif command == "/provider":
+            target_prov = arg.lower()
+            if target_prov not in ["gemini", "ollama", "groq", "omniroute"]:
+                self.append_error_message("[!] Provider tidak valid. Pilihan: gemini, ollama, groq, omniroute")
+                return
+            config_manager.save_provider(target_prov)
+            if self.agent:
+                self.agent.provider = target_prov
+                if target_prov == "ollama":
+                    self.agent.model_name = config_manager.get_ollama_model()
+                elif target_prov == "groq":
+                    self.agent.model_name = config_manager.get_groq_model()
+                elif target_prov == "gemini":
+                    self.agent.model_name = config_manager.get_gemini_model()
+            self.append_system_message(f"✓ Provider aktif dialihkan ke `{target_prov}` (Model: `{self.agent.model_name if self.agent else '-'}`).")
+            if getattr(self, "_last_user_message", None):
+                self.append_system_message("Mengirim ulang pesan terakhir...")
+                self.dispatch_agent_message(self._last_user_message)
+
+        elif command == "/retry":
+            if getattr(self, "_last_user_message", None):
+                self.append_system_message("Mencoba kirim ulang pesan...")
+                self.dispatch_agent_message(self._last_user_message)
+            else:
+                self.append_error_message("[!] Tidak ada pesan sebelumnya untuk dicoba ulang.")
 
         elif command == "/clear":
             self.action_clear_chat()
@@ -1340,7 +1384,18 @@ class GeminiTerminalAgentApp(App[None]):
                 context="generate: send_message",
                 active_model=self.agent.model_name,
             )
-            self.app.call_from_thread(self.append_error_message, err.to_cli_string())
+            recovery_hint = (
+                f"{err.to_cli_string()}\n\n"
+                "[bold yellow]╭── 💡 IN-SESSION RECOVERY ACTIONS ──────────────────────────────╮[/bold yellow]\n"
+                "│ [bold white]Gunakan perintah di bawah ini tanpa perlu keluar/restart:[/bold white]   │\n"
+                "│  • [bold cyan]/setkey <API_KEY>[/bold cyan]   : Masukkan API Key baru & auto-retry    │\n"
+                "│  • [bold cyan]/provider ollama[/bold cyan]   : Alihkan ke model lokal Ollama         │\n"
+                "│  • [bold cyan]/provider groq[/bold cyan]     : Alihkan ke provider Groq Cloud        │\n"
+                "│  • [bold cyan]/model <nama>[/bold cyan]      : Ganti model aktif                     │\n"
+                "│  • [bold cyan]/retry[/bold cyan]             : Kirim ulang pesan terakhir            │\n"
+                "[bold yellow]╰────────────────────────────────────────────────────────────────╯[/bold yellow]"
+            )
+            self.app.call_from_thread(self.append_error_message, recovery_hint)
         finally:
             self.app.call_from_thread(self._set_thinking_state, False)
 

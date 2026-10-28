@@ -3,9 +3,9 @@ setlocal enabledelayedexpansion
 set "OLLAMA_MODELS=D:\.ollama\models"
 set "OLLAMA_HOST=127.0.0.1:11434"
 
-echo ========================================================
-echo   GEMINI TERMINAL AGENT (Indonesiaku-Lang Engine)
-echo ========================================================
+echo ========================================
+echo  Gemini Terminal Agent - Self-Healing Mode
+echo ========================================
 echo.
 
 :: 1. Verifikasi instalasi Python
@@ -20,7 +20,7 @@ if %errorlevel% neq 0 (
 )
 
 :: Tampilkan versi Python
-for /f "tokens=*" %%i in ('python --version 2^>^&1') do set PYTHON_VERSION=%%i
+for /f "tokens=*" %%i in ('python --version 2^>&1') do set PYTHON_VERSION=%%i
 echo [i] Python terdeteksi: !PYTHON_VERSION!
 
 :: 2. Pembuatan dan aktivasi Virtual Environment (.venv)
@@ -51,19 +51,15 @@ if %errorlevel% neq 0 (
     pip install -r requirements.txt
 )
 
-:: 4. Jalankan 2 Window Mandiri (Telegram Bot Gateway & Terminal Agent TUI)
 echo.
-echo [*] Meluncurkan Telegram Bot Gateway di Window terpisah...
-start "Gemini Agent - Telegram Gateway" cmd /k "title Gemini Agent - Telegram Gateway && color 0B && call .venv\Scripts\activate.bat && python bot_telegram.py"
-
-echo [*] Meluncurkan Terminal Agent TUI di Window terpisah...
-start "Gemini Agent - Terminal TUI" cmd /k "title Gemini Agent - Terminal TUI && color 0A && call .venv\Scripts\activate.bat && python app.py"
-
-:: 5. Status selesai
+echo Pilih mode jalankan:
+echo   1. Mode Normal (tanpa self-healing)
+echo   2. Mode Self-Healing (otomatis perbaiki crash)
 echo.
-echo ========================================================
-echo   [OK] Kedua Window (Bot Tele & Terminal TUI) Telah Terbuka!
-echo   Jendela peluncur ini dapat ditutup kapan saja.
-echo ========================================================
-timeout /t 5 >nul
-exit /b 0
+set /p choice="Pilih [1/2] (default: 2): "
+if "%choice%"=="1" (
+    python app.py
+) else (
+    python run_with_healing.py tui
+)
+pause

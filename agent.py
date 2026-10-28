@@ -24,6 +24,7 @@ from config import config_manager
 from logger import agent_logger
 from memory import memory_manager
 from session_manager import Session, SessionMessage, session_manager
+from session_healer import session_healer
 from tools import AVAILABLE_TOOLS, OPENAI_TOOLS_SCHEMA, TOOL_CALLABLES
 
 
@@ -690,95 +691,125 @@ class GeminiAgent:
                     session_manager.save_session(self.session)
                     return res
 
-        self.provider = config_manager.get_provider()
-        if self.provider == "groq":
-            return self._send_message_groq(message, on_tool_call, on_tool_result)
-        elif self.provider == "omniroute":
-            return self._send_message_omniroute(message, on_tool_call, on_tool_result)
-        elif self.provider == "ollama":
-            return self._send_message_ollama(message, on_tool_call, on_tool_result)
+        max_heal_attempts = 3
+        heal_attempt = 0
+        last_error = None
 
-        if not self.chat:
-            self._init_chat_session()
+        while heal_attempt < max_heal_attempts:
+            try:
+                self.provider = config_manager.get_provider()
+                if self.provider == "groq":
+                    return self._send_message_groq(message, on_tool_call, on_tool_result)
+                elif self.provider == "omniroute":
+                    return self._send_message_omniroute(message, on_tool_call, on_tool_result)
+                elif self.provider == "ollama":
+                    return self._send_message_ollama(message, on_tool_call, on_tool_result)
 
-        response = self.chat.send_message(message)
-        max_tool_iterations = 15
-        iteration = 0
+                if not self.chat:
+                    self._init_chat_session()
 
-        while response.function_calls and iteration < max_tool_iterations:
-            iteration += 1
-            parts_responses = []
+                response = self.chat.send_message(message)
+                max_tool_iterations = 15
+                iteration = 0
 
-            for call in response.function_calls:
-                tool_name = call.name
-                tool_args = call.args if isinstance(call.args, dict) else dict(call.args or {})
+                while response.function_calls and iteration < max_tool_iterations:
+                    iteration += 1
+                    parts_responses = []
 
-                agent_logger.log_info(
-                    "agent.tool_loop",
-                    f"Panggilan tool diminta: {tool_name} dengan argumen {tool_args}",
-                )
+                    for call in response.function_calls:
+                        tool_name = call.name
+                        tool_args = call.args if isinstance(call.args, dict) else dict(call.args or {})
 
-                if on_tool_call:
-                    on_tool_call(tool_name, tool_args)
-
-                # Eksekusi fungsi tool yang terdaftar
-                if tool_name in AVAILABLE_TOOLS:
-                    try:
-                        func = AVAILABLE_TOOLS[tool_name]
-                        result_str = str(func(**tool_args))
-                    except Exception as exc:
-                        result_str = f"[GAGAL] Eksekusi tool {tool_name} error: {exc}"
-                        agent_logger.log_error(
+                        agent_logger.log_info(
                             "agent.tool_loop",
-                            f"Kesalahan internal pada tool {tool_name}: {exc}",
+                            f"Panggilan tool diminta: {tool_name} dengan argumen {tool_args}",
                         )
-                else:
-                    result_str = f"[GAGAL] Tool '{tool_name}' tidak dikenal."
 
-                # Buat preview singkat untuk callback UI dan rekaman pesan
-                preview = (
-                    result_str[:120].replace("\n", " ") + "..."
-                    if len(result_str) > 120
-                    else result_str.replace("\n", " ")
+                        if on_tool_call:
+                            on_tool_call(tool_name, tool_args)
+
+                        # Eksekusi fungsi tool yang terdaftar
+                        if tool_name in AVAILABLE_TOOLS:
+                            try:
+                                func = AVAILABLE_TOOLS[tool_name]
+                                result_str = str(func(**tool_args))
+                            except Exception as exc:
+                                result_str = f"[GAGAL] Eksekusi tool {tool_name} error: {exc}"
+                                agent_logger.log_error(
+                                    "agent.tool_loop",
+                                    f"Kesalahan internal pada tool {tool_name}: {exc}",
+                                )
+                        else:
+                            result_str = f"[GAGAL] Tool '{tool_name}' tidak dikenal."
+
+                        # Buat preview singkat untuk callback UI dan rekaman pesan
+                        preview = (
+                            result_str[:120].replace("\n", " ") + "..."
+                            if len(result_str) > 120
+                            else result_str.replace("\n", " ")
+                        )
+
+                        if on_tool_result:
+                            on_tool_result(tool_name, preview)
+
+                        # Catat pemanggilan tool ke UI messages sesi
+                        self.session.ui_messages.append(
+                            SessionMessage(
+                                msg_type="tool",
+                                tool_name=tool_name,
+                                tool_args=tool_args,
+                                tool_preview=preview,
+                            )
+                        )
+
+                        safe_result = pangkas_output_tool(result_str)
+                        part = types.Part.from_function_response(
+                            name=tool_name,
+                            response={"result": safe_result},
+                        )
+                        parts_responses.append(part)
+
+                    # Kirim kembali hasil tool response ke obrolan model
+                    response = self.chat.send_message(parts_responses)
+
+                final_text = response.text or "(Tidak ada teks dalam respon)"
+                agent_logger.log_info(
+                    "agent.send_message",
+                    f"Respon akhir diterima ({len(final_text)} karakter)",
                 )
 
-                if on_tool_result:
-                    on_tool_result(tool_name, preview)
+                # Catat respon agen ke UI messages sesi
+                self.session.ui_messages.append(SessionMessage(msg_type="agent", text=final_text))
 
-                # Catat pemanggilan tool ke UI messages sesi
-                self.session.ui_messages.append(
-                    SessionMessage(
-                        msg_type="tool",
-                        tool_name=tool_name,
-                        tool_args=tool_args,
-                        tool_preview=preview,
+                # Sinkronisasi riwayat obrolan lengkap dan simpan ke disk
+                self._sync_history_from_chat()
+                session_manager.save_session(self.session)
+
+                return final_text
+
+            except Exception as exc:
+                heal_attempt += 1
+                last_error = exc
+                heal_res = session_healer.attempt_heal(
+                    exc=exc,
+                    agent=self,
+                    session=self.session,
+                    context="generate: send_message",
+                    attempt=heal_attempt,
+                )
+                if heal_res.recovered:
+                    agent_logger.log_info(
+                        "agent.healing",
+                        f"In-Session healing berhasil: {heal_res.summary} -> Mencoba ulang pengiriman pesan...",
                     )
-                )
+                    continue
+                else:
+                    # Tidak dapat di-heal secara otonom, sertakan heal_res pada exception dan re-raise
+                    setattr(exc, "healing_result", heal_res)
+                    raise exc
 
-                safe_result = pangkas_output_tool(result_str)
-                part = types.Part.from_function_response(
-                    name=tool_name,
-                    response={"result": safe_result},
-                )
-                parts_responses.append(part)
-
-            # Kirim kembali hasil tool response ke obrolan model
-            response = self.chat.send_message(parts_responses)
-
-        final_text = response.text or "(Tidak ada teks dalam respon)"
-        agent_logger.log_info(
-            "agent.send_message",
-            f"Respon akhir diterima ({len(final_text)} karakter)",
-        )
-
-        # Catat respon agen ke UI messages sesi
-        self.session.ui_messages.append(SessionMessage(msg_type="agent", text=final_text))
-
-        # Sinkronisasi riwayat obrolan lengkap dan simpan ke disk
-        self._sync_history_from_chat()
-        session_manager.save_session(self.session)
-
-        return final_text
+        if last_error:
+            raise last_error
 
     def _send_message_openai_compatible(
         self,

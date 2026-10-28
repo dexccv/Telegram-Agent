@@ -17,6 +17,7 @@ kelas PengelolaKonfigurasi {
         diri.logs_dir = diri.app_dir / "logs"
         diri.sessions_dir = diri.app_dir / "sessions"
         diri.env_path = diri.app_dir / ".env"
+        diri._kunci_gemini_gagal = set()
         diri.pastikan_direktori()
         diri.muat_ulang()
     }
@@ -64,9 +65,57 @@ kelas PengelolaKonfigurasi {
         os.environ["AI_PROVIDER"] = clean
     }
 
+    fungsi ambil_gemini_key_pool() {
+        """Mengambil seluruh daftar API key Gemini dari GEMINI_API_KEY dan GEMINI_API_KEYS."""
+        diri.muat_ulang()
+        kunci_list = []
+        utama = os.environ.get("GEMINI_API_KEY", "").strip()
+        jika utama {
+            kunci_list.append(utama)
+        }
+        pool_raw = os.environ.get("GEMINI_API_KEYS", "").strip()
+        jika pool_raw {
+            untuk item dalam pool_raw.split(",") {
+                clean_item = item.strip()
+                jika clean_item dan clean_item tidak dalam kunci_list {
+                    kunci_list.append(clean_item)
+                }
+            }
+        }
+        kembalikan kunci_list
+    }
+
+    fungsi ambil_gemini_key_berikutnya() {
+        """Mengambil kunci Gemini berikutnya dari pool yang belum ditandai gagal."""
+        pool = diri.ambil_gemini_key_pool()
+        untuk k dalam pool {
+            jika k tidak dalam diri._kunci_gemini_gagal {
+                kembalikan k
+            }
+        }
+        kembalikan kosong
+    }
+
+    fungsi tandai_kunci_gagal(kunci) {
+        jika kunci {
+            diri._kunci_gemini_gagal.add(kunci.strip())
+        }
+    }
+
+    fungsi reset_kunci_gagal() {
+        diri._kunci_gemini_gagal.clear()
+    }
+
     fungsi ambil_gemini_api_key() {
         diri.muat_ulang()
         k = os.environ.get("GEMINI_API_KEY", "").strip()
+        jika k dan k tidak dalam diri._kunci_gemini_gagal {
+            kembalikan k
+        }
+        cadangan = diri.ambil_gemini_key_berikutnya()
+        jika cadangan {
+            kembalikan cadangan
+        }
         kembalikan k jika k selain kosong
     }
 
@@ -74,6 +123,39 @@ kelas PengelolaKonfigurasi {
         clean = api_key.strip()
         set_key(str(diri.env_path), "GEMINI_API_KEY", clean)
         os.environ["GEMINI_API_KEY"] = clean
+        diri._kunci_gemini_gagal.discard(clean)
+    }
+
+    fungsi tambah_gemini_api_key(api_key) {
+        clean = api_key.strip()
+        jika tidak clean {
+            kembalikan
+        }
+        pool = diri.ambil_gemini_key_pool()
+        jika clean tidak dalam pool {
+            pool.append(clean)
+        }
+        pool_str = ",".join(pool)
+        set_key(str(diri.env_path), "GEMINI_API_KEYS", pool_str)
+        os.environ["GEMINI_API_KEYS"] = pool_str
+        diri.simpan_gemini_api_key(clean)
+    }
+
+    fungsi ambil_gemini_model() {
+        """Mengambil nama model Gemini aktif (default: gemini-2.5-flash)."""
+        diri.muat_ulang()
+        m = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        jika tidak m atau "/" dalam m atau m == "auto" {
+            kembalikan "gemini-2.5-flash"
+        }
+        kembalikan m
+    }
+
+    fungsi simpan_gemini_model(model_name) {
+        """Menyimpan nama model Gemini."""
+        clean = model_name.strip()
+        set_key(str(diri.env_path), "GEMINI_MODEL", clean)
+        os.environ["GEMINI_MODEL"] = clean
     }
 
     fungsi ambil_omni_api_key() {
@@ -97,6 +179,19 @@ kelas PengelolaKonfigurasi {
         clean = base_url.strip()
         set_key(str(diri.env_path), "OMNI_BASE_URL", clean)
         os.environ["OMNI_BASE_URL"] = clean
+    }
+
+    fungsi ambil_omni_model() {
+        """Mengambil nama model Omni aktif (default: auto)."""
+        diri.muat_ulang()
+        kembalikan os.environ.get("OMNI_MODEL", "auto").strip() atau "auto"
+    }
+
+    fungsi simpan_omni_model(model_name) {
+        """Menyimpan nama model Omni."""
+        clean = model_name.strip()
+        set_key(str(diri.env_path), "OMNI_MODEL", clean)
+        os.environ["OMNI_MODEL"] = clean
     }
 
     fungsi ambil_ollama_base_url() {
@@ -125,7 +220,11 @@ kelas PengelolaKonfigurasi {
 
     fungsi ambil_ollama_model() {
         diri.muat_ulang()
-        kembalikan os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b").strip() atau "qwen2.5-coder:7b"
+        m = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b").strip()
+        jika tidak m atau m.startswith("gemini-") atau m == "auto" {
+            kembalikan "qwen2.5-coder:7b"
+        }
+        kembalikan m
     }
 
     fungsi simpan_ollama_model(model_name) {
@@ -219,11 +318,11 @@ kelas PengelolaKonfigurasi {
         jika prov == "groq" {
             kembalikan diri.ambil_groq_model()
         } jika_lain prov == "omniroute" {
-            kembalikan os.environ.get("OMNI_MODEL", "auto").strip() atau "auto"
+            kembalikan diri.ambil_omni_model()
         } jika_lain prov == "ollama" {
             kembalikan diri.ambil_ollama_model()
         }
-        kembalikan os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() atau "gemini-2.5-flash"
+        kembalikan diri.ambil_gemini_model()
     }
 
     fungsi simpan_model(model_name) {
@@ -233,13 +332,11 @@ kelas PengelolaKonfigurasi {
         jika prov == "groq" {
             diri.simpan_groq_model(clean_model)
         } jika_lain prov == "omniroute" {
-            set_key(str(diri.env_path), "OMNI_MODEL", clean_model)
-            os.environ["OMNI_MODEL"] = clean_model
+            diri.simpan_omni_model(clean_model)
         } jika_lain prov == "ollama" {
             diri.simpan_ollama_model(clean_model)
         } selain {
-            set_key(str(diri.env_path), "GEMINI_MODEL", clean_model)
-            os.environ["GEMINI_MODEL"] = clean_model
+            diri.simpan_gemini_model(clean_model)
         }
     }
 
@@ -292,6 +389,43 @@ kelas PengelolaKonfigurasi {
         diri.muat_ulang()
         kembalikan os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
     }
+
+    # Alias kompatibilitas bahasa Inggris
+    fungsi get_provider() { kembalikan diri.ambil_provider() }
+    fungsi save_provider(provider) { diri.simpan_provider(provider) }
+    fungsi get_gemini_api_key() { kembalikan diri.ambil_gemini_api_key() }
+    fungsi save_gemini_api_key(api_key) { diri.simpan_gemini_api_key(api_key) }
+    fungsi get_gemini_model() { kembalikan diri.ambil_gemini_model() }
+    fungsi save_gemini_model(model_name) { diri.simpan_gemini_model(model_name) }
+    fungsi get_omni_api_key() { kembalikan diri.ambil_omni_api_key() }
+    fungsi save_omni_api_key(api_key) { diri.simpan_omni_api_key(api_key) }
+    fungsi get_omni_base_url() { kembalikan diri.ambil_omni_base_url() }
+    fungsi save_omni_base_url(base_url) { diri.simpan_omni_base_url(base_url) }
+    fungsi get_omni_model() { kembalikan diri.ambil_omni_model() }
+    fungsi save_omni_model(model_name) { diri.simpan_omni_model(model_name) }
+    fungsi get_groq_api_key() { kembalikan diri.ambil_groq_api_key() }
+    fungsi save_groq_api_key(api_key) { diri.simpan_groq_api_key(api_key) }
+    fungsi get_groq_model() { kembalikan diri.ambil_groq_model() }
+    fungsi save_groq_model(model_name) { diri.simpan_groq_model(model_name) }
+    fungsi get_ollama_base_url() { kembalikan diri.ambil_ollama_base_url() }
+    fungsi save_ollama_base_url(base_url) { diri.simpan_ollama_base_url(base_url) }
+    fungsi get_ollama_models_path() { kembalikan diri.ambil_ollama_models_path() }
+    fungsi save_ollama_models_path(path) { diri.simpan_ollama_models_path(path) }
+    fungsi get_ollama_model() { kembalikan diri.ambil_ollama_model() }
+    fungsi save_ollama_model(model_name) { diri.simpan_ollama_model(model_name) }
+    fungsi get_api_key() { kembalikan diri.ambil_api_key() }
+    fungsi save_api_key(api_key) { diri.simpan_api_key(api_key) }
+    fungsi get_base_url() { kembalikan diri.ambil_base_url() }
+    fungsi save_base_url(base_url) { diri.simpan_base_url(base_url) }
+    fungsi get_model() { kembalikan diri.ambil_model() }
+    fungsi save_model(model_name) { diri.simpan_model(model_name) }
+    fungsi get_theme() { kembalikan diri.ambil_tema() }
+    fungsi save_theme(theme_name) { diri.simpan_tema(theme_name) }
+    fungsi get_active_session_id() { kembalikan diri.ambil_sesi_aktif_id() }
+    fungsi save_active_session_id(session_id) { diri.simpan_sesi_aktif_id(session_id) }
+    fungsi is_debug() { kembalikan diri.apakah_mode_debug() }
+    fungsi get_telegram_token() { kembalikan diri.ambil_telegram_token() }
+    fungsi get_telegram_allowed_user_id() { kembalikan diri.ambil_telegram_allowed_user_id() }
 }
 
 pengelola_konfigurasi = PengelolaKonfigurasi()

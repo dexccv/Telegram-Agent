@@ -16,7 +16,7 @@ import socket
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import psutil
 
@@ -290,6 +290,7 @@ class TelegramAgentGateway:
         self.agent = agen.AgenGemini(api_key=self.api_key, model_name=self.model_name)
         self.file_picker_state: dict[int, dict] = {}
         self.session_lock = asyncio.Lock()
+        self._waiting_for_key_user_id: Optional[int] = None
         console.print("[dim green]✓ Agen AI & modul sistem siap.[/dim green]")
 
     def is_authorized(self, update: Update) -> bool:
@@ -538,6 +539,73 @@ class TelegramAgentGateway:
                 )
             except Exception:
                 pass
+        elif data == "heal_input_key":
+            self._waiting_for_key_user_id = update.effective_user.id
+            msg_prompt = (
+                "🔑 **Input API Key Gemini Baru**\n\n"
+                "Silakan kirimkan (paste) API Key Gemini Anda yang valid langsung ke chat ini.\n"
+                "Kunci akan langsung disimpan ke `.env` laptop dan sesi akan segera dipulihkan.\n\n"
+                "_Ketik /cancel jika ingin membatalkan._"
+            )
+            if query.message:
+                await query.message.reply_text(msg_prompt, parse_mode=ParseMode.MARKDOWN)
+        elif data == "heal_switch_ollama":
+            from config import config_manager
+            config_manager.save_provider("ollama")
+            m_ollama = config_manager.get_ollama_model()
+            self.agent.provider = "ollama"
+            self.agent.model_name = m_ollama
+            if query.message:
+                await query.message.reply_text(
+                    f"✅ **Berhasil Dialihkan ke Ollama Lokal!**\n"
+                    f"Model: `{m_ollama}`\n"
+                    f"Silakan ulangi pesan Anda.",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+        elif data == "heal_switch_groq":
+            from config import config_manager
+            groq_k = config_manager.get_groq_api_key()
+            if not groq_k:
+                if query.message:
+                    await query.message.reply_text(
+                        "⚠️ `GROQ_API_KEY` belum disetel di `.env` laptop.",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+            else:
+                config_manager.save_provider("groq")
+                m_groq = config_manager.get_groq_model()
+                self.agent.provider = "groq"
+                self.agent.model_name = m_groq
+                if query.message:
+                    await query.message.reply_text(
+                        f"✅ **Berhasil Dialihkan ke Groq Cloud!**\n"
+                        f"Model: `{m_groq}`\n"
+                        f"Silakan ulangi pesan Anda.",
+                        parse_mode=ParseMode.MARKDOWN,
+                    )
+        elif data == "heal_model_gemini15":
+            from config import config_manager
+            config_manager.save_gemini_model("gemini-1.5-flash")
+            self.agent.model_name = "gemini-1.5-flash"
+            if hasattr(self.agent, "_init_chat_session"):
+                self.agent._init_chat_session()
+            if query.message:
+                await query.message.reply_text(
+                    "✅ **Model Diturunkan ke `gemini-1.5-flash`!**\n"
+                    "Silakan ulangi pesan Anda.",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+        elif data == "heal_reset_session":
+            if hasattr(self.agent, "session") and self.agent.session:
+                self.agent.session.ui_messages.clear()
+            if hasattr(self.agent, "_init_chat_session"):
+                self.agent._init_chat_session()
+            if query.message:
+                await query.message.reply_text(
+                    "♻️ **Riwayat Percakapan Sesi Telah Direset!**\n"
+                    "Memori jangka panjang tetap aman. Silakan mulai percakapan baru.",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
         elif data == "btn_battery":
             m = ambil_metrik_realtime()
             msg = (
@@ -1985,6 +2053,35 @@ class TelegramAgentGateway:
         if not user_text:
             return
 
+        # Sesi pemulihan: Pengguna sedang memasukkan API Key baru via chat
+        if self._waiting_for_key_user_id == update.effective_user.id:
+            if user_text.lower() in ["/cancel", "batal", "cancel"]:
+                self._waiting_for_key_user_id = None
+                await update.message.reply_text("❌ Input API Key dibatalkan.")
+                return
+            new_key = user_text.strip()
+            if len(new_key) >= 20:
+                from config import config_manager
+                config_manager.add_gemini_api_key(new_key)
+                self.agent.api_key = new_key
+                if hasattr(self.agent, "_init_client"):
+                    self.agent._init_client()
+                if hasattr(self.agent, "_init_chat_session"):
+                    self.agent._init_chat_session()
+                self._waiting_for_key_user_id = None
+                await update.message.reply_text(
+                    f"✅ **API Key Baru Berhasil Disimpan & Diaktifkan!**\n"
+                    f"🔑 Key: `{new_key[:6]}...{new_key[-4:]}`\n\n"
+                    f"Silakan kirim pesan Anda kembali.",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                return
+            else:
+                await update.message.reply_text(
+                    "⚠️ Format API key terlalu pendek atau tidak valid. Silakan paste API key yang benar dari Google AI Studio atau ketik /cancel.",
+                )
+                return
+
         u_info = get_user_info(update)
         u_clean = user_text.lower().strip()
 
@@ -2183,12 +2280,39 @@ class TelegramAgentGateway:
                         pass
 
         except Exception as exc:
-            err_msg = f"❌ Terjadi kesalahan saat memproses di laptop: {exc}"
             agent_logger.log_error("telegram_gateway", str(exc))
+            diag = agent_logger.diagnose_and_format_error(
+                exc=exc,
+                context="telegram_gateway.chat",
+                active_model=self.agent.model_name,
+            )
+
+            recovery_markup = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("🔑 Masukkan API Key Baru", callback_data="heal_input_key"),
+                ],
+                [
+                    InlineKeyboardButton("🦙 Alihkan ke Ollama Lokal", callback_data="heal_switch_ollama"),
+                    InlineKeyboardButton("⚡ Alihkan ke Groq Cloud", callback_data="heal_switch_groq"),
+                ],
+                [
+                    InlineKeyboardButton("🔄 Downgrade ke Gemini 1.5", callback_data="heal_model_gemini15"),
+                    InlineKeyboardButton("♻️ Reset Sesi", callback_data="heal_reset_session"),
+                ],
+            ])
+
+            err_card = (
+                f"🚨 *[IN-SESSION RECOVERY]*\n\n"
+                f"❌ **Masalah**: `{diag.category}`\n"
+                f"ℹ️ **Keterangan**: {diag.mitigation}\n"
+                f"⚙️ **Model Aktif**: `{self.agent.model_name}`\n\n"
+                f"👇 *Pilih tindakan pemulihan instan di bawah tanpa perlu restart:*"
+            )
+
             try:
-                await status_msg.edit_text(err_msg)
+                await status_msg.edit_text(err_card, reply_markup=recovery_markup, parse_mode=ParseMode.MARKDOWN)
             except Exception:
-                await update.message.reply_text(err_msg)
+                await update.message.reply_text(err_card, reply_markup=recovery_markup, parse_mode=ParseMode.MARKDOWN)
 
     async def post_init(self, application: Application) -> None:
         """Mendaftarkan menu tombol command interaktif di aplikasi Telegram."""

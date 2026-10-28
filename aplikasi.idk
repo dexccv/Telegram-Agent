@@ -1450,6 +1450,7 @@ kelas GeminiTerminalAgentApp < App {
         }
 
         pesan_terproses, lampiran_info = diri._ekstrak_konteks_berkas(raw_msg)
+        diri._last_user_message = pesan_terproses
         diri.append_user_message(raw_msg)
         jika lampiran_info {
             diri.append_system_message(lampiran_info)
@@ -1498,6 +1499,28 @@ kelas GeminiTerminalAgentApp < App {
 
         jika command dalam ["/quit", "/exit"] {
             diri.action_quit_app()
+        } jika_lain command == "/setkey" {
+            jika tidak arg {
+                diri.append_error_message("[!] Penggunaan: /setkey <API_KEY_GEMINI>")
+                kembalikan
+            }
+            pengelola_konfigurasi.tambah_gemini_api_key(arg)
+            jika diri.agent {
+                diri.agent.api_key = arg
+                diri.agent._inisialisasi_klien()
+                diri.agent._inisialisasi_sesi_obrolan()
+            }
+            diri.append_system_message(f"✓ Kunci API baru berhasil disimpan ({arg[:6]}***). Melanjutkan pesan...")
+            jika hasattr(diri, "_last_user_message") dan diri._last_user_message {
+                diri.current_agent_worker = diri.dispatch_agent_message(diri._last_user_message)
+            }
+        } jika_lain command == "/retry" {
+            jika hasattr(diri, "_last_user_message") dan diri._last_user_message {
+                diri.append_system_message("Mencoba ulang pengiriman pesan terakhir...")
+                diri.current_agent_worker = diri.dispatch_agent_message(diri._last_user_message)
+            } selain {
+                diri.append_error_message("[!] Tidak ada pesan sebelumnya untuk dicoba ulang.")
+            }
         } jika_lain command dalam ["/restart", "/reload", "/reboot"] {
             diri.action_restart_app()
         } jika_lain command dalam ["/stop", "/interrupt", "/batal", "/cancel"] {
@@ -1853,9 +1876,43 @@ kelas GeminiTerminalAgentApp < App {
                 context="generate: send_message",
                 active_model=diri.agent.model_name,
             )
-            diri.app.call_from_thread(diri.append_error_message, err.to_cli_string())
+            petunjuk_pemulihan = (
+                f"{err.to_cli_string()}\n\n"
+                "[bold yellow]╭── 💡 IN-SESSION RECOVERY ACTIONS ──────────────────────────────╮[/bold yellow]\n"
+                "│ [bold white]Gunakan tindakan pemulihan di bawah tanpa perlu restart:[/bold white]       │\n"
+                "│  • [bold cyan]/setkey <API_KEY>[/bold cyan]   : Masukkan API Key baru & auto-retry    │\n"
+                "│  • [bold cyan]/provider ollama[/bold cyan]   : Alihkan ke model lokal Ollama         │\n"
+                "│  • [bold cyan]/provider groq[/bold cyan]     : Alihkan ke provider Groq Cloud        │\n"
+                "│  • [bold cyan]/model <nama>[/bold cyan]      : Ganti model aktif                     │\n"
+                "│  • [bold cyan]/retry[/bold cyan]             : Kirim ulang pesan terakhir            │\n"
+                "[bold yellow]╰────────────────────────────────────────────────────────────────╯[/bold yellow]"
+            )
+            diri.app.call_from_thread(diri.append_error_message, petunjuk_pemulihan)
+
+            # Auto-Recovery Modal: Pop up dialog input API key secara proaktif jika kunci tidak valid
+            jika "API Key" dalam err.category atau "api_key" dalam str(exc).lower() {
+                fungsi _buka_modal_key() {
+                    diri.app.push_screen(ApiKeyModal(), diri._on_healed_key_input)
+                }
+                diri.app.call_from_thread(_buka_modal_key)
+            }
         } akhirnya {
             diri.app.call_from_thread(diri._set_thinking_state, salah)
+        }
+    }
+
+    fungsi _on_healed_key_input(new_key) {
+        jika new_key {
+            pengelola_konfigurasi.tambah_gemini_api_key(new_key)
+            jika diri.agent {
+                diri.agent.api_key = new_key
+                diri.agent._inisialisasi_klien()
+                diri.agent._inisialisasi_sesi_obrolan()
+            }
+            diri.append_system_message(f"✓ Kunci API baru berhasil diaktifkan ({new_key[:6]}***). Mengirim ulang pesan...")
+            jika hasattr(diri, "_last_user_message") dan diri._last_user_message {
+                diri.current_agent_worker = diri.dispatch_agent_message(diri._last_user_message)
+            }
         }
     }
 

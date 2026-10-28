@@ -16,6 +16,7 @@ dari konfigurasi impor pengelola_konfigurasi
 dari logger impor agent_logger
 dari memori impor pengelola_memori
 dari pengelola_sesi impor pengelola_sesi, Sesi, PesanSesi
+dari session_healer impor session_healer, HealingAction
 dari perkakas impor ALAT_TERSEDIA, DAFTAR_PANGGILAN_ALAT, SKEMA_ALAT_OPENAI
 
 
@@ -808,150 +809,188 @@ kelas AgenGemini {
             }
         }
 
-        jika diri.provider == "groq" {
-            kembalikan diri._kirim_pesan_groq(message, on_tool_call, on_tool_result, on_chunk)
-        } jika_lain diri.provider == "omniroute" {
-            kembalikan diri._kirim_pesan_omniroute(message, on_tool_call, on_tool_result, on_chunk)
-        } jika_lain diri.provider == "ollama" {
-            kembalikan diri._kirim_pesan_ollama(message, on_tool_call, on_tool_result, on_chunk)
-        }
+        maks_percobaan_healing = 3
+        percobaan_healing = 0
+        error_terakhir = kosong
 
-        diri.interrupted = salah
-        maks_iterasi_tool = 15
-        iterasi = 0
-        input_payload = message
-        teks_akumulasi = ""
-
-        selagi iterasi < maks_iterasi_tool {
-            jika diri.interrupted {
-                agent_logger.log_info("agen.kirim_pesan", "Eksekusi dihentikan atas permintaan pengguna.")
-                diri._sinkronkan_riwayat()
-                kembalikan "[Interupsi] Respon agen dihentikan oleh pengguna."
-            }
-            iterasi += 1
-
-            stream = diri.chat.send_message_stream(input_payload)
-            panggilan_alat_ditemukan = []
-            teks_putaran_ini = []
-
-            untuk chunk dalam stream {
-                jika diri.interrupted {
-                    berhenti
+        selagi percobaan_healing < maks_percobaan_healing {
+            coba {
+                diri.provider = pengelola_konfigurasi.ambil_provider()
+                jika diri.provider == "groq" {
+                    kembalikan diri._kirim_pesan_groq(message, on_tool_call, on_tool_result, on_chunk)
+                } jika_lain diri.provider == "omniroute" {
+                    kembalikan diri._kirim_pesan_omniroute(message, on_tool_call, on_tool_result, on_chunk)
+                } jika_lain diri.provider == "ollama" {
+                    kembalikan diri._kirim_pesan_ollama(message, on_tool_call, on_tool_result, on_chunk)
                 }
 
-                usage = getattr(chunk, "usage_metadata", kosong)
-                jika usage {
-                    diri.last_usage_metadata["prompt_tokens"] = getattr(usage, "prompt_token_count", 0) atau diri.last_usage_metadata["prompt_tokens"]
-                    diri.last_usage_metadata["candidate_tokens"] = getattr(usage, "candidates_token_count", 0) atau diri.last_usage_metadata["candidate_tokens"]
-                    diri.last_usage_metadata["total_tokens"] = getattr(usage, "total_token_count", 0) atau diri.last_usage_metadata["total_tokens"]
+                jika tidak diri.chat {
+                    diri._inisialisasi_sesi_obrolan()
                 }
 
-                chunk_text = getattr(chunk, "text", "") atau ""
-                jika chunk_text {
-                    teks_putaran_ini.append(chunk_text)
-                    jika on_chunk {
-                        on_chunk(chunk_text)
+                diri.interrupted = salah
+                maks_iterasi_tool = 15
+                iterasi = 0
+                input_payload = message
+                teks_akumulasi = ""
+
+                selagi iterasi < maks_iterasi_tool {
+                    jika diri.interrupted {
+                        agent_logger.log_info("agen.kirim_pesan", "Eksekusi dihentikan atas permintaan pengguna.")
+                        diri._sinkronkan_riwayat()
+                        kembalikan "[Interupsi] Respon agen dihentikan oleh pengguna."
                     }
-                }
+                    iterasi += 1
 
-                fn_calls = getattr(chunk, "function_calls", []) atau []
-                untuk fc dalam fn_calls {
-                    panggilan_alat_ditemukan.append(fc)
-                }
-            }
+                    stream = diri.chat.send_message_stream(input_payload)
+                    panggilan_alat_ditemukan = []
+                    teks_putaran_ini = []
 
-            jika teks_putaran_ini {
-                teks_akumulasi += "".join(teks_putaran_ini)
-            }
+                    untuk chunk dalam stream {
+                        jika diri.interrupted {
+                            berhenti
+                        }
 
-            jika diri.interrupted {
-                agent_logger.log_info("agen.kirim_pesan", "Eksekusi dihentikan atas permintaan pengguna.")
-                diri._sinkronkan_riwayat()
-                kembalikan "[Interupsi] Respon agen dihentikan oleh pengguna."
-            }
+                        usage = getattr(chunk, "usage_metadata", kosong)
+                        jika usage {
+                            diri.last_usage_metadata["prompt_tokens"] = getattr(usage, "prompt_token_count", 0) atau diri.last_usage_metadata["prompt_tokens"]
+                            diri.last_usage_metadata["candidate_tokens"] = getattr(usage, "candidates_token_count", 0) atau diri.last_usage_metadata["candidate_tokens"]
+                            diri.last_usage_metadata["total_tokens"] = getattr(usage, "total_token_count", 0) atau diri.last_usage_metadata["total_tokens"]
+                        }
 
-            jika tidak panggilan_alat_ditemukan {
-                berhenti
-            }
+                        chunk_text = getattr(chunk, "text", "") atau ""
+                        jika chunk_text {
+                            teks_putaran_ini.append(chunk_text)
+                            jika on_chunk {
+                                on_chunk(chunk_text)
+                            }
+                        }
 
-            daftar_respon_bagian = []
-            untuk panggilan dalam panggilan_alat_ditemukan {
-                jika diri.interrupted {
-                    berhenti
-                }
-                nama_alat = panggilan.name
-                argumen_alat = panggilan.args jika isinstance(panggilan.args, dict) selain dict(panggilan.args atau {})
+                        fn_calls = getattr(chunk, "function_calls", []) atau []
+                        untuk fc dalam fn_calls {
+                            panggilan_alat_ditemukan.append(fc)
+                        }
+                    }
 
-                agent_logger.log_info(
-                    "agen.tool_loop",
-                    f"Panggilan tool diminta: {nama_alat} dengan argumen {argumen_alat}",
-                )
+                    jika teks_putaran_ini {
+                        teks_akumulasi += "".join(teks_putaran_ini)
+                    }
 
-                jika on_tool_call {
-                    on_tool_call(nama_alat, argumen_alat)
-                }
+                    jika diri.interrupted {
+                        agent_logger.log_info("agen.kirim_pesan", "Eksekusi dihentikan atas permintaan pengguna.")
+                        diri._sinkronkan_riwayat()
+                        kembalikan "[Interupsi] Respon agen dihentikan oleh pengguna."
+                    }
 
-                jika nama_alat dalam ALAT_TERSEDIA {
-                    coba {
-                        fungsi_alat = ALAT_TERSEDIA[nama_alat]
-                        hasil_str = str(fungsi_alat(**argumen_alat))
-                    } kecuali exc {
-                        hasil_str = f"[GAGAL] Eksekusi tool {nama_alat} error: {exc}"
-                        agent_logger.log_error(
+                    jika tidak panggilan_alat_ditemukan {
+                        berhenti
+                    }
+
+                    daftar_respon_bagian = []
+                    untuk panggilan dalam panggilan_alat_ditemukan {
+                        jika diri.interrupted {
+                            berhenti
+                        }
+                        nama_alat = panggilan.name
+                        argumen_alat = panggilan.args jika isinstance(panggilan.args, dict) selain dict(panggilan.args atau {})
+
+                        agent_logger.log_info(
                             "agen.tool_loop",
-                            f"Kesalahan internal pada tool {nama_alat}: {exc}",
+                            f"Panggilan tool diminta: {nama_alat} dengan argumen {argumen_alat}",
                         )
+
+                        jika on_tool_call {
+                            on_tool_call(nama_alat, argumen_alat)
+                        }
+
+                        jika nama_alat dalam ALAT_TERSEDIA {
+                            coba {
+                                fungsi_alat = ALAT_TERSEDIA[nama_alat]
+                                hasil_str = str(fungsi_alat(**argumen_alat))
+                            } kecuali exc {
+                                hasil_str = f"[GAGAL] Eksekusi tool {nama_alat} error: {exc}"
+                                agent_logger.log_error(
+                                    "agen.tool_loop",
+                                    f"Kesalahan internal pada tool {nama_alat}: {exc}",
+                                )
+                            }
+                        } selain {
+                            hasil_str = f"[GAGAL] Tool '{nama_alat}' tidak dikenal."
+                        }
+
+                        preview = (
+                            hasil_str[:120].replace("\n", " ") + "..."
+                            jika len(hasil_str) > 120
+                            selain hasil_str.replace("\n", " ")
+                        )
+
+                        jika on_tool_result {
+                            on_tool_result(nama_alat, preview)
+                        }
+
+                        diri.session.ui_messages.append(
+                            PesanSesi(
+                                msg_type="tool",
+                                tool_name=nama_alat,
+                                tool_args=argumen_alat,
+                                tool_preview=preview,
+                            )
+                        )
+
+                        bagian = types.Part.from_function_response(
+                            name=nama_alat,
+                            response={"result": pangkas_output_tool(hasil_str)},
+                        )
+                        daftar_respon_bagian.append(bagian)
                     }
-                } selain {
-                    hasil_str = f"[GAGAL] Tool '{nama_alat}' tidak dikenal."
+
+                    jika diri.interrupted {
+                        agent_logger.log_info("agen.kirim_pesan", "Eksekusi dihentikan atas permintaan pengguna.")
+                        diri._sinkronkan_riwayat()
+                        kembalikan "[Interupsi] Eksekusi alat dihentikan oleh pengguna."
+                    }
+
+                    input_payload = daftar_respon_bagian
                 }
 
-                preview = (
-                    hasil_str[:120].replace("\n", " ") + "..."
-                    jika len(hasil_str) > 120
-                    selain hasil_str.replace("\n", " ")
+                teks_akhir = teks_akumulasi.strip() atau "(Tidak ada teks dalam respon)"
+                agent_logger.log_info(
+                    "agen.kirim_pesan",
+                    f"Respon akhir diterima ({len(teks_akhir)} karakter)",
                 )
 
-                jika on_tool_result {
-                    on_tool_result(nama_alat, preview)
-                }
-
-                diri.session.ui_messages.append(
-                    PesanSesi(
-                        msg_type="tool",
-                        tool_name=nama_alat,
-                        tool_args=argumen_alat,
-                        tool_preview=preview,
-                    )
-                )
-
-                bagian = types.Part.from_function_response(
-                    name=nama_alat,
-                    response={"result": pangkas_output_tool(hasil_str)},
-                )
-                daftar_respon_bagian.append(bagian)
-            }
-
-            jika diri.interrupted {
-                agent_logger.log_info("agen.kirim_pesan", "Eksekusi dihentikan atas permintaan pengguna.")
+                diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=teks_akhir))
                 diri._sinkronkan_riwayat()
-                kembalikan "[Interupsi] Eksekusi alat dihentikan oleh pengguna."
-            }
+                pengelola_sesi.simpan_sesi(diri.session)
 
-            input_payload = daftar_respon_bagian
+                kembalikan teks_akhir
+
+            } kecuali exc {
+                percobaan_healing += 1
+                error_terakhir = exc
+                heal_res = session_healer.attempt_heal(
+                    exc=exc,
+                    agent=diri,
+                    session=diri.session,
+                    context="generate: send_message",
+                    attempt=percobaan_healing,
+                )
+                jika heal_res.recovered {
+                    agent_logger.log_info(
+                        "agen.healing",
+                        f"In-Session healing berhasil: {heal_res.summary} -> Mencoba ulang...",
+                    )
+                    lanjut
+                } selain {
+                    setattr(exc, "healing_result", heal_res)
+                    naikkan exc
+                }
+            }
         }
 
-        teks_akhir = teks_akumulasi.strip() atau "(Tidak ada teks dalam respon)"
-        agent_logger.log_info(
-            "agen.kirim_pesan",
-            f"Respon akhir diterima ({len(teks_akhir)} karakter)",
-        )
-
-        diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=teks_akhir))
-        diri._sinkronkan_riwayat()
-        pengelola_sesi.simpan_sesi(diri.session)
-
-        kembalikan teks_akhir
+        jika error_terakhir {
+            naikkan error_terakhir
+        }
     }
 
     fungsi _kirim_pesan_openai_kompatibel(url_target, headers_dict, nama_model, message, nama_provider, timeout_sec=45, on_tool_call=kosong, on_tool_result=kosong, on_chunk=kosong) {

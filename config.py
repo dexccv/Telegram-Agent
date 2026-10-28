@@ -20,6 +20,7 @@ class ConfigManager:
         self.logs_dir: Path = self.app_dir / "logs"
         self.sessions_dir: Path = self.app_dir / "sessions"
         self.env_path: Path = self.app_dir / ".env"
+        self._failed_gemini_keys: set[str] = set()
         self.ensure_directories()
         self.reload()
 
@@ -56,17 +57,83 @@ class ConfigManager:
         set_key(str(self.env_path), "AI_PROVIDER", clean)
         os.environ["AI_PROVIDER"] = clean
 
+    def get_gemini_key_pool(self) -> list[str]:
+        """Mengambil seluruh daftar API key Gemini dari GEMINI_API_KEY dan GEMINI_API_KEYS."""
+        self.reload()
+        keys: list[str] = []
+        primary = os.environ.get("GEMINI_API_KEY", "").strip()
+        if primary:
+            keys.append(primary)
+        pool_raw = os.environ.get("GEMINI_API_KEYS", "").strip()
+        if pool_raw:
+            for item in pool_raw.split(","):
+                clean_item = item.strip()
+                if clean_item and clean_item not in keys:
+                    keys.append(clean_item)
+        return keys
+
+    def get_next_valid_gemini_key(self) -> Optional[str]:
+        """Mengambil kunci Gemini berikutnya dari pool yang belum ditandai gagal/exhausted."""
+        pool = self.get_gemini_key_pool()
+        for k in pool:
+            if k not in self._failed_gemini_keys:
+                return k
+        return None
+
+    def mark_key_failed(self, key: str) -> None:
+        """Menandai kunci tertentu sebagai tidak valid atau habis kuota untuk sesi ini."""
+        if key:
+            self._failed_gemini_keys.add(key.strip())
+
+    def reset_failed_keys(self) -> None:
+        """Mereset status blacklist kunci yang gagal."""
+        self._failed_gemini_keys.clear()
+
     def get_gemini_api_key(self) -> Optional[str]:
-        """Mengambil API key resmi Gemini."""
+        """Mengambil API key resmi Gemini yang aktif dan valid."""
         self.reload()
         k = os.environ.get("GEMINI_API_KEY", "").strip()
+        if k and k not in self._failed_gemini_keys:
+            return k
+        # Coba ambil kunci berikutnya dari pool cadangan jika kunci utama gagal
+        fallback = self.get_next_valid_gemini_key()
+        if fallback:
+            return fallback
         return k or None
 
     def save_gemini_api_key(self, api_key: str) -> None:
-        """Menyimpan API key resmi Gemini."""
+        """Menyimpan API key resmi Gemini dan mereset status kegagalan kunci ini."""
         clean = api_key.strip()
         set_key(str(self.env_path), "GEMINI_API_KEY", clean)
         os.environ["GEMINI_API_KEY"] = clean
+        self._failed_gemini_keys.discard(clean)
+
+    def add_gemini_api_key(self, api_key: str) -> None:
+        """Menambahkan API key baru ke dalam pool GEMINI_API_KEYS dan menjadikannya kunci aktif."""
+        clean = api_key.strip()
+        if not clean:
+            return
+        pool = self.get_gemini_key_pool()
+        if clean not in pool:
+            pool.append(clean)
+        pool_str = ",".join(pool)
+        set_key(str(self.env_path), "GEMINI_API_KEYS", pool_str)
+        os.environ["GEMINI_API_KEYS"] = pool_str
+        self.save_gemini_api_key(clean)
+
+    def get_gemini_model(self) -> str:
+        """Mengambil nama model Gemini aktif (default: gemini-2.5-flash)."""
+        self.reload()
+        m = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
+        if not m or "/" in m or m == "auto":
+            return "gemini-2.5-flash"
+        return m
+
+    def save_gemini_model(self, model_name: str) -> None:
+        """Menyimpan nama model Gemini."""
+        clean = model_name.strip()
+        set_key(str(self.env_path), "GEMINI_MODEL", clean)
+        os.environ["GEMINI_MODEL"] = clean
 
     def get_omni_api_key(self) -> Optional[str]:
         """Mengambil API key Omniroute."""
@@ -90,6 +157,17 @@ class ConfigManager:
         clean = base_url.strip()
         set_key(str(self.env_path), "OMNI_BASE_URL", clean)
         os.environ["OMNI_BASE_URL"] = clean
+
+    def get_omni_model(self) -> str:
+        """Mengambil nama model Omni aktif (default: auto)."""
+        self.reload()
+        return os.environ.get("OMNI_MODEL", "auto").strip() or "auto"
+
+    def save_omni_model(self, model_name: str) -> None:
+        """Menyimpan nama model Omni."""
+        clean = model_name.strip()
+        set_key(str(self.env_path), "OMNI_MODEL", clean)
+        os.environ["OMNI_MODEL"] = clean
 
     def get_ollama_base_url(self) -> str:
         """Mengambil Base URL Ollama (default: http://localhost:11434/v1)."""
@@ -116,7 +194,10 @@ class ConfigManager:
     def get_ollama_model(self) -> str:
         """Mengambil nama model Ollama (default: qwen2.5-coder:7b)."""
         self.reload()
-        return os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b").strip() or "qwen2.5-coder:7b"
+        m = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b").strip()
+        if not m or m.startswith("gemini-") or m == "auto":
+            return "qwen2.5-coder:7b"
+        return m
 
     def save_ollama_model(self, model_name: str) -> None:
         """Menyimpan nama model Ollama."""
@@ -201,10 +282,10 @@ class ConfigManager:
         if prov == "groq":
             return self.get_groq_model()
         elif prov == "omniroute":
-            return os.environ.get("OMNI_MODEL", "auto").strip() or "auto"
+            return self.get_omni_model()
         elif prov == "ollama":
             return self.get_ollama_model()
-        return os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+        return self.get_gemini_model()
 
     def save_model(self, model_name: str) -> None:
         """Menyimpan model terpilih untuk provider aktif."""
@@ -213,13 +294,11 @@ class ConfigManager:
         if prov == "groq":
             self.save_groq_model(clean_model)
         elif prov == "omniroute":
-            set_key(str(self.env_path), "OMNI_MODEL", clean_model)
-            os.environ["OMNI_MODEL"] = clean_model
+            self.save_omni_model(clean_model)
         elif prov == "ollama":
             self.save_ollama_model(clean_model)
         else:
-            set_key(str(self.env_path), "GEMINI_MODEL", clean_model)
-            os.environ["GEMINI_MODEL"] = clean_model
+            self.save_gemini_model(clean_model)
 
     def get_theme(self) -> str:
         """Mengambil tema terpilih dari env atau file .env. Default: 'default'."""
@@ -263,6 +342,40 @@ class ConfigManager:
         self.reload()
         return os.environ.get("TELEGRAM_ALLOWED_USER_ID", "").strip()
 
+    # Alias kompatibilitas bahasa Indonesia
+    ambil_provider = get_provider
+    simpan_provider = save_provider
+    ambil_gemini_api_key = get_gemini_api_key
+    simpan_gemini_api_key = save_gemini_api_key
+    ambil_gemini_model = get_gemini_model
+    simpan_gemini_model = save_gemini_model
+    ambil_omni_api_key = get_omni_api_key
+    simpan_omni_api_key = save_omni_api_key
+    ambil_omni_base_url = get_omni_base_url
+    simpan_omni_base_url = save_omni_base_url
+    ambil_omni_model = get_omni_model
+    simpan_omni_model = save_omni_model
+    ambil_groq_api_key = get_groq_api_key
+    simpan_groq_api_key = save_groq_api_key
+    ambil_groq_model = get_groq_model
+    simpan_groq_model = save_groq_model
+    ambil_ollama_base_url = get_ollama_base_url
+    simpan_ollama_base_url = save_ollama_base_url
+    ambil_ollama_models_path = get_ollama_models_path
+    simpan_ollama_models_path = save_ollama_models_path
+    ambil_ollama_model = get_ollama_model
+    simpan_ollama_model = save_ollama_model
+    ambil_api_key = get_api_key
+    simpan_api_key = save_api_key
+    ambil_base_url = get_base_url
+    simpan_base_url = save_base_url
+    ambil_model = get_model
+    simpan_model = save_model
+    ambil_tema = get_theme
+    simpan_tema = save_theme
+    ambil_sesi_aktif_id = get_active_session_id
+    simpan_sesi_aktif_id = save_active_session_id
+    apakah_mode_debug = is_debug
     ambil_telegram_token = get_telegram_token
     ambil_telegram_allowed_user_id = get_telegram_allowed_user_id
 
