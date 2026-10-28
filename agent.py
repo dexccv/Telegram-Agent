@@ -386,6 +386,12 @@ class GeminiAgent:
         if not self.session.model_name:
             self.session.model_name = self.model_name
 
+        self.last_usage_metadata: dict[str, int] = {
+            "total_tokens": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+        }
+
         self.chat = None
         if self.provider == "gemini":
             http_opts = _build_http_options()
@@ -447,6 +453,74 @@ class GeminiAgent:
             "agent.init_chat_session",
             f"Sesi chat diinisialisasi (Sesi ID: {self.session.session_id}, Judul: '{self.session.title}', Turns: {len(validated_history)}, Model: {self.model_name})",
         )
+
+    def _prune_history_if_needed(self, max_turns: int = 25, max_chars: int = 80_000) -> None:
+        """Pangkas riwayat percakapan jika melebihi batas untuk mencegah context overflow."""
+        if not self.chat or self.provider != "gemini":
+            return
+        try:
+            history = self.chat.get_history()
+            if not history:
+                return
+
+            total_chars = 0
+            for content in history:
+                for part in (getattr(content, "parts", None) or []):
+                    total_chars += len(str(getattr(part, "text", "") or ""))
+
+            needs_prune = (len(history) > max_turns * 2) or (total_chars > max_chars)
+            if not needs_prune:
+                return
+
+            turns_to_keep = min(8 * 2, len(history))
+            recent_history = history[-turns_to_keep:]
+            pruned_count = len(history) - len(recent_history)
+
+            summary_content = [
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(
+                            text=f"[CATATAN SISTEM: {pruned_count} turn percakapan sebelumnya telah dipangkas otomatis demi efisiensi kuota konteks. Riwayat terkini dilanjutkan pada pesan berikut.]"
+                        )
+                    ],
+                ),
+                types.Content(
+                    role="model",
+                    parts=[
+                        types.Part.from_text(
+                            text="Dipahami. Saya melanjutkan percakapan berdasarkan riwayat konteks terkini."
+                        )
+                    ],
+                ),
+            ]
+
+            persistent_memory = memory_manager.format_for_system_instruction()
+            system_instruction = (
+                "Anda adalah AI Agent terminal profesional dan cerdas bernama gemini-terminal-agent. "
+                "Berikan jawaban to-the-point, tepat sasaran, faktual, dan teknis. "
+                "Jangan gunakan salam berlebihan atau basa-basi generik. Dilarang keras menggunakan emoji apapun. "
+                "Gunakan tool yang tersedia kapan pun pengguna meminta manipulasi berkas, direktori, shell, atau memori.\n"
+                f"{persistent_memory}"
+            )
+            config = types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                tools=TOOL_CALLABLES,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                temperature=0.2,
+            )
+
+            self.chat = self.client.chats.create(
+                model=self.model_name,
+                config=config,
+                history=summary_content + list(recent_history),
+            )
+            agent_logger.log_info(
+                "agent.prune_history",
+                f"Riwayat dipangkas: {pruned_count} turns lama dihapus, {len(recent_history)//2} turns terkini dipertahankan.",
+            )
+        except Exception as exc:
+            agent_logger.log_error("agent.prune_history", f"Gagal memangkas riwayat: {exc}")
 
     def change_model(self, new_model_name: str) -> None:
         """Mengganti model aktif dengan tetap mempertahankan riwayat percakapan sesi ini."""
@@ -708,6 +782,9 @@ class GeminiAgent:
                 if not self.chat:
                     self._init_chat_session()
 
+                # Pangkas riwayat lama jika melebihi batas token / turns
+                self._prune_history_if_needed()
+
                 response = self.chat.send_message(message)
                 max_tool_iterations = 15
                 iteration = 0
@@ -773,9 +850,21 @@ class GeminiAgent:
                     response = self.chat.send_message(parts_responses)
 
                 final_text = response.text or "(Tidak ada teks dalam respon)"
+
+                # Simpan metadata penggunaan token aktual
+                try:
+                    if hasattr(response, "usage_metadata") and response.usage_metadata:
+                        self.last_usage_metadata = {
+                            "total_tokens": getattr(response.usage_metadata, "total_token_count", 0) or 0,
+                            "input_tokens": getattr(response.usage_metadata, "prompt_token_count", 0) or 0,
+                            "output_tokens": getattr(response.usage_metadata, "candidates_token_count", 0) or 0,
+                        }
+                except Exception:
+                    pass
+
                 agent_logger.log_info(
                     "agent.send_message",
-                    f"Respon akhir diterima ({len(final_text)} karakter)",
+                    f"Respon akhir diterima ({len(final_text)} karakter, token: {self.last_usage_metadata.get('total_tokens', 0)})",
                 )
 
                 # Catat respon agen ke UI messages sesi
@@ -874,6 +963,14 @@ class GeminiAgent:
                 )
                 with urllib.request.urlopen(req, timeout=timeout) as resp:
                     data = json.loads(resp.read().decode())
+
+                usage = data.get("usage", {})
+                if usage:
+                    self.last_usage_metadata = {
+                        "total_tokens": usage.get("total_tokens", 0) or 0,
+                        "input_tokens": usage.get("prompt_tokens", 0) or 0,
+                        "output_tokens": usage.get("completion_tokens", 0) or 0,
+                    }
 
                 choices = data.get("choices", [])
                 if not choices:

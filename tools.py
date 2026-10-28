@@ -26,6 +26,56 @@ DANGEROUS_PATTERNS = [
     r"\bdd\s+if=.*of=/dev/[sh]d[a-z]",
 ]
 
+# Daftar pola path yang SELALU diblokir terlepas dari konfigurasi
+_ALWAYS_BLOCKED_PATTERNS = [
+    ".ssh",
+    ".gemini-agent/.env",
+    "windows/system32",
+    "windows/syswow64",
+    "/etc/passwd",
+    "/etc/shadow",
+]
+
+
+def validate_sandbox_path(path: str, allow_outside_workspace: bool = False) -> tuple[bool, str]:
+    """Memvalidasi apakah path aman untuk diakses oleh agent.
+
+    Mengembalikan (True, "") jika aman, atau (False, alasan) jika diblokir.
+    """
+    try:
+        target = Path(path).expanduser().resolve()
+    except Exception as exc:
+        return False, f"Path tidak valid: {exc}"
+
+    target_str = str(target).lower().replace("\\", "/")
+
+    # 1. Blokir pola berbahaya absolut
+    for pattern in _ALWAYS_BLOCKED_PATTERNS:
+        if pattern in target_str:
+            return False, f"Akses ke '{pattern}' selalu diblokir demi keamanan sistem."
+
+    # 2. Blokir file .env di mana saja untuk melindungi kredensial API
+    if target.name == ".env" or target.name.endswith(".env") or target.suffix == ".env":
+        return False, "Akses ke file .env diblokir untuk melindungi kredensial API."
+
+    # 3. Jika tidak diizinkan di luar workspace, cek batas direktori
+    if not allow_outside_workspace:
+        workspace = Path.cwd().resolve()
+        try:
+            target.relative_to(workspace)
+        except ValueError:
+            # Izinkan akses ke folder home agent (~/.gemini-agent) selain file .env
+            agent_dir = (Path.home() / ".gemini-agent").resolve()
+            try:
+                target.relative_to(agent_dir)
+            except ValueError:
+                return False, (
+                    f"Akses ke '{target}' diblokir. Path berada di luar direktori kerja "
+                    f"('{workspace}'). Gunakan path relatif atau minta izin eksplisit."
+                )
+
+    return True, ""
+
 
 def is_command_safe(command: str) -> tuple[bool, str]:
     """Memeriksa apakah perintah terminal masuk dalam daftar hitam perintah berbahaya."""
@@ -60,6 +110,11 @@ def create_folder(path: str) -> str:
     Returns:
         Pesan status hasil pembuatan direktori.
     """
+    is_safe, reason = validate_sandbox_path(path)
+    if not is_safe:
+        agent_logger.log_warning("tools.create_folder", f"Path diblokir: {path} - {reason}")
+        return f"[DIBLOKIR KEAMANAN] {reason}"
+
     try:
         target = Path(path).expanduser().resolve()
         target.mkdir(parents=True, exist_ok=True)
@@ -80,6 +135,11 @@ def list_files(path: str = ".") -> str:
     Returns:
         Daftar item direktori beserta tipe dan ukurannya.
     """
+    is_safe, reason = validate_sandbox_path(path)
+    if not is_safe:
+        agent_logger.log_warning("tools.list_files", f"Path diblokir: {path} - {reason}")
+        return f"[DIBLOKIR KEAMANAN] {reason}"
+
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
@@ -120,6 +180,11 @@ def read_file(path: str) -> str:
     Returns:
         Isi teks dari file atau pesan kesalahan jika gagal.
     """
+    is_safe, reason = validate_sandbox_path(path)
+    if not is_safe:
+        agent_logger.log_warning("tools.read_file", f"Path diblokir: {path} - {reason}")
+        return f"[DIBLOKIR KEAMANAN] {reason}"
+
     try:
         target = Path(path).expanduser().resolve()
         if not target.exists():
@@ -151,13 +216,24 @@ def write_file(path: str, content: str) -> str:
     Returns:
         Pesan status hasil penulisan file.
     """
+    is_safe, reason = validate_sandbox_path(path)
+    if not is_safe:
+        agent_logger.log_warning("tools.write_file", f"Path diblokir: {path} - {reason}")
+        return f"[DIBLOKIR KEAMANAN] {reason}"
+
     try:
         target = Path(path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        # Atomic write
+        temp_path = target.with_suffix(target.suffix + ".tmp")
+        temp_path.write_text(content, encoding="utf-8")
+        temp_path.replace(target)
         msg = f"[SUKSES] Berhasil menulis {len(content)} karakter ke file: {target}"
         agent_logger.log_info("tools.write_file", msg)
         return msg
+    except Exception as exc:
+        agent_logger.log_error("tools.write_file", f"Gagal menulis file {path}: {exc}")
+        return f"[GAGAL] Gagal menulis ke file '{path}': {exc}"
     except Exception as exc:
         agent_logger.log_error("tools.write_file", f"Gagal menulis file {path}: {exc}")
         return f"[GAGAL] Gagal menulis ke file '{path}': {exc}"

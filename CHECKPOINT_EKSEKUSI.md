@@ -11,8 +11,8 @@
 | Fase | Nama Fase | Prioritas | Status | Target Berkas | Verifikasi |
 |:---:|:---|:---:|:---:|:---|:---:|
 | **Fase 0** | Hotfix & Stabilitas Fondasi | **P0 (Kritis)** | ✅ Selesai | `bot_telegram.py`, `logger.py`, `memory.py`, `agent.py` | ✅ Lolos |
-| **Fase 1** | Keamanan & Token Management | **P0 - P1** | ⏳ Siap Mulai | `tools.py`, `agent.py` | ⏳ Menunggu |
-| **Fase 2** | Integrasi Core AI & Tooling | **P1 - P2** | ⏳ Antre | `agent.py`, `tools.py`, `bot_telegram.py` | ⏳ Menunggu |
+| **Fase 1** | Keamanan & Token Management | **P0 - P1** | ✅ Selesai | `tools.py`, `agent.py` | ✅ Lolos |
+| **Fase 2** | Integrasi Core AI & Tooling | **P1 - P2** | ⏳ Siap Mulai | `agent.py`, `tools.py`, `bot_telegram.py` | ⏳ Menunggu |
 | **Fase 3** | Standarisasi & Automated Testing | **P2** | ⏳ Antre | `config.py`, `penerjemah_idk.py`, `requirements.txt`, `tests/` | ⏳ Menunggu |
 | **Fase 4** | Modern Developer Experience | **P2 - P3** | ⏳ Antre | `agent.py`, `bot_telegram.py`, `session_manager.py` | ⏳ Menunggu |
 | **Fase 5** | Remote Antigravity & Sandboxed Shell | **P1 - P2** | ⏳ Antre | `antigravity_bridge.py`, `tools.py`, `bot_telegram.py` | ⏳ Menunggu |
@@ -41,12 +41,15 @@
 ### 🔹 FASE 1: Keamanan & Token Management
 > **Fokus:** Penutupan celah path traversal pada tools berkas dan pencegahan token overflow.
 
-- [ ] **Langkah 1.1**: Sandbox Path Validation (`validate_sandbox_path`) di `tools.py` (blokir `.ssh`, `.env`, path traversal).
-- [ ] **Langkah 1.2**: Perbaiki counter token riil (`last_usage_metadata`) di `agent.py`.
-- [ ] **Langkah 1.3**: Mekanisme Context Pruning & Sliding Window History di `agent.py`.
+- [x] **Langkah 1.1**: Sandbox Path Validation (`validate_sandbox_path`) di `tools.py` (blokir `.ssh`, `.env`, path traversal).
+- [x] **Langkah 1.2**: Perbaiki counter token riil (`last_usage_metadata`) di `agent.py`.
+- [x] **Langkah 1.3**: Mekanisme Context Pruning & Sliding Window History di `agent.py`.
 
 #### Catatan Eksekusi Fase 1:
-*Belum dieksekusi.*
+- **1.1**: Menerapkan fungsi `validate_sandbox_path` di `tools.py` yang memblokir akses ke pola direktori sensitif (`.ssh`, `windows/system32`, dsb.), file kredensial `.env`, dan path di luar direktori workspace. Validasi aktif di `create_folder`, `list_files`, `read_file`, dan `write_file` (dengan atomic write).
+- **1.2**: Menambahkan inisialisasi dan pencatatan riil `last_usage_metadata` (`total_tokens`, `input_tokens`, `output_tokens`) pada class `GeminiAgent` dari respons SDK Gemini dan penyedia OpenAI-compatible. Dashboard Telegram `/status` kini menampilkan data token riil.
+- **1.3**: Mengimplementasikan `_prune_history_if_needed(max_turns=25, max_chars=80000)` di `GeminiAgent`. Riwayat percakapan yang melampaui batas kuota konteks dipangkas secara otomatis dengan menyisakan 8 turn terbaru serta injeksi catatan sistem.
+- **Verifikasi**: Uji isolasi path sandbox (pemblokiran `.env`, `.ssh`, path luar workspace) lolos 100%, serta inisialisasi metadata dan pruning method lolos pengujian unit otomatis.
 
 ---
 
@@ -107,6 +110,7 @@
 | 29-10-2026 01:31 | Inisialisasi | Pembuatan file checkpoint & roadmap pelacak | `CHECKPOINT_EKSEKUSI.md` | ✅ Selesai |
 | 29-10-2026 01:33 | Fase 0 | Hotfix BUG-01, BUG-06, MEM-01, dan BUG-04 | `bot_telegram.py`, `logger.py`, `memory.py`, `agent.py` | ✅ Lolos |
 | 29-10-2026 01:38 | Maintenance | Perbaikan force-close run.bat & run_bot.bat (syntax subshell, UTF-8 & escaping) | `run.bat`, `run_bot.bat`, `run_with_healing.py` | ✅ Lolos |
+| 29-10-2026 01:42 | Fase 1 | Keamanan Sandbox Path Validation, Counter Token Riil & Context Pruning | `tools.py`, `agent.py` | ✅ Lolos |
 
 *(Baris baru akan ditambahkan otomatis di sini setiap kali suatu langkah/fase selesai dieksekusi)*
 
