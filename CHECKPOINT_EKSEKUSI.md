@@ -141,6 +141,12 @@
 | 29-10-2026 02:37 | Fase 3 | Throttling Config Reload, Fix BUG-02 Triple Quote Parser IDK, Setup pytest & 11 Automated Tests | `config.py`, `penerjemah_idk.py`, `requirements.txt`, `pytest.ini`, `tests/` | ✅ Lolos |
 | 29-10-2026 02:48 | Fase 4 | Parser Context @filename Universal, Auto-Load Project Rules (AGENTS.md) & Command /export Markdown | `agent.py`, `bot_telegram.py`, `session_manager.py`, `tests/test_features_fase4.py` | ✅ Lolos |
 | 29-10-2026 02:54 | Fase 5 | Antigravity Desktop Automation Bridge, Sandboxed Shell Guard (.venv) & Remote Telegram Controller (/agy, /sh) | `antigravity_bridge.py`, `tools.py`, `bot_telegram.py`, `tests/test_features_fase5.py` | ✅ Lolos |
+| 29-10-2026 03:03 | Integrasi Telegram | Daftarkan BotCommand (/agy, /sh, /export) ke set_my_commands & tombol inline dashboard Remote Antigravity | `bot_telegram.py` | ✅ Lolos |
+| 29-10-2026 03:10 | Logging Telegram | Live Chat Monitor: Global TypeHandler interceptor untuk pesan masuk & panel Rich detail untuk seluruh respon keluar/eksekusi tool | `bot_telegram.py` | ✅ Lolos |
+| 29-10-2026 03:16 | Live Output CMD | Universal Outgoing Interceptor (ExtBot wrapper) agar 100% respon balasan sistem otomatis tercetak detail di CMD | `bot_telegram.py` | ✅ Lolos |
+| 29-10-2026 03:28 | Fase 5 Hotfix | Perbaikan capture screenshot Antigravity: attach Win32 OpenInputDesktop + EnumWindows HWND cropping + async executor di bot | `antigravity_bridge.py`, `bot_telegram.py`, `tests/test_features_fase5.py` | ✅ Lolos (21/21 tests) |
+| 29-10-2026 03:34 | Fase 5 Pengujian & Hardening | Audit menyeluruh seluruh fungsi Antigravity Bridge: integrasi psutil PID filtering, PyAutoGUI SendInput (Ctrl+L, Ctrl+`, Enter), Pyperclip clipboard, dan lolos live test 100% | `antigravity_bridge.py`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
+| 29-10-2026 03:39 | UX Overhaul /agy | Peningkatan UX /agy term (tampilkan output STDOUT/STDERR lengkap ke Telegram) & /agy ss (otomatis bawa jendela Antigravity ke foreground terdepan sebelum screenshot) | `antigravity_bridge.py`, `bot_telegram.py`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
 
 *(Baris baru akan ditambahkan otomatis di sini setiap kali suatu langkah/fase selesai dieksekusi)*
 

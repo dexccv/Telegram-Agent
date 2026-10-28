@@ -50,3 +50,13 @@ def test_run_sandboxed_command_timeout():
     assert res["success"] is False
     assert "SANDBOX TIMEOUT" in res["stderr"]
 
+
+def test_antigravity_capture_window_screenshot(tmp_path):
+    bridge = AntigravityBridge()
+    target_img = tmp_path / "test_capture.png"
+    result = bridge.capture_window_screenshot(output_path=target_img)
+    # Harus mengembalikan file gambar valid yang tersimpan di disk
+    assert result is not None
+    assert result.exists()
+    assert result.stat().st_size > 500
+

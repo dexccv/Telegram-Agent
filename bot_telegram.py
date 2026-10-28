@@ -49,7 +49,9 @@ from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
+    ExtBot,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -81,20 +83,129 @@ def get_user_info(update: Update) -> str:
     return f"{name} (ID: {user.id}{' | ' + u_name if u_name else ''})"
 
 
+def log_chat_incoming(user_info: str, message: str, msg_type: str = "Teks / Perintah") -> None:
+    """Mencetak panel detail pesan masuk dari Telegram ke terminal secara komprehensif."""
+    now = datetime.datetime.now().strftime("%H:%M:%S")
+    clean_msg = str(message).strip()
+    if len(clean_msg) > 1500:
+        clean_msg = clean_msg[:1500] + f"\n... (dipotong untuk tampilan terminal, total {len(clean_msg)} karakter)"
+
+    content = (
+        f"[bold bright_white]Pengirim:[/bold bright_white] [bright_yellow]{user_info}[/bright_yellow]\n"
+        f"[bold bright_white]Waktu   :[/bold bright_white] [dim]{now} WIB[/dim] | [bold bright_cyan]Tipe:[/bold bright_cyan] {msg_type}\n\n"
+        f"[bold bright_white]Isi Pesan Masuk:[/bold bright_white]\n"
+        f"[cyan]{clean_msg}[/cyan]"
+    )
+    console.print(Panel(
+        content,
+        title="[bold bright_green]📥 [TELEGRAM INCOMING] PESAN MASUK[/bold bright_green]",
+        title_align="left",
+        border_style="bright_blue",
+        padding=(0, 1),
+    ))
+
+
+def log_chat_outgoing(target_title: str, message: str, latency: Optional[float] = None) -> None:
+    """Mencetak panel detail respon yang dikirim bot kembali ke Telegram pengguna."""
+    now = datetime.datetime.now().strftime("%H:%M:%S")
+    lat_str = f" | [bold bright_green]Latency: {latency:.2f}s[/bold bright_green]" if latency is not None else ""
+    clean_msg = str(message).strip()
+    if len(clean_msg) > 1500:
+        clean_msg = clean_msg[:1500] + f"\n... (dipotong untuk tampilan terminal, total {len(clean_msg)} karakter)"
+
+    content = (
+        f"[bold bright_white]Tujuan  :[/bold bright_white] [bright_magenta]{target_title}[/bright_magenta]\n"
+        f"[bold bright_white]Waktu   :[/bold bright_white] [dim]{now} WIB[/dim]{lat_str}\n\n"
+        f"[bold bright_white]Isi Balasan Keluar:[/bold bright_white]\n"
+        f"[bright_white]{clean_msg}[/bright_white]"
+    )
+    console.print(Panel(
+        content,
+        title="[bold bright_cyan]📤 [TELEGRAM OUTGOING] RESPON KELUAR[/bold bright_cyan]",
+        title_align="left",
+        border_style="bright_cyan",
+        padding=(0, 1),
+    ))
+
+
+def pasang_interceptor_pesan_keluar() -> None:
+    """Membungkus method pengiriman bot di level ExtBot agar seluruh respon sistem tercetak ke CMD."""
+    if getattr(ExtBot, "_is_intercepted_for_logging", False):
+        return
+
+    orig_send_msg = ExtBot.send_message
+    orig_edit_msg = ExtBot.edit_message_text
+    orig_send_photo = ExtBot.send_photo
+    orig_send_doc = ExtBot.send_document
+
+    async def wrapped_send(self, *args, **kwargs):
+        res = await orig_send_msg(self, *args, **kwargs)
+        try:
+            text = kwargs.get("text", "") or (args[1] if len(args) > 1 else "")
+            if text and "Memproses instruksi di laptop" not in text:
+                log_chat_outgoing("Balasan Sistem (Telegram)", text)
+        except Exception:
+            pass
+        return res
+
+    async def wrapped_edit(self, *args, **kwargs):
+        res = await orig_edit_msg(self, *args, **kwargs)
+        try:
+            text = kwargs.get("text", "") or (args[2] if len(args) > 2 else "")
+            if text and "Memproses instruksi di laptop" not in text and "Mengeksekusi" not in text:
+                log_chat_outgoing("Pembaruan Respon Sistem", text)
+        except Exception:
+            pass
+        return res
+
+    async def wrapped_photo(self, *args, **kwargs):
+        res = await orig_send_photo(self, *args, **kwargs)
+        try:
+            caption = kwargs.get("caption", "") or "[Foto / Tangkapan Layar]"
+            log_chat_outgoing("Kirim Foto / Tangkapan Layar", caption)
+        except Exception:
+            pass
+        return res
+
+    async def wrapped_doc(self, *args, **kwargs):
+        res = await orig_send_doc(self, *args, **kwargs)
+        try:
+            filename = kwargs.get("filename", "")
+            caption = kwargs.get("caption", "")
+            detail = f"{filename} - {caption}" if filename else (caption or "[Dokumen / Berkas]")
+            log_chat_outgoing("Kirim Berkas / Dokumen", detail)
+        except Exception:
+            pass
+        return res
+
+    ExtBot.send_message = wrapped_send
+    ExtBot.edit_message_text = wrapped_edit
+    ExtBot.send_photo = wrapped_photo
+    ExtBot.send_document = wrapped_doc
+    ExtBot._is_intercepted_for_logging = True
+
+
 def log_terminal_box(category: str, title: str, details: list[tuple[str, str]], color: str = "bright_cyan") -> None:
     """Mencetak log peristiwa Telegram yang rapi, profesional, berwarna dengan garis box bersambung."""
     now = datetime.datetime.now().strftime("%H:%M:%S")
-    w = 70
+    w = 75
     tag = f"[{now}] {category.upper()}: {title}"
     head = f"[{color}]┌─── {tag} "
     fill_len = max(2, w - len(tag) - 5)
     head += ("─" * fill_len) + f"[/{color}]"
     console.print(head)
     for k, v in details:
-        clean_v = str(v).replace("\n", " ").strip()
-        if len(clean_v) > 75:
-            clean_v = clean_v[:72] + "..."
-        console.print(f"[{color}]│[/{color}] [bold]{k:<11}[/bold]: {clean_v}")
+        v_str = str(v).strip()
+        lines = v_str.splitlines()
+        if len(lines) <= 1:
+            clean_v = v_str if len(v_str) <= 300 else v_str[:297] + "..."
+            console.print(f"[{color}]│[/{color}] [bold]{k:<11}[/bold]: {clean_v}")
+        else:
+            console.print(f"[{color}]│[/{color}] [bold]{k:<11}[/bold]:")
+            for sub_line in lines[:10]:
+                console.print(f"[{color}]│[/{color}]   {sub_line[:120]}")
+            if len(lines) > 10:
+                console.print(f"[{color}]│[/{color}]   ... ({len(lines)} baris)")
     console.print(f"[{color}]└" + ("─" * (w - 1)) + f"[/{color}]\n")
 
 GUI_PROCESSES: dict[str, str] = {
@@ -452,7 +563,8 @@ class TelegramAgentGateway:
                     InlineKeyboardButton("🖥️ Screenshot Layar", callback_data="btn_capture_screen"),
                 ],
                 [
-                    InlineKeyboardButton("🔒 Kunci Layar Laptop (Ctrl+L)", callback_data="btn_lock_laptop"),
+                    InlineKeyboardButton("🪐 Remote Antigravity", callback_data="btn_remote_agy"),
+                    InlineKeyboardButton("🔒 Kunci Layar (Ctrl+L)", callback_data="btn_lock_laptop"),
                 ],
             ]
         )
@@ -653,6 +765,9 @@ class TelegramAgentGateway:
         elif data == "btn_lock_laptop":
             await query.answer("🔒 Mengunci laptop...")
             await self.lock_cmd(update, context)
+        elif data == "btn_remote_agy":
+            await query.answer("🪐 Remote Antigravity...")
+            await self.agy_cmd(update, context)
         elif data == "btn_volume_panel":
             import perkakas
             fn_vol = getattr(perkakas, "set_volume", None)
@@ -1967,6 +2082,7 @@ class TelegramAgentGateway:
                     ),
                     parse_mode=ParseMode.MARKDOWN,
                 )
+            log_chat_outgoing("Ekspor Percakapan (/export)", f"Berkas berhasil diekspor: {exported_path.name}")
         except Exception as exc:
             agent_logger.log_error("telegram.export_cmd", f"Gagal mengekspor sesi: {exc}")
             await update.message.reply_text(f"❌ Gagal mengekspor sesi: {exc}")
@@ -2010,6 +2126,7 @@ class TelegramAgentGateway:
             ok = antigravity_bridge.send_prompt(subargs, auto_submit=True)
             if ok:
                 await update.message.reply_text(f"✅ Prompt berhasil dikirim ke Antigravity IDE:\n\n`{subargs[:120]}`...", parse_mode=ParseMode.MARKDOWN)
+                log_chat_outgoing("Remote Antigravity (/agy prompt)", f"Prompt terkirim ({len(subargs)} char): {subargs[:200]}")
             else:
                 await update.message.reply_text("❌ Gagal mengirimkan prompt ke jendela Antigravity IDE.")
 
@@ -2022,26 +2139,83 @@ class TelegramAgentGateway:
 
         elif subcmd in ["ss", "screenshot"]:
             await update.message.reply_text("📸 Mengambil screenshot jendela Antigravity IDE...")
-            shot_path = antigravity_bridge.capture_window_screenshot()
-            if shot_path and shot_path.exists():
-                with open(shot_path, "rb") as photo:
-                    await update.message.reply_photo(
-                        photo=photo,
-                        caption="🪐 **Tangkapan Layar Antigravity IDE**",
-                        parse_mode=ParseMode.MARKDOWN,
-                    )
-            else:
-                await update.message.reply_text("❌ Gagal mengambil screenshot jendela Antigravity.")
+            try:
+                shot_path = await asyncio.to_thread(antigravity_bridge.capture_window_screenshot)
+                if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                    with open(shot_path, "rb") as photo:
+                        await update.message.reply_photo(
+                            photo=photo,
+                            caption="🪐 **Tangkapan Layar Antigravity IDE**",
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+                    log_chat_outgoing("Remote Antigravity (/agy ss)", f"Screenshot berhasil dikirim: {shot_path.name}")
+                else:
+                    await update.message.reply_text("❌ Gagal mengambil screenshot jendela Antigravity.")
+                    log_chat_outgoing("Remote Antigravity (/agy ss)", "Gagal mengambil screenshot jendela Antigravity.")
+            except Exception as ss_exc:
+                agent_logger.log_error("telegram_agy_ss", f"Gagal proses ss: {ss_exc}")
+                await update.message.reply_text(f"❌ Error screenshot Antigravity: {ss_exc}")
 
         elif subcmd == "term":
             if not subargs:
                 await update.message.reply_text("⚠️ Berikan perintah shell. Contoh: `/agy term git status`")
                 return
-            ok = antigravity_bridge.open_integrated_terminal_and_run(subargs)
+
+            wait_msg = await update.message.reply_text(
+                f"⏳ Mengetikkan perintah `{subargs}` ke terminal Antigravity IDE & mengeksekusi...",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+            # 1. Jalankan di terminal Antigravity IDE secara visual
+            ok = await asyncio.to_thread(antigravity_bridge.open_integrated_terminal_and_run, subargs)
+
+            # 2. Tangkap output stdout/stderr secara real-time via engine sandboxed
+            from tools import run_sandboxed_command
+            res = await asyncio.to_thread(run_sandboxed_command, subargs)
+
+            now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
+            code = res.get("returncode", 0)
+            status_icon = "✅ Sukses (0)" if code == 0 else f"⚠️ Kode: {code}"
+
+            stdout_txt = res.get("stdout", "").strip()
+            stderr_txt = res.get("stderr", "").strip()
+
+            out_preview = stdout_txt if len(stdout_txt) <= 2500 else stdout_txt[:2400] + "\n... (output dipotong)"
+            err_preview = stderr_txt if len(stderr_txt) <= 1000 else stderr_txt[:950] + "\n... (error dipotong)"
+
+            resp_lines = [
+                "💻 **TERMINAL ANTIGRAVITY IDE**",
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━",
+                f"⌨️ **Perintah**: `{subargs}`",
+                f"📊 **Status**: `{status_icon}` | ⏱ `{now_str}`",
+            ]
+
             if ok:
-                await update.message.reply_text(f"✅ Perintah `{subargs}` berhasil dikirim ke terminal Antigravity.", parse_mode=ParseMode.MARKDOWN)
+                resp_lines.append("🖥️ *Terketik & aktif di terminal IDE laptop*")
             else:
-                await update.message.reply_text("❌ Gagal mengirim perintah ke terminal Antigravity.")
+                resp_lines.append("⚠️ *Gagal mengetik otomatis ke IDE, output diambil dari subproses*")
+
+            resp_lines.append("")
+
+            if out_preview:
+                resp_lines.append(f"📄 **Output (STDOUT)**:\n```text\n{out_preview}\n```")
+            else:
+                resp_lines.append("📄 **Output (STDOUT)**: *(Tidak menghasilkan output teks)*")
+
+            if err_preview:
+                resp_lines.append(f"\n⚠️ **Error (STDERR)**:\n```text\n{err_preview}\n```")
+
+            final_text = "\n".join(resp_lines)
+
+            try:
+                await wait_msg.edit_text(final_text, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                await update.message.reply_text(final_text, parse_mode=ParseMode.MARKDOWN)
+
+            log_chat_outgoing(
+                "Remote Antigravity (/agy term)",
+                f"Perintah: {subargs} | Kode: {code} | Output: {len(stdout_txt)} karakter",
+            )
         else:
             await update.message.reply_text("⚠️ Sub-perintah `/agy` tidak dikenal. Ketik `/agy` untuk melihat panduan.")
 
@@ -2189,6 +2363,25 @@ class TelegramAgentGateway:
             f"Jalur: `{target_path.resolve()}`"
         )
 
+    async def _global_incoming_logger(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Menangkap dan mencetak seluruh pesan/event masuk dari Telegram secara real-time ke terminal."""
+        if not update:
+            return
+
+        u_info = get_user_info(update)
+        if update.message and update.message.text:
+            text = update.message.text.strip()
+            msg_type = "Perintah (Command)" if text.startswith("/") else "Teks Chat"
+            log_chat_incoming(u_info, text, msg_type=msg_type)
+        elif update.message and update.message.document:
+            doc_name = update.message.document.file_name or "Dokumen"
+            log_chat_incoming(u_info, f"[Dokumen Diterima: {doc_name} ({update.message.document.file_size} bytes)]", msg_type="Berkas/Dokumen")
+        elif update.message and update.message.photo:
+            log_chat_incoming(u_info, "[Foto/Gambar Diterima]", msg_type="Gambar/Foto")
+        elif update.callback_query and update.callback_query.data:
+            data = update.callback_query.data
+            log_chat_incoming(u_info, f"[Klik Tombol Inline: {data}]", msg_type="Tombol Interaktif")
+
     async def handle_user_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self.is_authorized(update):
             await self.unauthorized_handler(update)
@@ -2331,12 +2524,6 @@ class TelegramAgentGateway:
             if not response_text or not response_text.strip():
                 response_text = "✅ Perintah telah diproses oleh Agen di laptop."
 
-            log_terminal_box(
-                "Respon AI Selesai", f"{self.agent.model_name} ({ai_duration:.2f}s)",
-                [("Pengguna", u_info), ("Balasan", f'"{response_text[:75]}..."')],
-                color="bright_green"
-            )
-
             # Tambahkan footer indikator latency kecepatan eksekusi
             footer_latency = f"\n\n_⏱ Respon: {ai_duration:.2f}s_"
             response_with_footer = response_text + footer_latency
@@ -2463,6 +2650,9 @@ class TelegramAgentGateway:
         """Mendaftarkan menu tombol command interaktif di aplikasi Telegram."""
         commands = [
             BotCommand("status", "Dashboard monitoring laptop real-time"),
+            BotCommand("agy", "🪐 Kendalikan Antigravity IDE (prompt, proceed, ss, open)"),
+            BotCommand("sh", "⚡ Jalankan perintah sandboxed shell di laptop"),
+            BotCommand("export", "📄 Ekspor percakapan sesi ke file Markdown"),
             BotCommand("clip", "📋 Lihat isi clipboard laptop saat ini"),
             BotCommand("copy", "📋 Salin teks dari HP ke clipboard laptop"),
             BotCommand("lock", "🔒 Kunci layar laptop seketika (Ctrl+L)"),
@@ -2655,7 +2845,13 @@ class TelegramAgentGateway:
         console.print(p)
         console.print()
 
+        # Pasang interceptor pesan keluar agar 100% seluruh respon bot otomatis tercetak di CMD
+        pasang_interceptor_pesan_keluar()
+
         app = Application.builder().token(self.bot_token).post_init(self.post_init).build()
+
+        # Global Incoming Logger: Mencetak seluruh pesan, perintah & event masuk dari Telegram secara detail ke terminal
+        app.add_handler(TypeHandler(Update, self._global_incoming_logger), group=-1)
 
         app.add_handler(CommandHandler("start", self.start_cmd))
         app.add_handler(CommandHandler("help", self.help_cmd))
