@@ -7,6 +7,7 @@ membaca serta menyimpan GEMINI_API_KEY dan GEMINI_MODEL ke file .env.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv, set_key
@@ -21,8 +22,10 @@ class ConfigManager:
         self.sessions_dir: Path = self.app_dir / "sessions"
         self.env_path: Path = self.app_dir / ".env"
         self._failed_gemini_keys: set[str] = set()
+        self._last_reload_time: float = 0.0
+        self._reload_interval: float = 2.0
         self.ensure_directories()
-        self.reload()
+        self.reload(force=True)
 
     def ensure_directories(self) -> None:
         """Membuat direktori kerja, log, dan sesi jika belum ada."""
@@ -32,12 +35,17 @@ class ConfigManager:
         if not self.env_path.exists():
             self.env_path.touch(mode=0o600, exist_ok=True)
 
-    def reload(self) -> None:
-        """Muat ulang environment variables dari file .env."""
+    def reload(self, force: bool = False) -> None:
+        """Muat ulang environment variables dari file .env jika interval terlewati atau dipaksa."""
+        now = time.time()
+        if not force and (now - self._last_reload_time < self._reload_interval):
+            return
+
         if self.env_path.exists():
             load_dotenv(dotenv_path=self.env_path, override=True)
         if not os.environ.get("OLLAMA_MODELS"):
             os.environ["OLLAMA_MODELS"] = r"D:\.ollama\models"
+        self._last_reload_time = now
 
     def get_provider(self) -> str:
         """Mengambil provider AI aktif ('gemini', 'omniroute', 'ollama', atau 'groq')."""

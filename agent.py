@@ -491,6 +491,30 @@ class GeminiAgent:
 
     def _prune_history_if_needed(self, max_turns: int = 25, max_chars: int = 80_000) -> None:
         """Pangkas riwayat percakapan jika melebihi batas untuk mencegah context overflow."""
+        # 1. Pangkas history di self.session (berlaku untuk semua provider)
+        if self.session and hasattr(self.session, "history"):
+            sess_hist = self.session.history
+            total_chars = sum(len(str(m.get("text", ""))) for m in sess_hist)
+            if len(sess_hist) > max_turns * 2 or total_chars > max_chars:
+                turns_to_keep = min(8 * 2, len(sess_hist))
+                recent = sess_hist[-turns_to_keep:]
+                pruned_count = (len(sess_hist) - len(recent)) // 2
+                notice = {
+                    "role": "user",
+                    "text": f"[CATATAN SISTEM: {pruned_count} turn percakapan sebelumnya telah dipangkas otomatis demi efisiensi kuota konteks.]"
+                }
+                ack = {
+                    "role": "model",
+                    "text": "Dipahami. Saya melanjutkan percakapan berdasarkan riwayat konteks terkini."
+                }
+                self.session.history = [notice, ack] + recent
+                session_manager.save_session(self.session)
+                agent_logger.log_info(
+                    "agent.prune_history",
+                    f"Session history dipangkas: {pruned_count} turns lama dihapus, {len(recent)//2} turns terkini dipertahankan."
+                )
+
+        # 2. Pangkas chat SDK Gemini jika provider == 'gemini'
         if not self.chat or self.provider != "gemini":
             return
         try:
@@ -552,10 +576,10 @@ class GeminiAgent:
             )
             agent_logger.log_info(
                 "agent.prune_history",
-                f"Riwayat dipangkas: {pruned_count} turns lama dihapus, {len(recent_history)//2} turns terkini dipertahankan.",
+                f"SDK chat history dipangkas: {pruned_count} turns lama dihapus, {len(recent_history)//2} turns terkini dipertahankan.",
             )
         except Exception as exc:
-            agent_logger.log_error("agent.prune_history", f"Gagal memangkas riwayat: {exc}")
+            agent_logger.log_error("agent.prune_history", f"Gagal memangkas SDK chat history: {exc}")
 
     def change_model(self, new_model_name: str) -> None:
         """Mengganti model aktif dengan tetap mempertahankan riwayat percakapan sesi ini."""

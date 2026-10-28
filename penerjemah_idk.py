@@ -100,6 +100,72 @@ def _ganti_kata_kunci(baris: str) -> str:
     return "".join(hasil)
 
 
+def _scan_triple_quote_state(line: str, in_triple: bool, quote_char: str) -> tuple[bool, str]:
+    r"""Melacak posisi triple quote secara akurat per karakter,
+    membedakan ''' dan \"\"\", serta mengabaikan escape slash (\).
+    """
+    i = 0
+    n = len(line)
+
+    if in_triple:
+        found_close = False
+        while i < n:
+            if line[i] == "\\":
+                i += 2
+                continue
+            if line[i:i+3] == quote_char:
+                found_close = True
+                i += 3
+                in_triple = False
+                quote_char = ""
+                break
+            i += 1
+        if not found_close:
+            return True, quote_char
+
+    in_single_str = None
+    while i < n:
+        c = line[i]
+        if c == "\\":
+            i += 2
+            continue
+
+        if in_single_str:
+            if c == in_single_str:
+                in_single_str = None
+            i += 1
+            continue
+
+        if c == "#":
+            break
+
+        if line[i:i+3] in ('"""', "'''"):
+            q = line[i:i+3]
+            i += 3
+            closed_same_line = False
+            while i < n:
+                if line[i] == "\\":
+                    i += 2
+                    continue
+                if line[i:i+3] == q:
+                    closed_same_line = True
+                    i += 3
+                    break
+                i += 1
+            if not closed_same_line:
+                return True, q
+            continue
+
+        if c in ("'", '"'):
+            in_single_str = c
+            i += 1
+            continue
+
+        i += 1
+
+    return False, ""
+
+
 def terjemahkan_idk_ke_python(kode_idk: str) -> str:
     """Menerjemahkan kode sumber Indonesiaku-Lang (.idk) menjadi kode Python yang valid."""
     baris_mentah = kode_idk.splitlines()
@@ -123,16 +189,10 @@ def terjemahkan_idk_ke_python(kode_idk: str) -> str:
         # Penanganan string multi-baris (triple quote)
         if in_triple_quote:
             baris_hasil.append(baris)
-            if quote_char in teks:
-                in_triple_quote = False
+            in_triple_quote, quote_char = _scan_triple_quote_state(baris, in_triple_quote, quote_char)
             continue
 
-        if '"""' in teks or "'''" in teks:
-            q = '"""' if '"""' in teks else "'''"
-            count = teks.count(q)
-            if count % 2 != 0:
-                in_triple_quote = True
-                quote_char = q
+        in_triple_quote, quote_char = _scan_triple_quote_state(baris, False, "")
 
         # Tangani komentar murni
         if teks.startswith("#"):
