@@ -147,6 +147,7 @@
 | 29-10-2026 03:28 | Fase 5 Hotfix | Perbaikan capture screenshot Antigravity: attach Win32 OpenInputDesktop + EnumWindows HWND cropping + async executor di bot | `antigravity_bridge.py`, `bot_telegram.py`, `tests/test_features_fase5.py` | ✅ Lolos (21/21 tests) |
 | 29-10-2026 03:34 | Fase 5 Pengujian & Hardening | Audit menyeluruh seluruh fungsi Antigravity Bridge: integrasi psutil PID filtering, PyAutoGUI SendInput (Ctrl+L, Ctrl+`, Enter), Pyperclip clipboard, dan lolos live test 100% | `antigravity_bridge.py`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
 | 29-10-2026 03:39 | UX Overhaul /agy | Peningkatan UX /agy term (tampilkan output STDOUT/STDERR lengkap ke Telegram) & /agy ss (otomatis bawa jendela Antigravity ke foreground terdepan sebelum screenshot) | `antigravity_bridge.py`, `bot_telegram.py`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
+| 29-10-2026 03:44 | Fix /agy ss Z-Order Click | Hardening pemfokusan jendela Antigravity dengan klik mouse fisik otomatis di title bar + toggle HWND_TOPMOST memastikan 100% Antigravity berada di tumpukan terdepan sebelum di-screenshot | `antigravity_bridge.py`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
 
 *(Baris baru akan ditambahkan otomatis di sini setiap kali suatu langkah/fase selesai dieksekusi)*
 

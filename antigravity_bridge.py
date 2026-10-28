@@ -122,25 +122,55 @@ class AntigravityBridge:
             agent_logger.log_warning("antigravity_bridge", f"Gagal mencari window via uiautomation: {exc}")
         return None
 
-    def _focus_window(self) -> bool:
-        """Membawa jendela Antigravity ke Foreground via Win32 API."""
+    def _focus_window(self, click: bool = True) -> bool:
+        """Membawa jendela Antigravity ke Foreground via Win32 API, SetWindowPos TOPMOST, dan klik mouse nyata."""
         self._attach_desktop()
 
         hwnd = self._find_window_hwnd()
         if hwnd:
             try:
                 user32 = ctypes.windll.user32
+                from ctypes import wintypes
+
+                rect = wintypes.RECT()
+                user32.GetWindowRect(hwnd, ctypes.byref(rect))
+
+                # 1. Restore bila minimized, atau show normal
                 if user32.IsIconic(hwnd):
                     user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                 else:
                     user32.ShowWindow(hwnd, 5)  # SW_SHOW
 
-                # Lepas proteksi lock foreground dengan event ALT key
+                # 2. Paksa Z-order ke tumpukan paling atas dengan toggle HWND_TOPMOST -> HWND_NOTOPMOST
+                HWND_TOPMOST = -1
+                HWND_NOTOPMOST = -2
+                SWP_NOMOVE = 0x0002
+                SWP_NOSIZE = 0x0001
+                SWP_SHOWWINDOW = 0x0040
+                user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+                user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+
+                # 3. Lepas proteksi lock foreground dengan event ALT key
                 user32.keybd_event(0x12, 0, 0, 0)
                 user32.keybd_event(0x12, 0, 2, 0)
                 user32.BringWindowToTop(hwnd)
                 user32.SetForegroundWindow(hwnd)
-                time.sleep(0.15)
+
+                # 4. Klik mouse fisik pada area title bar Antigravity agar Windows 100% menempatkannya di paling depan
+                if click:
+                    w = rect.right - rect.left
+                    h = rect.bottom - rect.top
+                    if w > 100 and h > 100:
+                        click_x = max(rect.left + 80, min(rect.right - 180, rect.left + w // 2))
+                        click_y = max(10, rect.top + 20)
+                        try:
+                            orig_x, orig_y = pyautogui.position()
+                            pyautogui.click(click_x, click_y)
+                            pyautogui.moveTo(orig_x, orig_y)
+                        except Exception as click_err:
+                            agent_logger.log_warning("antigravity_bridge", f"Gagal klik title bar: {click_err}")
+
+                time.sleep(0.3)
                 return True
             except Exception as exc:
                 agent_logger.log_warning("antigravity_bridge", f"Gagal fokus window via HWND: {exc}")
@@ -160,7 +190,7 @@ class AntigravityBridge:
 
         return False
 
-    def launch_or_focus(self, workspace_path: Optional[str] = None) -> bool:
+    def launch_or_focus(self, workspace_path: Optional[str] = None, click: bool = True) -> bool:
         """Membuka Antigravity IDE atau membawa jendelanya ke depan."""
         ws = str(Path(workspace_path).resolve()) if workspace_path else str(Path.cwd().resolve())
 
@@ -176,8 +206,8 @@ class AntigravityBridge:
                 )
             time.sleep(2.5)
 
-        focused = self._focus_window()
-        agent_logger.log_info("antigravity_bridge", f"launch_or_focus(workspace='{ws}') -> {focused}")
+        focused = self._focus_window(click=click)
+        agent_logger.log_info("antigravity_bridge", f"launch_or_focus(workspace='{ws}', click={click}) -> {focused}")
         return focused
 
     def send_prompt(self, prompt_text: str, auto_submit: bool = True) -> bool:
@@ -275,30 +305,39 @@ class AntigravityBridge:
             return False
 
     def capture_window_screenshot(self, output_path: Optional[Path] = None) -> Optional[Path]:
-        """Mengambil tangkapan layar jendela Antigravity (dibawa ke depan terlebih dahulu)."""
+        """Mengambil tangkapan layar jendela Antigravity (fokus dan klik jendela ke paling depan terlebih dahulu)."""
         target = output_path or (Path.cwd() / "antigravity_screenshot.png")
         self._attach_desktop()
 
-        # 1. Selalu bawa jendela Antigravity ke Foreground terdepan terlebih dahulu
-        self.launch_or_focus()
-        time.sleep(0.4)
+        # 1. Bawa jendela Antigravity ke Foreground terdepan dengan klik mouse nyata
+        self.launch_or_focus(click=True)
+        time.sleep(0.35)
 
         try:
             hwnd = self._find_window_hwnd()
             if hwnd:
                 user32 = ctypes.windll.user32
-                if user32.IsIconic(hwnd):
-                    user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                user32.BringWindowToTop(hwnd)
-                user32.SetForegroundWindow(hwnd)
-                time.sleep(0.25)
-
                 from ctypes import wintypes
+
                 rect = wintypes.RECT()
                 if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
                     w = rect.right - rect.left
                     h = rect.bottom - rect.top
                     if w > 100 and h > 100:
+                        # 2. Verifikasi apakah jendela aktif di foreground benar-benar Antigravity
+                        fg_hwnd = user32.GetForegroundWindow()
+                        if fg_hwnd != hwnd:
+                            # Klik sekali lagi di title bar untuk memastikan jendela naik ke paling depan
+                            click_x = max(rect.left + 80, min(rect.right - 180, rect.left + w // 2))
+                            click_y = max(10, rect.top + 20)
+                            try:
+                                orig_x, orig_y = pyautogui.position()
+                                pyautogui.click(click_x, click_y)
+                                pyautogui.moveTo(orig_x, orig_y)
+                                time.sleep(0.25)
+                            except Exception:
+                                pass
+
                         bbox = (rect.left, rect.top, rect.right, rect.bottom)
                         try:
                             img = ImageGrab.grab(bbox=bbox, all_screens=True)
@@ -306,7 +345,7 @@ class AntigravityBridge:
                             if target.exists() and target.stat().st_size > 500:
                                 agent_logger.log_info(
                                     "antigravity_bridge",
-                                    f"Window screenshot Antigravity (terdepan) berhasil: {target} ({img.size[0]}x{img.size[1]})",
+                                    f"Window screenshot Antigravity (terdepan diklik) berhasil: {target} ({img.size[0]}x{img.size[1]})",
                                 )
                                 return target
                         except Exception as grab_err:
