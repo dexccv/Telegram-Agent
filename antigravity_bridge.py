@@ -505,12 +505,90 @@ class AntigravityBridge:
             agent_logger.log_error("antigravity_bridge", f"Gagal trigger proceed: {exc}")
             return False
 
-    def trigger_accept_all(self) -> bool:
-        """Menyetujui semua perubahan berkas (Accept all changes) di Antigravity IDE."""
-        self.launch_or_focus()
-        time.sleep(0.3)
+    def _find_and_click_accept_all_button(self) -> bool:
+        """Mendeteksi tombol fisik biru [Accept all] di layar via Computer Vision dan mengkliknya secara presisi."""
+        self._attach_desktop()
+        try:
+            from PIL import ImageGrab
 
-        # 1. Coba deteksi elemen UI 'Accept all' via UIAutomation
+            img = ImageGrab.grab(all_screens=True)
+            w, h = img.size
+
+            # Tombol [Accept all] berada di panel kanan/bawah (area chat Antigravity)
+            start_x = int(w * 0.4)
+            end_x = int(w - 10)
+            start_y = int(h * 0.25)
+            end_y = int(h - 40)
+
+            blue_pts: list[tuple[int, int]] = []
+            for y in range(start_y, end_y, 2):
+                for x in range(start_x, end_x, 2):
+                    r, g, b = img.getpixel((x, y))[:3]
+                    # Warna khas tombol biru Antigravity: R <= 35, 95 <= G <= 215, B >= 175, B > G > R
+                    if r <= 35 and 95 <= g <= 215 and b >= 175 and b > g:
+                        blue_pts.append((x, y))
+
+            if not blue_pts:
+                return False
+
+            # Kelompokkan piksel berdekatan menjadi cluster
+            clusters: list[list[tuple[int, int]]] = []
+            for p in blue_pts:
+                matched = False
+                for c in clusters:
+                    last_p = c[-1]
+                    if abs(p[0] - last_p[0]) <= 14 and abs(p[1] - last_p[1]) <= 10:
+                        c.append(p)
+                        matched = True
+                        break
+                if not matched:
+                    clusters.append([p])
+
+            # Filter cluster yang memiliki karakteristik bentuk tombol
+            candidates = []
+            for c in clusters:
+                if len(c) >= 20:
+                    xs = [p[0] for p in c]
+                    ys = [p[1] for p in c]
+                    min_x, max_x = min(xs), max(xs)
+                    min_y, max_y = min(ys), max(ys)
+                    bw = max_x - min_x
+                    bh = max_y - min_y
+                    if 30 <= bw <= 180 and 8 <= bh <= 50:
+                        cx = (min_x + max_x) // 2
+                        cy = (min_y + max_y) // 2
+                        candidates.append((cx, cy, len(c), bw, bh))
+
+            if candidates:
+                # Pilih kandidat dengan piksel terbanyak di area paling bawah (terdekat ke input chat)
+                candidates.sort(key=lambda item: (item[1], item[2]), reverse=True)
+                target_cx, target_cy = candidates[0][0], candidates[0][1]
+
+                agent_logger.log_info(
+                    "antigravity_bridge",
+                    f"Tombol biru [Accept all] terdeteksi di ({target_cx}, {target_cy}) w={candidates[0][3]} h={candidates[0][4]}! Mengklik mouse fisik...",
+                )
+                _win32_mouse_click(target_cx, target_cy)
+                time.sleep(0.25)
+                return True
+
+            return False
+        except Exception as exc:
+            agent_logger.log_warning("antigravity_bridge", f"Gagal computer vision accept all button: {exc}")
+            return False
+
+    def trigger_accept_all(self) -> bool:
+        """Menyetujui semua perubahan berkas (Accept all changes) di Antigravity IDE (Vision Click + Hotkey + Command Palette)."""
+        self.launch_or_focus(click=True, maximize=True)
+        time.sleep(0.35)
+
+        # 1. Prioritas Utama: Computer Vision Click tombol biru [Accept all] langsung di layar IDE
+        clicked_vision = self._find_and_click_accept_all_button()
+        if clicked_vision:
+            agent_logger.log_info("antigravity_bridge", "Tombol Accept all berhasil diklik melalui Computer Vision.")
+            return True
+
+        # 2. Coba deteksi elemen UI 'Accept all' via UIAutomation
         try:
             import uiautomation as auto
 
@@ -519,14 +597,14 @@ class AntigravityBridge:
                 for name_target in ["Accept all", "Accept All", "Accept all changes", "Accept All Changes", "Accept"]:
                     for ctrl_type in [auto.ButtonControl, auto.TextControl, auto.HyperlinkControl]:
                         elem = ctrl_type(searchFromControl=win, searchDepth=14, Name=name_target)
-                        if elem.Exists(maxSearchSeconds=0.3):
+                        if elem.Exists(maxSearchSeconds=0.2):
                             elem.Click()
                             agent_logger.log_info("antigravity_bridge", f"Elemen '{name_target}' berhasil diklik via UIAutomation.")
                             return True
         except Exception as exc_ui:
             agent_logger.log_warning("antigravity_bridge", f"UIAutomation accept all: {exc_ui}")
 
-        # 2. Kirim kombinasi tombol resmi Antigravity IDE: Alt + Enter (antigravity.inlineDiff.acceptAll & acceptAgentStep)
+        # 3. Kirim kombinasi tombol resmi Antigravity IDE: Alt + Enter (antigravity.inlineDiff.acceptAll & acceptAgentStep)
         try:
             _win32_send_hotkey("alt", "enter")
             time.sleep(0.2)
@@ -534,14 +612,14 @@ class AntigravityBridge:
         except Exception as exc_hotkey:
             agent_logger.log_warning("antigravity_bridge", f"Gagal Alt+Enter: {exc_hotkey}")
 
-        # 3. Command Palette fallback: Ctrl+Shift+P -> 'Antigravity: Accept All Changes'
+        # 4. Command Palette fallback: Ctrl+Shift+P -> 'Antigravity: Accept All Changes'
         try:
             time.sleep(0.15)
             _win32_send_hotkey("ctrl", "shift", "p")
-            time.sleep(0.3)
+            time.sleep(0.35)
             _win32_copy_to_clipboard("Antigravity: Accept All Changes")
             _win32_send_hotkey("ctrl", "v")
-            time.sleep(0.25)
+            time.sleep(0.35)
             _win32_send_hotkey("enter")
             agent_logger.log_info("antigravity_bridge", "Accept all dipicu via Command Palette Antigravity.")
         except Exception as exc_cmd:

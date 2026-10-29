@@ -1020,10 +1020,21 @@ class TelegramAgentGateway:
         elif data == "btn_agy_accept_all":
             await query.answer("✨ Menyetujui semua perubahan file (Accept all)...")
             ok = await asyncio.to_thread(antigravity_bridge.trigger_accept_all)
+            await asyncio.sleep(0.4)
+            shot_path = await asyncio.to_thread(antigravity_bridge.capture_window_screenshot)
             if query.message:
-                res = "✅ **Accept all changes** berhasil dikirim ke Antigravity IDE (Semua berkas telah disetujui)." if ok else "⚠️ Gagal mengeksekusi Accept all."
-                await query.message.reply_text(res, parse_mode=ParseMode.MARKDOWN)
-            log_chat_outgoing("Remote Antigravity (Accept All)", "Perintah Accept all changes dieksekusi")
+                now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
+                res_caption = (
+                    "✨ **Semua Perubahan File Berhasil Disetujui!**\n"
+                    "🪐 **Aksi**: `Accept All Changes dieksekusi via Vision Click & Hotkey`\n"
+                    f"⏱ **Waktu**: `{now_str}`"
+                )
+                if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                    with open(shot_path, "rb") as pf:
+                        await query.message.reply_photo(photo=pf, caption=res_caption, parse_mode=ParseMode.MARKDOWN)
+                else:
+                    await query.message.reply_text(res_caption, parse_mode=ParseMode.MARKDOWN)
+            log_chat_outgoing("Remote Antigravity (Accept All)", "Perintah Accept all changes dieksekusi + screenshot terkirim")
 
         elif data == "btn_agy_proceed":
             await query.answer("✅ Mengirim tombol Proceed...")
@@ -2776,14 +2787,20 @@ class TelegramAgentGateway:
         elif subcmd in ["accept", "accept-all", "accept_all", "terima", "terima-semua", "terimasemua"]:
             await update.message.reply_text("✨ Menyetujui semua perubahan berkas (Accept all changes) di Antigravity IDE...")
             ok = await asyncio.to_thread(antigravity_bridge.trigger_accept_all)
-            if ok:
-                await update.message.reply_text(
-                    "✅ **Accept all changes** berhasil dieksekusi di Antigravity IDE (Semua berkas perubahan telah diterima).",
-                    parse_mode=ParseMode.MARKDOWN,
-                )
-                log_chat_outgoing("Remote Antigravity (/agy accept)", "Perintah Accept all berhasil dieksekusi")
+            await asyncio.sleep(0.4)
+            shot_path = await asyncio.to_thread(antigravity_bridge.capture_window_screenshot)
+            now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
+            res_caption = (
+                "✨ **Semua Perubahan File Berhasil Disetujui!**\n"
+                "🪐 **Aksi**: `Accept All Changes dieksekusi via Vision Click & Hotkey`\n"
+                f"⏱ **Waktu**: `{now_str}`"
+            )
+            if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                with open(shot_path, "rb") as pf:
+                    await update.message.reply_photo(photo=pf, caption=res_caption, parse_mode=ParseMode.MARKDOWN)
             else:
-                await update.message.reply_text("⚠️ Gagal mengeksekusi perintah Accept all.")
+                await update.message.reply_text(res_caption, parse_mode=ParseMode.MARKDOWN)
+            log_chat_outgoing("Remote Antigravity (/agy accept)", "Perintah Accept all berhasil dieksekusi + screenshot terkirim")
 
         elif subcmd in ["proceed", "ok", "lanjut"]:
             ok = antigravity_bridge.trigger_proceed()

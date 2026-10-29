@@ -91,11 +91,30 @@ def test_win32_clipboard_long_text():
     assert ok is True
 
 
-def test_antigravity_trigger_accept_all():
+def test_antigravity_trigger_accept_all(monkeypatch):
     bridge = AntigravityBridge()
     assert hasattr(bridge, "trigger_accept_all")
-    # trigger_accept_all harus dapat dipanggil tanpa melempar exception fatal
-    # Bila jendela tidak fokus/running, fallback Alt+Enter tetap aman
+    assert hasattr(bridge, "_find_and_click_accept_all_button")
+
+    # Uji visual button clicker dengan simulated canvas
+    from PIL import Image
+    fake_canvas = Image.new("RGB", (1000, 800), (30, 30, 30))
+    # Buat tombol biru di x=600..660, y=500..525
+    for y in range(500, 525):
+        for x in range(600, 660):
+            fake_canvas.putpixel((x, y), (0, 150, 230))
+
+    monkeypatch.setattr("PIL.ImageGrab.grab", lambda **kwargs: fake_canvas)
+    clicked = []
+    monkeypatch.setattr("antigravity_bridge._win32_mouse_click", lambda x, y: clicked.append((x, y)))
+
+    res_vision = bridge._find_and_click_accept_all_button()
+    assert res_vision is True
+    assert len(clicked) == 1
+    # Koordinat klik harus berada di dalam bounding box tombol (630, 512)
+    assert 595 <= clicked[0][0] <= 665
+    assert 495 <= clicked[0][1] <= 530
+
     res = bridge.trigger_accept_all()
     assert isinstance(res, bool)
 
