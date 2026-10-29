@@ -99,3 +99,25 @@ def test_antigravity_trigger_accept_all():
     res = bridge.trigger_accept_all()
     assert isinstance(res, bool)
 
+
+def test_antigravity_transcript_watcher(tmp_path):
+    bridge = AntigravityBridge()
+    # 1. Pastikan method find_latest_transcript_file ada dan mengembalikan Path atau None
+    latest_tfile = bridge.find_latest_transcript_file()
+    assert latest_tfile is None or isinstance(latest_tfile, Path)
+
+    # 2. Uji parsing transcript buatan
+    fake_log_dir = tmp_path / ".system_generated" / "logs"
+    fake_log_dir.mkdir(parents=True)
+    fake_tfile = fake_log_dir / "transcript.jsonl"
+    
+    import json
+    with open(fake_tfile, "w", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "USER_INPUT", "status": "DONE", "content": "Tolong buat fitur X"}) + "\n")
+        f.write(json.dumps({"type": "PLANNER_RESPONSE", "status": "DONE", "content": "Fitur X berhasil dibuat"}) + "\n")
+
+    res = bridge.get_latest_completed_response(fake_tfile)
+    assert res is not None
+    assert res["type"] == "PLANNER_RESPONSE"
+    assert "Fitur X" in res["content"]
+

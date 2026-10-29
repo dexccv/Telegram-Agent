@@ -564,7 +564,7 @@ class AntigravityBridge:
 
     def capture_window_screenshot(self, output_path: Optional[Path] = None) -> Optional[Path]:
         """Mengambil tangkapan layar fullscreen layar dengan jendela Antigravity difokuskan dan diklik ke paling depan."""
-        target = output_path or (Path.cwd() / "antigravity_screenshot.png")
+        target = Path(output_path) if output_path else (Path.cwd() / "antigravity_screenshot.png")
         self._attach_desktop()
 
         # 1. Bawa jendela Antigravity ke Foreground terdepan dengan klik mouse nyata
@@ -586,6 +586,76 @@ class AntigravityBridge:
         except Exception as exc:
             agent_logger.log_error("antigravity_bridge", f"Gagal capture fullscreen screenshot: {exc}")
             return None
+
+    def find_latest_transcript_file(self) -> Optional[Path]:
+        """Mencari berkas transcript.jsonl percakapan Antigravity terbaru di sistem."""
+        brain_dirs = [
+            Path(os.environ.get("USERPROFILE", "")) / ".gemini" / "antigravity-ide" / "brain",
+            Path(os.environ.get("USERPROFILE", "")) / ".gemini" / "antigravity" / "brain",
+        ]
+        newest_file: Optional[Path] = None
+        newest_mtime: float = 0.0
+
+        for b_dir in brain_dirs:
+            if b_dir.exists():
+                try:
+                    for d in b_dir.iterdir():
+                        if d.is_dir():
+                            t_file = d / ".system_generated" / "logs" / "transcript.jsonl"
+                            if t_file.exists():
+                                try:
+                                    mtime = t_file.stat().st_mtime
+                                    if mtime > newest_mtime:
+                                        newest_mtime = mtime
+                                        newest_file = t_file
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+        return newest_file
+
+    def get_latest_completed_response(
+        self, transcript_file: Optional[Path] = None, since_timestamp: Optional[float] = None
+    ) -> Optional[dict[str, Any]]:
+        """Mencari respon PLANNER_RESPONSE terakhir yang selesai (status: DONE) dan memiliki konten."""
+        t_file = transcript_file or self.find_latest_transcript_file()
+        if not t_file or not t_file.exists():
+            return None
+
+        try:
+            import json
+            with open(t_file, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                buffer_size = min(size, 131072)  # Baca 128 KB terakhir
+                f.seek(size - buffer_size)
+                lines = f.read().decode("utf-8", errors="ignore").splitlines()
+                for line in reversed(lines):
+                    line = line.strip()
+                    if line:
+                        try:
+                            obj = json.loads(line)
+                            if (
+                                obj.get("type") == "PLANNER_RESPONSE"
+                                and obj.get("status") == "DONE"
+                                and obj.get("content")
+                            ):
+                                if since_timestamp:
+                                    created_str = obj.get("created_at", "")
+                                    # Cek apakah timestamp step lebih baru
+                                    try:
+                                        import datetime
+                                        dt = datetime.datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                                        if dt.timestamp() < since_timestamp - 5:
+                                            continue
+                                    except Exception:
+                                        pass
+                                return obj
+                        except Exception:
+                            continue
+        except Exception as exc:
+            agent_logger.log_warning("antigravity_bridge", f"Gagal membaca latest completed response: {exc}")
+        return None
 
 
 antigravity_bridge = AntigravityBridge()

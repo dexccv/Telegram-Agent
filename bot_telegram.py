@@ -1840,6 +1840,127 @@ class TelegramAgentGateway:
         ])
         return "\n".join(text_lines), InlineKeyboardMarkup(buttons)
 
+    def _build_agy_completion_markup(self) -> InlineKeyboardMarkup:
+        """Membuat tombol aksi konfirmasi setelah Antigravity Agent selesai memproses tugas."""
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✨ Accept All Changes", callback_data="btn_agy_accept_all"),
+                InlineKeyboardButton("📸 Screenshot IDE", callback_data="btn_agy_ss"),
+            ],
+            [
+                InlineKeyboardButton("🧠 Ganti Model", callback_data="btn_agy_select_model"),
+                InlineKeyboardButton("🔙 Menu Antigravity", callback_data="btn_remote_agy"),
+            ],
+        ])
+
+    async def _watch_antigravity_completion(
+        self,
+        application: Application,
+        chat_id: int,
+        start_timestamp: float,
+        prompt_preview: str,
+        initial_transcript: Optional[Path] = None,
+    ) -> None:
+        """Memantau progres pengerjaan Antigravity Agent di latar belakang dan mengirim hasil + tombol Accept all saat selesai."""
+        agent_logger.log_info("antigravity_watcher", f"Watcher aktif: chat_id={chat_id}, start_ts={start_timestamp}")
+        # Beri jeda awal agar agent sempat mulai memproses instruksi
+        await asyncio.sleep(4)
+
+        MAX_WAIT_SECONDS = 900  # Maksimal pantau 15 menit
+        POLL_INTERVAL = 2.5
+        elapsed = 0.0
+
+        last_known_tfile = initial_transcript or antigravity_bridge.find_latest_transcript_file()
+
+        while elapsed < MAX_WAIT_SECONDS:
+            await asyncio.sleep(POLL_INTERVAL)
+            elapsed += POLL_INTERVAL
+
+            cur_tfile = antigravity_bridge.find_latest_transcript_file()
+            t_file = cur_tfile or last_known_tfile
+
+            resp = await asyncio.to_thread(
+                antigravity_bridge.get_latest_completed_response,
+                t_file,
+                start_timestamp,
+            )
+
+            if resp:
+                agent_logger.log_info("antigravity_watcher", f"Tugas Antigravity selesai terdeteksi ({elapsed:.1f}s)!")
+                # Beri jeda render visual diff & UI di editor
+                await asyncio.sleep(1.2)
+
+                now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
+                active_m = antigravity_bridge.get_active_model()
+                content_text = resp.get("content", "").strip()
+
+                clean_content = content_text
+                if len(clean_content) > 750:
+                    summary_snippet = clean_content[:700].replace("`", "'") + "...\n\n*(Catatan lengkap dikirim pada pesan terpisah)*"
+                else:
+                    summary_snippet = clean_content.replace("`", "'")
+
+                caption = (
+                    "🏁 **ANTIGRAVITY AGENT: TUGAS SELESAI!**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"• Status : ✅ **Selesai Diproses**\n"
+                    f"• Model  : {active_m.get('icon', '🧠')} `{active_m.get('name')}`\n"
+                    f"• Waktu  : ⏱ `{now_str}` ({int(elapsed)} detik)\n\n"
+                    f"📋 **Rangkuman Respons AI**:\n"
+                    f"{summary_snippet}"
+                )
+
+                markup = self._build_agy_completion_markup()
+
+                # Ambil tangkapan layar fullscreen tampilan Antigravity terkini
+                shot_path = await asyncio.to_thread(antigravity_bridge.capture_window_screenshot)
+
+                try:
+                    if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                        with open(shot_path, "rb") as photo:
+                            await application.bot.send_photo(
+                                chat_id=chat_id,
+                                photo=photo,
+                                caption=caption,
+                                parse_mode=ParseMode.MARKDOWN,
+                                reply_markup=markup,
+                            )
+                        log_chat_outgoing("Antigravity Watcher", f"Screenshot hasil + tombol Accept all dikirim ke {chat_id}")
+                    else:
+                        await application.bot.send_message(
+                            chat_id=chat_id,
+                            text=caption,
+                            parse_mode=ParseMode.MARKDOWN,
+                            reply_markup=markup,
+                        )
+                        log_chat_outgoing("Antigravity Watcher", f"Pesan hasil + tombol Accept all dikirim ke {chat_id}")
+
+                    # Jika konten teks panjang, kirim sisa teksnya agar pengguna tetap dapat membacanya utuh
+                    if len(clean_content) > 750:
+                        from bot_telegram import split_message
+                        chunks = split_message(clean_content, 3500)
+                        for chunk in chunks:
+                            await application.bot.send_message(
+                                chat_id=chat_id,
+                                text=chunk,
+                            )
+                except Exception as send_exc:
+                    agent_logger.log_error("antigravity_watcher", f"Gagal mengirim hasil watcher: {send_exc}")
+                    try:
+                        fallback_msg = (
+                            f"🏁 ANTIGRAVITY AGENT: TUGAS SELESAI!\n"
+                            f"Model: {active_m.get('name')} | Waktu: {now_str}\n\n"
+                            f"Perubahan berkas siap Anda terima melalui tombol di bawah:"
+                        )
+                        await application.bot.send_message(
+                            chat_id=chat_id,
+                            text=fallback_msg,
+                            reply_markup=markup,
+                        )
+                    except Exception:
+                        pass
+                break
+
     async def search_and_send_youtube(self, msg_target, query: str) -> None:
         """Mencari video di YouTube, menampilkan judul & link langsung, serta tombol pilihan interaktif."""
         import urllib.parse
@@ -2536,6 +2657,9 @@ class TelegramAgentGateway:
                 parse_mode=ParseMode.MARKDOWN,
             )
 
+            start_ts = time.time()
+            initial_tfile = antigravity_bridge.find_latest_transcript_file()
+
             ok = await asyncio.to_thread(antigravity_bridge.send_prompt, full_prompt_text, True)
             if ok:
                 preview = full_prompt_text[:140].replace("`", "'") + ("..." if len(full_prompt_text) > 140 else "")
@@ -2543,13 +2667,26 @@ class TelegramAgentGateway:
                     "✅ **Prompt Berhasil Dikirim ke Antigravity IDE!**\n\n"
                     f"• Model AI       : {active_m.get('icon', '🧠')} **{active_m.get('name')}**\n"
                     f"• Total Karakter : `{char_count}` karakter\n"
-                    f"• Cuplikan Teks  :\n```text\n{preview}\n```"
+                    f"• Cuplikan Teks  :\n```text\n{preview}\n```\n"
+                    "🔄 *Agent sedang memproses di Antigravity IDE... Hasil akhir dan tombol Accept all akan otomatis dikirimkan ke sini begitu AI selesai.*"
                 )
                 try:
                     await wait_msg.edit_text(resp_text, parse_mode=ParseMode.MARKDOWN)
                 except Exception:
                     await update.message.reply_text(resp_text, parse_mode=ParseMode.MARKDOWN)
                 log_chat_outgoing("Remote Antigravity (/agy prompt)", f"Prompt ({char_count} char) terkirim ke Antigravity IDE")
+
+                # Jalankan background watcher otomatis untuk mengirim hasil dan tombol Accept all
+                target_chat_id = update.effective_chat.id if update.effective_chat else int(self.allowed_user_id)
+                asyncio.create_task(
+                    self._watch_antigravity_completion(
+                        application=context.application,
+                        chat_id=target_chat_id,
+                        start_timestamp=start_ts,
+                        prompt_preview=preview,
+                        initial_transcript=initial_tfile,
+                    )
+                )
             else:
                 err_msg = "❌ Gagal mengirimkan prompt ke jendela Antigravity IDE."
                 try:
