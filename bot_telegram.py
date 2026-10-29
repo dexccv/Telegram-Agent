@@ -1,4 +1,4 @@
-"""Gateway Telegram Bot untuk Gemini Terminal Agent.
+"""Gateway Telegram Bot untuk TeleAgent.
 
 Memungkinkan pengguna mengendalikan AI Agent di laptop secara penuh dari handphone
 kapan pun dan di mana pun melalui aplikasi Telegram dengan perlindungan keamanan whitelist.
@@ -669,7 +669,7 @@ class TelegramAgentGateway:
         m = ambil_metrik_realtime()
         msg = (
             f"👋 Halo, **{user_name}**!\n"
-            f"Selamat datang di **Gemini Terminal Agent Gateway**.\n"
+            f"Selamat datang di **TeleAgent Gateway**.\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🟢 **Status Host** : `ONLINE (Siaga)`\n"
             f"🤖 **Engine AI**   : `{prov}` (`{self.agent.model_name}`)\n"
@@ -3396,7 +3396,7 @@ class TelegramAgentGateway:
                 prov = self.config.ambil_provider().upper()
                 waktu_now = datetime.datetime.now().strftime("%H:%M:%S WIB")
                 conn_msg = (
-                    "⚡ **GEMINI TERMINAL AGENT — ONLINE**\n"
+                    "⚡ **TELEAGENT — ONLINE**\n"
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"🟢 **Koneksi** : Terhubung aman ke Telegram (`ID: {chat_id}`)\n"
                     f"🤖 **Engine**  : `{prov}` (`{self.agent.model_name}`)\n"
@@ -3522,7 +3522,7 @@ class TelegramAgentGateway:
 
         p = Panel(
             table,
-            title="[bold bright_cyan]⌬ GEMINI TERMINAL AGENT - TELEGRAM MOBILE GATEWAY[/bold bright_cyan]",
+            title="[bold bright_cyan]⌬ TELEAGENT - TELEGRAM MOBILE GATEWAY[/bold bright_cyan]",
             border_style="bright_blue",
             box=box.ROUNDED,
             padding=(1, 2),

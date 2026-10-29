@@ -1,5 +1,5 @@
 @echo off
-title Gemini Agent - Telegram Mobile Gateway
+title TeleAgent - Telegram Mobile Gateway
 cd /d "%~dp0"
 
 :: Konfigurasi Code Page UTF-8 & Environment
@@ -10,7 +10,7 @@ set "OLLAMA_MODELS=D:\.ollama\models"
 set "OLLAMA_HOST=127.0.0.1:11434"
 
 echo ========================================================
-echo       Gemini Agent - Telegram Mobile Gateway
+echo       TeleAgent - Telegram Mobile Gateway
 echo ========================================================
 echo.
 

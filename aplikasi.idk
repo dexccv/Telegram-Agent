@@ -1013,10 +1013,10 @@ fungsi scan_file_saran(prefix) {
 
 
 kelas GeminiTerminalAgentApp < App {
-    """Aplikasi TUI Textual utama untuk Terminal Agent dengan Memori & Sesi."""
+    """Aplikasi TUI Textual utama untuk TeleAgent dengan Memori & Sesi."""
 
     CSS = APP_CSS
-    TITLE = "Terminal Agent (Indonesiaku-Lang)"
+    TITLE = "TeleAgent (Indonesiaku-Lang)"
 
     BINDINGS = [
         Binding("ctrl+s", "open_session_modal", "Sesi", show=benar),
@@ -1042,7 +1042,7 @@ kelas GeminiTerminalAgentApp < App {
 
     fungsi compose() {
         dengan Horizontal(id="app_header") {
-            yield Label("⌬ TERMINAL AGENT", id="header_title")
+            yield Label("⌬ TELEAGENT", id="header_title")
             yield Label("LIVE CLOCK", id="header_clock")
         }
 

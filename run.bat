@@ -1,5 +1,5 @@
 @echo off
-title Gemini Terminal Agent
+title TeleAgent
 cd /d "%~dp0"
 
 :: 0. Konfigurasi Code Page UTF-8 dan Environment
@@ -10,7 +10,8 @@ set "OLLAMA_MODELS=D:\.ollama\models"
 set "OLLAMA_HOST=127.0.0.1:11434"
 
 echo ========================================================
-echo        Gemini Terminal Agent - Workstation & Gateway
+echo        TeleAgent - Workstation & Mobile Gateway
+echo    Autonomous AI Terminal Agent & Desktop Controller
 echo ========================================================
 echo.
 
@@ -32,26 +33,32 @@ echo [i] Python terdeteksi: %PYTHON_VERSION%
 
 :: 2. Pembuatan dan aktivasi Virtual Environment (.venv)
 if not exist ".venv\Scripts\python.exe" (
-    echo [*] Virtual environment belum ditemukan. Membuat .venv baru...
-    python -m venv .venv
+    echo [*] Virtual environment belum ditemukan. Menyiapkan environment via setup.bat...
+    call setup.bat
     if errorlevel 1 (
-        echo [X] Gagal membuat virtual environment .venv.
-        echo     Pastikan izin akses direktori mencukupi.
-        echo.
+        echo [X] Setup awal belum selesai.
         pause
         exit /b 1
     )
-    echo [i] Virtual environment berhasil dibuat.
-    echo [*] Memasang dependensi awal dari requirements.txt...
-    call .venv\Scripts\activate.bat
-    python -m pip install --upgrade pip --quiet
-    pip install -r requirements.txt
 ) else (
     call .venv\Scripts\activate.bat
 )
 
 :: Pastikan code page tetap UTF-8 setelah aktivasi venv
 chcp 65001 >nul
+
+:: 2.5. First-Run Guard: Verifikasi keberadaan file .env
+if not exist ".env" (
+    echo.
+    echo [!] File konfigurasi .env belum ditemukan!
+    echo [*] Meluncurkan Setup Wizard untuk konfigurasi awal...
+    call setup.bat
+    if not exist ".env" (
+        echo [X] Setup belum selesai. TeleAgent membutuhkan file .env untuk berjalan.
+        pause
+        exit /b 1
+    )
+)
 
 :: Cek argumen khusus jika hanya ingin menjalankan salah satu
 if /i "%1"=="--bot" goto run_bot_only
@@ -61,26 +68,26 @@ if /i "%1"=="--cli" goto run_cli_only
 :: 3. Peluncuran Otomatis Keduanya (Dual-Window)
 :: ========================================================
 echo.
-echo [*] Meluncurkan 2 Jendela Layanan Sekaligus:
-echo     [Window 1] Gemini Terminal Agent (CLI / TUI)
-echo     [Window 2] Telegram Mobile Gateway (Live Monitoring)
+echo [*] Meluncurkan 2 Jendela Layanan TeleAgent Sekaligus:
+echo     [Window 1] TeleAgent (CLI / TUI)
+echo     [Window 2] TeleAgent - Telegram Mobile Gateway (Live Monitoring)
 echo.
 
 :: Luncurkan Window 2: Telegram Mobile Gateway di jendela CMD terpisah
-start "Gemini Agent - Telegram Mobile Gateway" cmd /k "title Gemini Agent - Telegram Mobile Gateway && chcp 65001 >nul && cd /d "%~dp0" && call .venv\Scripts\activate.bat && python bot_telegram.py"
+start "TeleAgent - Telegram Mobile Gateway" cmd /k "title TeleAgent - Telegram Mobile Gateway && chcp 65001 >nul && cd /d "%~dp0" && call .venv\Scripts\activate.bat && python bot_telegram.py"
 
-:: Jalankan Window 1: Gemini Terminal Agent (TUI) di jendela saat ini
-echo [*] Memulai Gemini Terminal Agent di jendela ini...
+:: Jalankan Window 1: TeleAgent (TUI) di jendela saat ini
+echo [*] Memulai TeleAgent di jendela ini...
 python app.py
 goto end
 
 :run_bot_only
-echo [*] Menjalankan Telegram Mobile Gateway saja...
+echo [*] Menjalankan TeleAgent - Telegram Mobile Gateway saja...
 python bot_telegram.py
 goto end
 
 :run_cli_only
-echo [*] Menjalankan Gemini Terminal Agent saja...
+echo [*] Menjalankan TeleAgent CLI saja...
 python app.py
 goto end
 
@@ -92,5 +99,5 @@ if errorlevel 1 (
 
 echo.
 echo ========================================================
-echo Sesi selesai. Tekan sembarang tombol untuk menutup jendela...
+echo Sesi TeleAgent selesai. Tekan sembarang tombol untuk menutup...
 pause >nul

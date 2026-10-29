@@ -789,13 +789,13 @@ class TypingMessageCard(Static):
 
 
 # ==============================================================================
-# APLIKASI UTAMA (GEMINI TERMINAL AGENT)
+# APLIKASI UTAMA (TELEAGENT)
 # ==============================================================================
 class GeminiTerminalAgentApp(App[None]):
-    """Aplikasi TUI Textual utama untuk Gemini Terminal Agent dengan Memori & Sesi."""
+    """Aplikasi TUI Textual utama untuk TeleAgent dengan Memori & Sesi."""
 
     CSS = APP_CSS
-    TITLE = "Gemini Terminal Agent"
+    TITLE = "TeleAgent"
 
     BINDINGS = [
         Binding("ctrl+s", "open_session_modal", "Sesi", show=True),
@@ -815,7 +815,7 @@ class GeminiTerminalAgentApp(App[None]):
     def compose(self) -> ComposeResult:
         # Header Atas
         with Horizontal(id="app_header"):
-            yield Label("⌬ GEMINI TERMINAL AGENT ─ v1.2 (Memory & Sesi)", id="header_title")
+            yield Label("⌬ TELEAGENT ─ v2.0 (Terminal & Telegram Gateway)", id="header_title")
             yield Label("LIVE CLOCK", id="header_clock")
 
         # Kontainer Pesan

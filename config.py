@@ -1,7 +1,7 @@
-"""Konfigurasi dan manajemen file lingkungan untuk Gemini Terminal Agent.
+"""Konfigurasi dan manajemen file lingkungan untuk TeleAgent.
 
 Modul ini bertanggung jawab untuk membuat direktori konfigurasi lokal di ~/.gemini-agent,
-membaca serta menyimpan GEMINI_API_KEY dan GEMINI_MODEL ke file .env.
+membaca serta menyimpan GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, dan TELEGRAM_USER_ID.
 """
 
 from __future__ import annotations
