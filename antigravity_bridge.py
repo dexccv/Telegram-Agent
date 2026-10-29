@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -122,6 +123,31 @@ class AntigravityBridge:
     CMD_PATH = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Antigravity IDE" / "bin" / "antigravity-ide.cmd"
     AGY_BIN_PATH = Path(os.environ.get("USERPROFILE", "")) / ".gemini" / "bin" / "agy.exe"
     MODEL_CONFIG_PATH = Path.cwd() / ".antigravity_model.json"
+    ANTIGRAVITY_STATE_PATH = Path(os.environ.get("USERPROFILE", "")) / ".gemini" / "antigravity" / "antigravity_state.pbtxt"
+
+    INTERNAL_MODEL_MAP: dict[str, str] = {
+        "model_placeholder_m319": "gemini-3.8-flash-medium",
+        "m319": "gemini-3.8-flash-medium",
+        "model_placeholder_m318": "gemini-3.8-flash-high",
+        "m318": "gemini-3.8-flash-high",
+        "model_placeholder_m320": "gemini-3.8-flash-low",
+        "m320": "gemini-3.8-flash-low",
+        "model_placeholder_m321": "claude-sonnet-4-6",
+        "m321": "claude-sonnet-4-6",
+        "model_placeholder_m322": "claude-opus-4-6-thinking",
+        "m322": "claude-opus-4-6-thinking",
+        "model_placeholder_m323": "gpt-oss-120b-medium",
+        "m323": "gpt-oss-120b-medium",
+    }
+
+    REVERSE_MODEL_MAP: dict[str, str] = {
+        "gemini-3.8-flash-medium": "MODEL_PLACEHOLDER_M319",
+        "gemini-3.8-flash-high": "MODEL_PLACEHOLDER_M318",
+        "gemini-3.8-flash-low": "MODEL_PLACEHOLDER_M320",
+        "claude-sonnet-4-6": "MODEL_PLACEHOLDER_M321",
+        "claude-opus-4-6-thinking": "MODEL_PLACEHOLDER_M322",
+        "gpt-oss-120b-medium": "MODEL_PLACEHOLDER_M323",
+    }
 
     DEFAULT_MODELS: list[dict[str, str]] = [
         {"id": "gemini-3.8-flash-medium", "name": "Gemini 3.8 Flash (Medium)", "icon": "🧠"},
@@ -183,7 +209,16 @@ class AntigravityBridge:
 
         try:
             WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-            user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+            # Coba EnumDesktopWindows terlebih dahulu untuk desktop session aktif
+            try:
+                hdesk = user32.OpenInputDesktop(0, False, 0x01FF)
+                if hdesk:
+                    user32.EnumDesktopWindows(hdesk, WNDENUMPROC(enum_cb), 0)
+            except Exception:
+                pass
+
+            if not target_hwnd:
+                user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
         except Exception as exc:
             agent_logger.log_warning("antigravity_bridge", f"Gagal EnumWindows: {exc}")
 
@@ -358,26 +393,75 @@ class AntigravityBridge:
             models = list(self.DEFAULT_MODELS)
         return models
 
+    def detect_ide_active_model(self) -> Optional[str]:
+        """Membaca model yang sedang aktif secara riil di dalam Antigravity IDE (via state protobuf IDE)."""
+        if self.ANTIGRAVITY_STATE_PATH.exists():
+            try:
+                with open(self.ANTIGRAVITY_STATE_PATH, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                    match = re.search(r"last_selected_agent_model:\s*(\w+)", content, re.IGNORECASE)
+                    if match:
+                        raw_key = match.group(1).lower()
+                        return self.INTERNAL_MODEL_MAP.get(raw_key, raw_key)
+            except Exception as exc:
+                agent_logger.log_warning("antigravity_bridge", f"Gagal membaca antigravity_state.pbtxt: {exc}")
+        return None
+
     def get_active_model(self) -> dict[str, str]:
-        """Mengambil model Antigravity yang sedang aktif saat ini."""
+        """Mengambil model Antigravity yang sedang aktif saat ini (otomatis sinkron dengan Antigravity IDE)."""
         models = self.get_available_models()
-        active_id = "gemini-3.8-flash-medium"
+        active_id: Optional[str] = None
+
+        # 1. Cek langsung model riil dari internal state Antigravity IDE
+        ide_model_id = self.detect_ide_active_model()
+
+        # 2. Cek file preferensi lokal (.antigravity_model.json)
+        local_model_id = None
+        local_mtime = 0.0
         if self.MODEL_CONFIG_PATH.exists():
             try:
                 import json
+                local_mtime = self.MODEL_CONFIG_PATH.stat().st_mtime
                 with open(self.MODEL_CONFIG_PATH, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
-                    active_id = cfg.get("selected_model", active_id)
+                    local_model_id = cfg.get("selected_model")
+            except Exception:
+                pass
+
+        # 3. Sinkronkan: jika state IDE tersedia, prioritaskan state IDE agar akurat dengan UI laptop
+        state_mtime = self.ANTIGRAVITY_STATE_PATH.stat().st_mtime if self.ANTIGRAVITY_STATE_PATH.exists() else 0.0
+        if ide_model_id:
+            # Gunakan state IDE jika tidak ada setting lokal atau state IDE lebih terkini
+            if not local_model_id or state_mtime >= (local_mtime - 1.0):
+                active_id = ide_model_id
+            else:
+                active_id = local_model_id
+        else:
+            active_id = local_model_id or "gemini-3.8-flash-medium"
+
+        # Simpan kembali ke file persist lokal agar sinkron
+        if active_id:
+            try:
+                import json
+                found_name = next((m["name"] for m in models if m["id"] == active_id), active_id)
+                with open(self.MODEL_CONFIG_PATH, "w", encoding="utf-8") as f:
+                    json.dump({"selected_model": active_id, "model_name": found_name}, f, indent=2)
             except Exception:
                 pass
 
         for m in models:
             if m["id"] == active_id:
                 return m
-        return models[0] if models else {"id": active_id, "name": active_id, "icon": "🧠"}
+
+        # Fallback default ke Gemini Medium
+        for m in models:
+            if "medium" in m["id"]:
+                return m
+
+        return models[0] if models else {"id": active_id or "gemini-3.8-flash-medium", "name": "Gemini 3.8 Flash (Medium)", "icon": "🧠"}
 
     def set_active_model(self, model_query: str) -> tuple[bool, dict[str, str]]:
-        """Mengatur model aktif Antigravity dengan pencocokan nama / ID yang fleksibel."""
+        """Mengatur model aktif Antigravity dengan pencocokan nama / ID yang fleksibel & sinkronisasi dua arah."""
         q = model_query.strip().lower()
         if not q:
             return False, {}
@@ -428,16 +512,30 @@ class AntigravityBridge:
         if not target_model:
             return False, {}
 
-        # Simpan preferensi model ke file persist
+        # Simpan preferensi model ke file persist lokal
         try:
             import json
             with open(self.MODEL_CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump({"selected_model": target_model["id"], "model_name": target_model["name"]}, f, indent=2)
             agent_logger.log_info("antigravity_bridge", f"Model Antigravity aktif disetel ke: {target_model['id']} ({target_model['name']})")
-            return True, target_model
         except Exception as exc:
             agent_logger.log_error("antigravity_bridge", f"Gagal menyimpan model config: {exc}")
-            return True, target_model
+
+        # Sinkronkan kembali ke state IDE Antigravity (two-way sync)
+        if target_model["id"] in self.REVERSE_MODEL_MAP and self.ANTIGRAVITY_STATE_PATH.exists():
+            try:
+                with open(self.ANTIGRAVITY_STATE_PATH, "r", encoding="utf-8", errors="ignore") as f:
+                    st_content = f.read()
+                new_placeholder = self.REVERSE_MODEL_MAP[target_model["id"]]
+                if "last_selected_agent_model:" in st_content:
+                    st_content = re.sub(r"last_selected_agent_model:\s*\w+", f"last_selected_agent_model:  {new_placeholder}", st_content)
+                    with open(self.ANTIGRAVITY_STATE_PATH, "w", encoding="utf-8") as f:
+                        f.write(st_content)
+                    agent_logger.log_info("antigravity_bridge", f"State Antigravity IDE berhasil disinkronkan ke: {new_placeholder}")
+            except Exception as exc_sync:
+                agent_logger.log_warning("antigravity_bridge", f"Gagal sync state IDE: {exc_sync}")
+
+        return True, target_model
 
     def send_prompt(self, prompt_text: str, auto_submit: bool = True) -> bool:
         """Fokus ke chat Antigravity Agent, tempelkan teks prompt (clipboard), dan submit (tahan prompt panjang)."""

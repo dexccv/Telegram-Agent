@@ -61,13 +61,20 @@ def test_antigravity_capture_window_screenshot(tmp_path):
     assert result.stat().st_size > 500
 
 
-def test_antigravity_model_management():
+def test_antigravity_model_management(tmp_path, monkeypatch):
     bridge = AntigravityBridge()
     models = bridge.get_available_models()
     assert isinstance(models, list)
     assert len(models) >= 1
     # Minimal mengandung model gemini
     assert any("gemini" in m["id"].lower() for m in models)
+
+    # Uji deteksi model dari dummy state pbtxt
+    fake_state = tmp_path / "antigravity_state.pbtxt"
+    fake_state.write_text("last_selected_agent_model:  MODEL_PLACEHOLDER_M319\n", encoding="utf-8")
+    monkeypatch.setattr(bridge, "ANTIGRAVITY_STATE_PATH", fake_state)
+    detected = bridge.detect_ide_active_model()
+    assert detected == "gemini-3.8-flash-medium"
 
     # Uji set_active_model dengan alias 'medium'
     ok, m_info = bridge.set_active_model("medium")
