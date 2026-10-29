@@ -338,7 +338,7 @@ def pindai_model_ollama(base_url: Optional[str] = None) -> list[str]:
     return daftar if daftar else ["qwen2.5-coder:7b", "llama3.2"]
 
 
-def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: float = 6.0) -> bool:
+def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: float = 12.0) -> bool:
     """Memeriksa apakah server Ollama aktif; jika belum, otomatis menyalakan server Ollama di latar belakang."""
     check_url = base_url.replace("/v1", "").rstrip("/") + "/api/tags"
     try:
@@ -361,7 +361,7 @@ def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: flo
 
         flags = 0
         if os.name == "nt":
-            flags = 0x00000008 | 0x00000200 | 0x08000000
+            flags = 0x00000008 | 0x00000200
         subprocess.Popen(
             [ollama_bin, "serve"],
             env=env,
@@ -369,7 +369,6 @@ def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: flo
             stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
             creationflags=flags,
-            close_fds=True,
         )
 
         t_start = time.time()
@@ -1270,10 +1269,12 @@ class GeminiAgent:
                                 break
                     except Exception as fb_exc:
                         detail_err = f"{detail_err} | Fallback gagal: {fb_exc}"
-                final_text = f"[Galat {provider_label} HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err or exc_http}"
+                clean_detail = str(detail_err or exc_http).replace("<", "").replace(">", "").strip()
+                final_text = f"❌ **Galat {provider_label} (HTTP {getattr(exc_http, 'code', 'Error')})**: `{clean_detail}`"
                 break
             except Exception as exc:
-                final_text = f"[Galat {provider_label}]: {exc}"
+                clean_exc = str(exc).replace("<", "").replace(">", "").strip()
+                final_text = f"❌ **Galat {provider_label}**: `{clean_exc}`"
                 break
 
         if not final_text.strip():
@@ -1360,7 +1361,18 @@ class GeminiAgent:
         )
 
         base_url = config_manager.get_ollama_base_url().rstrip("/")
-        ensure_ollama_running(base_url)
+        server_ready = ensure_ollama_running(base_url)
+        if not server_ready:
+            err_msg = (
+                f"❌ **Server Ollama Tidak Aktif (Port 11434)**\n\n"
+                f"Gagal terhubung ke host lokal Ollama di `{base_url}`.\n"
+                f"• Pastikan server Ollama sudah berjalan (`ollama serve` di command prompt).\n"
+                f"• Atau beralih ke provider aktif lainnya dengan perintah:\n"
+                f"  `/provider gemini` atau `/provider groq`"
+            )
+            self.session.ui_messages.append(SessionMessage(msg_type="agent", text=err_msg))
+            session_manager.save_session(self.session)
+            return err_msg
 
         target_url = (base_url if base_url.endswith("/v1") else f"{base_url}/v1") + "/chat/completions"
         headers = {

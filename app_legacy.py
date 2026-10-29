@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import re
 from typing import Any, Optional
 
 from rich.markdown import Markdown
@@ -145,6 +146,20 @@ Screen {
     border-bottom: none;
     padding: 1 2;
     margin: 1 0;
+}
+
+.msg-agent-box Label {
+    color: #e6edf3;
+}
+
+.msg-user-box Label {
+    color: #e6edf3;
+}
+
+#typed_content {
+    color: #e6edf3;
+    background: transparent;
+    width: 100%;
 }
 
 .msg-agent-title {
@@ -748,6 +763,17 @@ class ToolCallCard(Static):
         prev_lbl.update(f"│ Preview: {preview_text}")
 
 
+def sanitize_markdown_text(raw_text: str) -> str:
+    """Sanitasi dan lindungi teks respon agar 100% selalu terbaca di layar konsol."""
+    if not raw_text or not str(raw_text).strip():
+        return "(tidak ada respon)"
+    text = str(raw_text)
+    text = re.sub(r"^\[([^\]]+)\]:\s*<([^>]+)>", r"**[\1]**: `\2`", text, flags=re.MULTILINE)
+    text = re.sub(r"^\[Galat ([^\]]+)\]:\s*", r"❌ **Galat \1**: ", text, flags=re.MULTILINE)
+    text = re.sub(r"<([^>\n]*error[^>\n]*)>", r"`\1`", text, flags=re.IGNORECASE)
+    return text
+
+
 class TypingMessageCard(Static):
     """Bubble respon agen dengan animasi efek mengetik atau render langsung untuk riwayat."""
 
@@ -759,11 +785,16 @@ class TypingMessageCard(Static):
         self.chunk_size = 2
 
     def compose(self) -> ComposeResult:
-        yield Label("⌬ AGENT (GEMINI):", classes="msg-agent-title")
+        prov = config_manager.get_provider().upper()
+        yield Label(f"⌬ {prov} AGENT:", classes="msg-agent-title")
+        safe = sanitize_markdown_text(self.full_text)
         if self.animate:
             yield Static("", id="typed_content")
         else:
-            yield Static(Markdown(self.full_text), id="typed_content")
+            try:
+                yield Static(Markdown(safe), id="typed_content")
+            except Exception:
+                yield Static(safe, id="typed_content")
 
     def on_mount(self) -> None:
         if self.animate:
@@ -782,8 +813,12 @@ class TypingMessageCard(Static):
             scroll_area = self.app.query_one("#chat_messages", VerticalScroll)
             scroll_area.scroll_end(animate=False)
         else:
-            # Selesai mengetik: render sebagai Rich Markdown resmi
-            content_widget.update(Markdown(self.full_text))
+            # Selesai mengetik: render sebagai Rich Markdown resmi dengan fallback plain text
+            safe = sanitize_markdown_text(self.full_text)
+            try:
+                content_widget.update(Markdown(safe))
+            except Exception:
+                content_widget.update(safe)
             scroll_area = self.app.query_one("#chat_messages", VerticalScroll)
             scroll_area.scroll_end(animate=True)
 

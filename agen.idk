@@ -1173,11 +1173,13 @@ kelas AgenGemini {
                 }
 
                 agent_logger.log_error(f"agen.{nama_provider.lower()}", f"Galat HTTP: {exc_http} - Detail: {detail_err}")
-                teks_akhir = f"[Galat {nama_provider} HTTP {getattr(exc_http, 'code', 'Error')}]: {detail_err atau exc_http}"
+                clean_detail = str(detail_err atau exc_http).replace("<", "").replace(">", "").strip()
+                teks_akhir = f"❌ **Galat {nama_provider} (HTTP {getattr(exc_http, 'code', 'Error')})**: `{clean_detail}`"
                 berhenti
             } kecuali Exception sebagai exc_all {
                 agent_logger.log_error(f"agen.{nama_provider.lower()}", f"Galat: {exc_all}")
-                teks_akhir = f"[Galat {nama_provider}]: {exc_all}"
+                clean_err = str(exc_all).replace("<", "").replace(">", "").strip()
+                teks_akhir = f"❌ **Galat {nama_provider}**: `{clean_err}`"
                 berhenti
             }
         }
@@ -1282,7 +1284,7 @@ kelas AgenGemini {
 
             flags = 0
             jika os.name == "nt" {
-                flags = 0x00000008 | 0x00000200 | 0x08000000
+                flags = 0x00000008 | 0x00000200
             }
             subprocess.Popen(
                 [ollama_bin, "serve"],
@@ -1291,11 +1293,10 @@ kelas AgenGemini {
                 stderr=subprocess.DEVNULL,
                 stdin=subprocess.DEVNULL,
                 creationflags=flags,
-                close_fds=benar,
             )
 
             t_start = time.time()
-            selagi (time.time() - t_start) < 6.0 {
+            selagi (time.time() - t_start) < 12.0 {
                 coba {
                     req = urllib.request.Request(endpoint, headers={"User-Agent": "Terminal-Agent/HealthCheck"})
                     dengan urllib.request.urlopen(req, timeout=1.0) sebagai _ {
@@ -1319,7 +1320,22 @@ kelas AgenGemini {
         )
 
         base_url = pengelola_konfigurasi.ambil_ollama_base_url().rstrip("/")
-        diri._pastikan_ollama_aktif(base_url)
+        server_siap = diri._pastikan_ollama_aktif(base_url)
+        jika tidak server_siap {
+            err_msg = (
+                f"❌ **Server Ollama Tidak Aktif (Port 11434)**\n\n"
+                f"Gagal terhubung ke host lokal Ollama di `{base_url}`.\n"
+                f"• Pastikan server Ollama sudah berjalan (`ollama serve` di command prompt).\n"
+                f"• Atau beralih ke provider aktif lainnya dengan perintah:\n"
+                f"  `/provider gemini` atau `/provider groq`"
+            )
+            diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=err_msg))
+            pengelola_sesi.simpan_sesi(diri.session)
+            jika on_chunk {
+                on_chunk(err_msg)
+            }
+            kembalikan err_msg
+        }
 
         url_target = (base_url jika base_url.endswith("/v1") selain f"{base_url}/v1") + "/chat/completions"
         headers_dict = {

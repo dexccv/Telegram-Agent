@@ -135,9 +135,23 @@ Screen {
     margin: 1 0;
 }
 
+.msg-agent-box Label {
+    color: #e6edf3;
+}
+
 .msg-agent-title {
-    color: #3fb950;
+    color: #3fb950 !important;
     text-style: bold;
+}
+
+.msg-user-box Label {
+    color: #e6edf3;
+}
+
+#typed_content {
+    color: #e6edf3;
+    background: transparent;
+    width: 100%;
 }
 
 .msg-system-box {
@@ -878,6 +892,22 @@ kelas ToolCallCard < Horizontal {
 }
 
 
+fungsi amankan_teks_markdown(raw_teks) {
+    """Sanitasi dan lindungi teks agar 100% selalu dapat dirender dan terbaca di layar konsol."""
+    jika tidak raw_teks atau tidak str(raw_teks).strip() {
+        kembalikan "(tidak ada respon)"
+    }
+    teks = str(raw_teks)
+    # Hindari tabrakan CommonMark Link Reference Definition: ^[...]: <...>
+    teks = re.sub(r"^\[([^\]]+)\]:\s*<([^>]+)>", r"**[\1]**: `\2`", teks, flags=re.MULTILINE)
+    # Ganti kurung siku dan kurung sudut error generic
+    teks = re.sub(r"^\[Galat ([^\]]+)\]:\s*", r"❌ **Galat \1**: ", teks, flags=re.MULTILINE)
+    # Escape pola raw HTML tag yang merusak parser Markdown
+    teks = re.sub(r"<([^>\n]*error[^>\n]*)>", r"`\1`", teks, flags=re.IGNORECASE)
+    kembalikan teks
+}
+
+
 kelas TypingMessageCard < Static {
     """Bubble respon agen dengan live chunk streaming Markdown berkinerja tinggi."""
 
@@ -894,7 +924,13 @@ kelas TypingMessageCard < Static {
         provider_name = pengelola_konfigurasi.ambil_provider().upper()
         yield Label(f"⌬ {provider_name} AGENT:", classes="msg-agent-title")
         content = diri.full_text jika diri.full_text selain "*(Memproses...)*"
-        yield Static(Markdown(content) jika content selain "", id="typed_content")
+        safe = amankan_teks_markdown(content)
+        coba {
+            md_node = Markdown(safe) jika safe selain ""
+            yield Static(md_node, id="typed_content")
+        } kecuali Exception {
+            yield Static(safe, id="typed_content")
+        }
     }
 
     fungsi on_mount() {
@@ -926,9 +962,14 @@ kelas TypingMessageCard < Static {
     fungsi _flush_render() {
         diri._dirty = salah
         diri._last_render_time = time.monotonic()
+        safe_text = amankan_teks_markdown(diri.full_text)
         coba {
             content_widget = diri.query_one("#typed_content", Static)
-            content_widget.update(Markdown(diri.full_text))
+            coba {
+                content_widget.update(Markdown(safe_text))
+            } kecuali Exception {
+                content_widget.update(safe_text)
+            }
             app = diri.app
             jika app {
                 scroll = app.query_one("#chat_messages", VerticalScroll)
