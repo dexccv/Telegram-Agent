@@ -20,11 +20,11 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-for /f "tokens=*" %%v in ('python --version') do set PY_VER=%%v
+for /f "tokens=*" %%v in ('python --version 2^>nul') do set "PY_VER=%%v"
 echo [*] Menggunakan %PY_VER%
 
 :: 2. Siapkan Virtual Environment (.venv)
-if not exist ".venv" (
+if not exist ".venv\Scripts\python.exe" (
     echo [*] Membuat virtual environment baru di .venv...
     python -m venv .venv
     if %errorlevel% neq 0 (
@@ -63,4 +63,3 @@ python setup_teleagent.py
 echo.
 echo Setup TeleAgent selesai.
 exit /b 0
-

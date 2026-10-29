@@ -2,7 +2,7 @@
 title TeleAgent - Telegram Mobile Gateway
 cd /d "%~dp0"
 
-:: Konfigurasi Code Page UTF-8 & Environment
+:: Konfigurasi Code Page UTF-8 ^& Environment
 chcp 65001 >nul
 set "PYTHONIOENCODING=utf-8"
 set "PYTHONUTF8=1"
@@ -17,10 +17,7 @@ echo.
 if not exist ".venv\Scripts\python.exe" (
     echo [!] Virtual environment .venv tidak ditemukan.
     echo [*] Menjalankan setup otomatis...
-    python -m venv .venv
-    call .venv\Scripts\activate.bat
-    python -m pip install --upgrade pip --quiet
-    pip install -r requirements.txt
+    call setup.bat
 ) else (
     call .venv\Scripts\activate.bat
 )

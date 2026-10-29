@@ -1,0 +1,6 @@
+# Pastikan file batch Windows selalu berakhiran CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell scripts Unix selalu LF
+*.sh text eol=lf

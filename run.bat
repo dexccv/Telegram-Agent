@@ -10,8 +10,8 @@ set "OLLAMA_MODELS=D:\.ollama\models"
 set "OLLAMA_HOST=127.0.0.1:11434"
 
 echo ========================================================
-echo        TeleAgent - Workstation & Mobile Gateway
-echo    Autonomous AI Terminal Agent & Desktop Controller
+echo        TeleAgent - Workstation ^& Mobile Gateway
+echo    Autonomous AI Terminal Agent ^& Desktop Controller
 echo ========================================================
 echo.
 
@@ -98,6 +98,3 @@ if errorlevel 1 (
 )
 
 echo.
-echo ========================================================
-echo Sesi TeleAgent selesai. Tekan sembarang tombol untuk menutup...
-pause >nul
