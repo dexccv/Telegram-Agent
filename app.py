@@ -67,10 +67,23 @@ def hentikan_server_bot_telegram() -> None:
                 pass
 
 
+def mulai_server_ollama_jika_perlu() -> None:
+    """Otomatis menyalakan server Ollama di latar belakang jika provider aktif adalah Ollama."""
+    try:
+        prov = config_manager.get_provider()
+        if prov == "ollama":
+            from agent import ensure_ollama_running
+            base_url = config_manager.get_ollama_base_url()
+            ensure_ollama_running(base_url, timeout=3.0)
+    except Exception:
+        pass
+
+
 atexit.register(hentikan_server_bot_telegram)
 
 if __name__ == "__main__":
     mulai_server_bot_telegram()
+    mulai_server_ollama_jika_perlu()
     try:
         jalankan_berkas_idk("aplikasi.idk")
     finally:

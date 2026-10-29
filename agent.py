@@ -359,17 +359,27 @@ def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: flo
         if os.path.exists(custom_bin):
             ollama_bin = custom_bin
 
-        flags = 0
         if os.name == "nt":
-            flags = 0x00000008 | 0x00000200
-        subprocess.Popen(
-            [ollama_bin, "serve"],
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags,
-        )
+            ps_cmd = (
+                f"$env:OLLAMA_MODELS = '{models_path}'; "
+                f"$env:OLLAMA_HOST = '127.0.0.1:11434'; "
+                f"Start-Process -FilePath '{ollama_bin}' -ArgumentList 'serve' -WindowStyle Hidden"
+            )
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+                creationflags=0x08000000,
+            )
+        else:
+            subprocess.Popen(
+                [ollama_bin, "serve"],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL,
+            )
 
         t_start = time.time()
         while time.time() - t_start < timeout:
