@@ -694,10 +694,11 @@ class TelegramAgentGateway:
             "• `/capture` — Ambil screenshot tampilan display utama\n"
             "• `/kamera` — Ambil foto langsung dari webcam laptop\n"
             "• `/volume` — Atur volume audio master laptop (0-100)\n"
-            "• `/lock` — Kunci layar laptop seketika (`Ctrl+L`)\n\n"
+            "• `/lock` — Kunci layar laptop seketika (`Win+L`)\n\n"
             "🪐 **Antigravity IDE & Terminal**\n"
+            "• `/agy model [nama]` — Pilih model AI Antigravity (Gemini Medium, High, Claude, dll.)\n"
+            "• `/agy prompt <teks>` — Suntikkan instruksi ke Antigravity Agent (support teks panjang & multiline)\n"
             "• `/agy ss` — Bawa Antigravity ke depan & screenshot fullscreen\n"
-            "• `/agy prompt <teks>` — Suntikkan instruksi ke Antigravity Agent\n"
             "• `/agy proceed` — Setujui dialog persetujuan (Proceed/Allow)\n"
             "• `/agy term <cmd>` — Jalankan perintah di terminal IDE + output\n"
             "• `/sh <cmd>` — Eksekusi perintah terminal sandboxed di laptop\n\n"
@@ -978,7 +979,69 @@ class TelegramAgentGateway:
             await self.lock_cmd(update, context)
         elif data == "btn_remote_agy":
             await query.answer("🪐 Remote Antigravity...")
-            await self.agy_cmd(update, context)
+            text, markup = self._build_agy_menu_markup()
+            if query.message:
+                try:
+                    await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    await query.message.reply_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+
+        elif data == "btn_agy_select_model":
+            await query.answer("🧠 Membuka daftar model Antigravity...")
+            text, markup = self._build_agy_models_markup()
+            if query.message:
+                try:
+                    await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    await query.message.reply_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+
+        elif data.startswith("agy_set_model:"):
+            model_id = data.replace("agy_set_model:", "").strip()
+            ok, m_info = antigravity_bridge.set_active_model(model_id)
+            if ok and m_info:
+                await query.answer(f"✅ Model diubah: {m_info.get('name')}")
+            else:
+                await query.answer("⚠️ Gagal mengubah model.")
+            text, markup = self._build_agy_models_markup()
+            if query.message:
+                try:
+                    await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    pass
+
+        elif data == "btn_agy_proceed":
+            await query.answer("✅ Mengirim tombol Proceed...")
+            ok = antigravity_bridge.trigger_proceed()
+            if query.message:
+                res = "✅ Tombol Proceed / Konfirmasi Antigravity berhasil dipicu." if ok else "⚠️ Tombol Proceed tidak ditemukan atau gagal dipicu."
+                await query.message.reply_text(res)
+
+        elif data == "btn_agy_open":
+            await query.answer("📂 Membuka Antigravity IDE...")
+            ok = antigravity_bridge.launch_or_focus()
+            if query.message:
+                res = "✅ Jendela Antigravity IDE berhasil difokuskan ke depan." if ok else "⚠️ Proses diluncurkan di latar belakang."
+                await query.message.reply_text(res)
+
+        elif data == "btn_agy_ss":
+            await query.answer("📸 Mengambil screenshot Antigravity...")
+            if query.message:
+                await query.message.reply_text("📸 Memfokuskan Antigravity IDE & mengambil tangkapan layar fullscreen...")
+                try:
+                    shot_path = await asyncio.to_thread(antigravity_bridge.capture_window_screenshot)
+                    if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                        with open(shot_path, "rb") as photo:
+                            await query.message.reply_photo(
+                                photo=photo,
+                                caption="🪐 **Tangkapan Layar Fullscreen Antigravity IDE**",
+                                parse_mode=ParseMode.MARKDOWN,
+                            )
+                        log_chat_outgoing("Remote Antigravity (/agy ss)", f"Screenshot fullscreen berhasil dikirim: {shot_path.name}")
+                    else:
+                        await query.message.reply_text("❌ Gagal mengambil screenshot layar Antigravity.")
+                except Exception as ss_exc:
+                    agent_logger.log_error("telegram_agy_ss", f"Gagal proses ss: {ss_exc}")
+                    await query.message.reply_text(f"❌ Error screenshot Antigravity: {ss_exc}")
         elif data == "btn_volume_panel":
             import perkakas
             fn_vol = getattr(perkakas, "set_volume", None)
@@ -1703,6 +1766,69 @@ class TelegramAgentGateway:
         )
         return "\n".join(text_lines), InlineKeyboardMarkup(buttons)
 
+    def _build_agy_menu_markup(self) -> tuple[str, InlineKeyboardMarkup]:
+        """Menyusun tampilan panduan utama Remote Antigravity dan kontrol interaktifnya."""
+        is_on = "🟢 Aktif (Running)" if antigravity_bridge.is_running() else "⚪ Mati (Offline)"
+        active_m = antigravity_bridge.get_active_model()
+        text = (
+            "🪐 **REMOTE GOOGLE ANTIGRAVITY CONTROLLER**\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"• **Status IDE**: `{is_on}`\n"
+            f"• **Model AI Aktif**: {active_m.get('icon', '🧠')} **{active_m.get('name', 'N/A')}**\n"
+            f"• **ID Model**: `{active_m.get('id', 'N/A')}`\n\n"
+            "**Daftar Perintah**:\n"
+            "• `/agy prompt <instruksi>` — Suntikkan prompt coding (mendukung teks panjang & multiline)\n"
+            "• `/agy model [pilihan]` — Pilih model AI aktif (Gemini Medium, High, Claude, dll.)\n"
+            "• `/agy proceed` — Setujui dialog izin (Proceed / Allow / Run)\n"
+            "• `/agy ss` — Tangkap layar jendela Antigravity fullscreen\n"
+            "• `/agy term <perintah>` — Jalankan perintah di terminal internal IDE\n"
+            "• `/agy open [path]` — Fokuskan atau buka workspace di IDE"
+        )
+        markup = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(f"🧠 Model: {active_m.get('name', 'Model')[:15]}...", callback_data="btn_agy_select_model"),
+                InlineKeyboardButton("📸 Screenshot IDE", callback_data="btn_agy_ss"),
+            ],
+            [
+                InlineKeyboardButton("✅ Proceed / Allow", callback_data="btn_agy_proceed"),
+                InlineKeyboardButton("📂 Buka Workspace", callback_data="btn_agy_open"),
+            ],
+            [
+                InlineKeyboardButton("🔄 Segarkan Status", callback_data="btn_remote_agy"),
+            ],
+        ])
+        return text, markup
+
+    def _build_agy_models_markup(self) -> tuple[str, InlineKeyboardMarkup]:
+        """Menyusun menu interaktif pemilihan model yang tersedia di dalam Antigravity."""
+        models = antigravity_bridge.get_available_models()
+        active_m = antigravity_bridge.get_active_model()
+
+        text_lines = [
+            "🧠 **PILIHAN MODEL GOOGLE ANTIGRAVITY**",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            f"• Model Terpilih: {active_m.get('icon', '🟢')} **{active_m.get('name', 'N/A')}** (`{active_m.get('id', '')}`)\n",
+            "Klik salah satu tombol model di bawah untuk mengganti model aktif Antigravity seketika:",
+        ]
+
+        buttons = []
+        row = []
+        for m in models:
+            is_active = (m["id"] == active_m.get("id"))
+            label = f"🟢 {m['name']}" if is_active else f"{m.get('icon', '🤖')} {m['name']}"
+            row.append(InlineKeyboardButton(label, callback_data=f"agy_set_model:{m['id']}"))
+            if len(row) == 2:
+                buttons.append(row)
+                row = []
+        if row:
+            buttons.append(row)
+
+        buttons.append([
+            InlineKeyboardButton("🔄 Segarkan Model", callback_data="btn_agy_select_model"),
+            InlineKeyboardButton("🔙 Menu Antigravity", callback_data="btn_remote_agy"),
+        ])
+        return "\n".join(text_lines), InlineKeyboardMarkup(buttons)
+
     async def search_and_send_youtube(self, msg_target, query: str) -> None:
         """Mencari video di YouTube, menampilkan judul & link langsung, serta tombol pilihan interaktif."""
         import urllib.parse
@@ -2341,40 +2467,84 @@ class TelegramAgentGateway:
 
         args = context.args or []
         if not args:
-            is_on = "Aktif (Running)" if antigravity_bridge.is_running() else "Mati (Offline)"
-            guide = (
-                f"🪐 **REMOTE GOOGLE ANTIGRAVITY CONTROLLER**\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"• Status IDE: `{is_on}`\n\n"
-                f"**Perintah Tersedia**:\n"
-                f"• `/agy prompt <instruksi>` : Kirim prompt instruksi coding ke Antigravity IDE\n"
-                f"• `/agy open [folder]` : Buka workspace proyek di Antigravity / bawa ke depan\n"
-                f"• `/agy proceed` : Klik tombol Proceed / Allow pada dialog persetujuan Antigravity\n"
-                f"• `/agy ss` : Tangkap layar tampilan jendela Antigravity IDE\n"
-                f"• `/agy term <perintah>` : Eksekusi perintah di terminal internal Antigravity"
-            )
-            await update.message.reply_text(guide, parse_mode=ParseMode.MARKDOWN)
+            text, markup = self._build_agy_menu_markup()
+            msg_target = update.message or (update.callback_query.message if update.callback_query else None)
+            if msg_target:
+                await msg_target.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
             return
 
         subcmd = args[0].lower()
         subargs = " ".join(args[1:]).strip()
 
-        if subcmd == "open":
+        if subcmd in ["model", "models"]:
+            if not subargs:
+                text, markup = self._build_agy_models_markup()
+                await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
+                return
+
+            ok, m_info = antigravity_bridge.set_active_model(subargs)
+            if ok and m_info:
+                text = (
+                    f"✅ **Model Antigravity Berhasil Diubah!**\n\n"
+                    f"• Nama Model : {m_info.get('icon', '🧠')} **{m_info.get('name')}**\n"
+                    f"• ID Model   : `{m_info.get('id')}`\n\n"
+                    f"Model ini sekarang aktif untuk sesi prompt dan interaksi dengan Antigravity."
+                )
+                await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+                log_chat_outgoing("Remote Antigravity (/agy model)", f"Model diubah ke: {m_info.get('id')}")
+            else:
+                avail = ", ".join([f"`{m['id']}`" for m in antigravity_bridge.get_available_models()])
+                await update.message.reply_text(
+                    f"⚠️ Model `{subargs}` tidak ditemukan.\n\n"
+                    f"Pilihan model yang tersedia:\n{avail}\n\n"
+                    "Gunakan: `/agy model <nama/id>` atau ketik `/agy model` untuk memilih via tombol.",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+
+        elif subcmd == "open":
             ok = antigravity_bridge.launch_or_focus(subargs if subargs else None)
             res = "✅ Jendela Antigravity IDE berhasil difokuskan ke depan." if ok else "⚠️ Proses diluncurkan atau dicari di latar belakang."
             await update.message.reply_text(res)
 
         elif subcmd == "prompt":
-            if not subargs:
+            # Ekstraksi teks prompt langsung dari raw message agar baris baru, indentasi, & karakter multiline utuh 100%
+            raw_msg = (update.message.text or "") if update.message else ""
+            match_prompt = re.search(r"^/(?:agy|antigravity)\s+prompt\s*([\s\S]*)", raw_msg, re.IGNORECASE)
+            full_prompt_text = match_prompt.group(1).strip() if match_prompt and match_prompt.group(1).strip() else subargs
+
+            if not full_prompt_text:
                 await update.message.reply_text("⚠️ Berikan teks prompt. Contoh: `/agy prompt Buatkan endpoint /status dengan FastAPI`")
                 return
-            await update.message.reply_text("⏳ Mengirim prompt ke Antigravity IDE...")
-            ok = antigravity_bridge.send_prompt(subargs, auto_submit=True)
+
+            active_m = antigravity_bridge.get_active_model()
+            char_count = len(full_prompt_text)
+            wait_msg = await update.message.reply_text(
+                f"⏳ Menyuntikkan prompt ke Antigravity IDE...\n"
+                f"• Model Aktif : {active_m.get('icon', '🧠')} `{active_m.get('name')}`\n"
+                f"• Panjang     : `{char_count}` karakter",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+
+            ok = await asyncio.to_thread(antigravity_bridge.send_prompt, full_prompt_text, True)
             if ok:
-                await update.message.reply_text(f"✅ Prompt berhasil dikirim ke Antigravity IDE:\n\n`{subargs[:120]}`...", parse_mode=ParseMode.MARKDOWN)
-                log_chat_outgoing("Remote Antigravity (/agy prompt)", f"Prompt terkirim ({len(subargs)} char): {subargs[:200]}")
+                preview = full_prompt_text[:140].replace("`", "'") + ("..." if len(full_prompt_text) > 140 else "")
+                resp_text = (
+                    "✅ **Prompt Berhasil Dikirim ke Antigravity IDE!**\n\n"
+                    f"• Model AI       : {active_m.get('icon', '🧠')} **{active_m.get('name')}**\n"
+                    f"• Total Karakter : `{char_count}` karakter\n"
+                    f"• Cuplikan Teks  :\n```text\n{preview}\n```"
+                )
+                try:
+                    await wait_msg.edit_text(resp_text, parse_mode=ParseMode.MARKDOWN)
+                except Exception:
+                    await update.message.reply_text(resp_text, parse_mode=ParseMode.MARKDOWN)
+                log_chat_outgoing("Remote Antigravity (/agy prompt)", f"Prompt ({char_count} char) terkirim ke Antigravity IDE")
             else:
-                await update.message.reply_text("❌ Gagal mengirimkan prompt ke jendela Antigravity IDE.")
+                err_msg = "❌ Gagal mengirimkan prompt ke jendela Antigravity IDE."
+                try:
+                    await wait_msg.edit_text(err_msg)
+                except Exception:
+                    await update.message.reply_text(err_msg)
 
         elif subcmd in ["proceed", "ok", "lanjut"]:
             ok = antigravity_bridge.trigger_proceed()

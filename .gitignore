@@ -37,6 +37,7 @@ ekspor_*.md
 *.jpeg
 *.png
 *.log
+.antigravity_model.json
 
 # Internal notes & drafts
 AUDIT_*.md

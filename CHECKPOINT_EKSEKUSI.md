@@ -155,6 +155,7 @@
 | 29-10-2026 04:18 | Dual-Window Launcher | Modifikasi run.bat agar otomatis meluncurkan 2 jendela CMD sekaligus saat dijalankan: Window 1 (Agent CLI / TUI) dan Window 2 (Telegram Gateway + Live Log) | `run.bat`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
 | 29-10-2026 04:31 | Fix YouTube Play Lock Bug | Mengatasi bug penguncian laptop tak sengaja saat play YouTube: ganti shortcut address bar browser menjadi Alt+D di perkakas.idk dan nonaktifkan global hotkey Ctrl+L listener di bot_telegram.py | `perkakas.idk`, `bot_telegram.py`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
 | 29-10-2026 04:44 | Fix Tab Focus Override Bug | Perbaikan bug tombol fokus tab melompat ke tab tengah (tab 6): eliminasi klik mouse blind di baris tab pada focus_window_and_capture_fullscreen, sinkronisasi filter uiautomation TabItemControl di perkakas.idk, dan perluas kuota daftar tab aktif hingga 12 tab | `bot_telegram.py`, `perkakas.idk`, `CHECKPOINT_EKSEKUSI.md` | ✅ Lolos (21/21 tests) |
+| 29-10-2026 09:27 | Fitur Model & Long Prompt Antigravity | Menambahkan fitur pemilihan model AI Antigravity (/agy model & tombol inline: Gemini Medium, High, Claude, GPT-OSS) serta perbaikan handling prompt panjang/multiline dengan Win32 Unicode clipboard & raw message extraction | `antigravity_bridge.py`, `bot_telegram.py`, `tests/test_features_fase5.py`, `.gitignore` | ✅ Lolos (23/23 tests) |
 
 *(Baris baru akan ditambahkan otomatis di sini setiap kali suatu langkah/fase selesai dieksekusi)*
 

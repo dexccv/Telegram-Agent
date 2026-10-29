@@ -60,3 +60,33 @@ def test_antigravity_capture_window_screenshot(tmp_path):
     assert result.exists()
     assert result.stat().st_size > 500
 
+
+def test_antigravity_model_management():
+    bridge = AntigravityBridge()
+    models = bridge.get_available_models()
+    assert isinstance(models, list)
+    assert len(models) >= 1
+    # Minimal mengandung model gemini
+    assert any("gemini" in m["id"].lower() for m in models)
+
+    # Uji set_active_model dengan alias 'medium'
+    ok, m_info = bridge.set_active_model("medium")
+    assert ok is True
+    assert "medium" in m_info["id"]
+
+    active = bridge.get_active_model()
+    assert "medium" in active["id"]
+
+    # Uji set_active_model dengan ID spesifik
+    ok2, m_info2 = bridge.set_active_model("gemini-3.8-flash-high")
+    assert ok2 is True
+    assert "high" in m_info2["id"]
+
+
+def test_win32_clipboard_long_text():
+    from antigravity_bridge import _win32_copy_to_clipboard
+    # Uji prompt panjang 8000 karakter multiline
+    long_text = "Prompt testing multiline:\n" + ("def example_function():\n    return 42\n" * 250)
+    ok = _win32_copy_to_clipboard(long_text)
+    assert ok is True
+
