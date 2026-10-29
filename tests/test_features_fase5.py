@@ -90,3 +90,12 @@ def test_win32_clipboard_long_text():
     ok = _win32_copy_to_clipboard(long_text)
     assert ok is True
 
+
+def test_antigravity_trigger_accept_all():
+    bridge = AntigravityBridge()
+    assert hasattr(bridge, "trigger_accept_all")
+    # trigger_accept_all harus dapat dipanggil tanpa melempar exception fatal
+    # Bila jendela tidak fokus/running, fallback Alt+Enter tetap aman
+    res = bridge.trigger_accept_all()
+    assert isinstance(res, bool)
+

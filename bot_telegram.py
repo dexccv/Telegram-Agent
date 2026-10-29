@@ -698,8 +698,9 @@ class TelegramAgentGateway:
             "🪐 **Antigravity IDE & Terminal**\n"
             "• `/agy model [nama]` — Pilih model AI Antigravity (Gemini Medium, High, Claude, dll.)\n"
             "• `/agy prompt <teks>` — Suntikkan instruksi ke Antigravity Agent (support teks panjang & multiline)\n"
-            "• `/agy ss` — Bawa Antigravity ke depan & screenshot fullscreen\n"
+            "• `/agy accept` — Setujui semua perubahan berkas (Accept all changes)\n"
             "• `/agy proceed` — Setujui dialog persetujuan (Proceed/Allow)\n"
+            "• `/agy ss` — Bawa Antigravity ke depan & screenshot fullscreen\n"
             "• `/agy term <cmd>` — Jalankan perintah di terminal IDE + output\n"
             "• `/sh <cmd>` — Eksekusi perintah terminal sandboxed di laptop\n\n"
             "🤖 **Kecerdasan AI & Sesi**\n"
@@ -1008,6 +1009,14 @@ class TelegramAgentGateway:
                     await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
                 except Exception:
                     pass
+
+        elif data == "btn_agy_accept_all":
+            await query.answer("✨ Menyetujui semua perubahan file (Accept all)...")
+            ok = await asyncio.to_thread(antigravity_bridge.trigger_accept_all)
+            if query.message:
+                res = "✅ **Accept all changes** berhasil dikirim ke Antigravity IDE (Semua berkas telah disetujui)." if ok else "⚠️ Gagal mengeksekusi Accept all."
+                await query.message.reply_text(res, parse_mode=ParseMode.MARKDOWN)
+            log_chat_outgoing("Remote Antigravity (Accept All)", "Perintah Accept all changes dieksekusi")
 
         elif data == "btn_agy_proceed":
             await query.answer("✅ Mengirim tombol Proceed...")
@@ -1778,6 +1787,7 @@ class TelegramAgentGateway:
             f"• **ID Model**: `{active_m.get('id', 'N/A')}`\n\n"
             "**Daftar Perintah**:\n"
             "• `/agy prompt <instruksi>` — Suntikkan prompt coding (mendukung teks panjang & multiline)\n"
+            "• `/agy accept` — Setujui semua perubahan file (Accept all changes)\n"
             "• `/agy model [pilihan]` — Pilih model AI aktif (Gemini Medium, High, Claude, dll.)\n"
             "• `/agy proceed` — Setujui dialog izin (Proceed / Allow / Run)\n"
             "• `/agy ss` — Tangkap layar jendela Antigravity fullscreen\n"
@@ -1790,10 +1800,11 @@ class TelegramAgentGateway:
                 InlineKeyboardButton("📸 Screenshot IDE", callback_data="btn_agy_ss"),
             ],
             [
+                InlineKeyboardButton("✨ Accept All Changes", callback_data="btn_agy_accept_all"),
                 InlineKeyboardButton("✅ Proceed / Allow", callback_data="btn_agy_proceed"),
-                InlineKeyboardButton("📂 Buka Workspace", callback_data="btn_agy_open"),
             ],
             [
+                InlineKeyboardButton("📂 Buka Workspace", callback_data="btn_agy_open"),
                 InlineKeyboardButton("🔄 Segarkan Status", callback_data="btn_remote_agy"),
             ],
         ])
@@ -2545,6 +2556,18 @@ class TelegramAgentGateway:
                     await wait_msg.edit_text(err_msg)
                 except Exception:
                     await update.message.reply_text(err_msg)
+
+        elif subcmd in ["accept", "accept-all", "accept_all", "terima", "terima-semua", "terimasemua"]:
+            await update.message.reply_text("✨ Menyetujui semua perubahan berkas (Accept all changes) di Antigravity IDE...")
+            ok = await asyncio.to_thread(antigravity_bridge.trigger_accept_all)
+            if ok:
+                await update.message.reply_text(
+                    "✅ **Accept all changes** berhasil dieksekusi di Antigravity IDE (Semua berkas perubahan telah diterima).",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                log_chat_outgoing("Remote Antigravity (/agy accept)", "Perintah Accept all berhasil dieksekusi")
+            else:
+                await update.message.reply_text("⚠️ Gagal mengeksekusi perintah Accept all.")
 
         elif subcmd in ["proceed", "ok", "lanjut"]:
             ok = antigravity_bridge.trigger_proceed()

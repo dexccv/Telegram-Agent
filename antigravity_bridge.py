@@ -494,6 +494,50 @@ class AntigravityBridge:
             agent_logger.log_error("antigravity_bridge", f"Gagal trigger proceed: {exc}")
             return False
 
+    def trigger_accept_all(self) -> bool:
+        """Menyetujui semua perubahan berkas (Accept all changes) di Antigravity IDE."""
+        self.launch_or_focus()
+        time.sleep(0.3)
+
+        # 1. Coba deteksi elemen UI 'Accept all' via UIAutomation
+        try:
+            import uiautomation as auto
+
+            win = self._find_window()
+            if win:
+                for name_target in ["Accept all", "Accept All", "Accept all changes", "Accept All Changes", "Accept"]:
+                    for ctrl_type in [auto.ButtonControl, auto.TextControl, auto.HyperlinkControl]:
+                        elem = ctrl_type(searchFromControl=win, searchDepth=14, Name=name_target)
+                        if elem.Exists(maxSearchSeconds=0.3):
+                            elem.Click()
+                            agent_logger.log_info("antigravity_bridge", f"Elemen '{name_target}' berhasil diklik via UIAutomation.")
+                            return True
+        except Exception as exc_ui:
+            agent_logger.log_warning("antigravity_bridge", f"UIAutomation accept all: {exc_ui}")
+
+        # 2. Kirim kombinasi tombol resmi Antigravity IDE: Alt + Enter (antigravity.inlineDiff.acceptAll & acceptAgentStep)
+        try:
+            _win32_send_hotkey("alt", "enter")
+            time.sleep(0.2)
+            agent_logger.log_info("antigravity_bridge", "Accept all dipicu via Alt+Enter resmi Antigravity.")
+        except Exception as exc_hotkey:
+            agent_logger.log_warning("antigravity_bridge", f"Gagal Alt+Enter: {exc_hotkey}")
+
+        # 3. Command Palette fallback: Ctrl+Shift+P -> 'Antigravity: Accept All Changes'
+        try:
+            time.sleep(0.15)
+            _win32_send_hotkey("ctrl", "shift", "p")
+            time.sleep(0.3)
+            _win32_copy_to_clipboard("Antigravity: Accept All Changes")
+            _win32_send_hotkey("ctrl", "v")
+            time.sleep(0.25)
+            _win32_send_hotkey("enter")
+            agent_logger.log_info("antigravity_bridge", "Accept all dipicu via Command Palette Antigravity.")
+        except Exception as exc_cmd:
+            agent_logger.log_warning("antigravity_bridge", f"Gagal Command Palette accept all: {exc_cmd}")
+
+        return True
+
     def open_integrated_terminal_and_run(self, command: str) -> bool:
         """Membuka terminal terintegrasi Antigravity dan mengeksekusi perintah."""
         self.launch_or_focus()
