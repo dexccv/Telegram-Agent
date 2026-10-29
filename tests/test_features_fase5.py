@@ -121,3 +121,33 @@ def test_antigravity_transcript_watcher(tmp_path):
     assert res["type"] == "PLANNER_RESPONSE"
     assert "Fitur X" in res["content"]
 
+
+def test_maximize_window_support(monkeypatch):
+    bridge = AntigravityBridge()
+    monkeypatch.setattr(bridge, "_find_window_hwnd", lambda: 99999)
+    
+    called_show = []
+    class FakeUser32:
+        def ShowWindow(self, hwnd, cmd):
+            called_show.append((hwnd, cmd))
+            return 1
+        def IsIconic(self, hwnd):
+            return 0
+        def SetWindowPos(self, *args):
+            return 1
+        def keybd_event(self, *args):
+            pass
+        def BringWindowToTop(self, *args):
+            pass
+        def SetForegroundWindow(self, *args):
+            pass
+        def GetWindowRect(self, *args):
+            return 0
+
+    monkeypatch.setattr("ctypes.windll.user32", FakeUser32())
+    res = bridge.maximize_window()
+    assert res is True
+    # SW_MAXIMIZE cmd adalah 3
+    assert (99999, 3) in called_show
+
+

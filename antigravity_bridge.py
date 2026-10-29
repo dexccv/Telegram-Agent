@@ -228,8 +228,8 @@ class AntigravityBridge:
             agent_logger.log_warning("antigravity_bridge", f"Gagal mencari window via uiautomation: {exc}")
         return None
 
-    def _focus_window(self, click: bool = True) -> bool:
-        """Membawa jendela Antigravity ke Foreground via Win32 API, SetWindowPos TOPMOST, dan klik mouse nyata."""
+    def _focus_window(self, click: bool = True, maximize: bool = True) -> bool:
+        """Membawa jendela Antigravity ke Foreground via Win32 API, SetWindowPos TOPMOST, maximize bila diminta, dan klik mouse nyata."""
         self._attach_desktop()
 
         hwnd = self._find_window_hwnd()
@@ -241,8 +241,10 @@ class AntigravityBridge:
                 rect = wintypes.RECT()
                 user32.GetWindowRect(hwnd, ctypes.byref(rect))
 
-                # 1. Restore bila minimized, atau show normal
-                if user32.IsIconic(hwnd):
+                # 1. Maksimalkan jendela bila diminta agar memenuhi layar penuh, atau restore/show
+                if maximize:
+                    user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
+                elif user32.IsIconic(hwnd):
                     user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                 else:
                     user32.ShowWindow(hwnd, 5)  # SW_SHOW
@@ -280,7 +282,12 @@ class AntigravityBridge:
         win = self._find_window()
         if win:
             try:
-                if win.IsIconic():
+                if maximize:
+                    try:
+                        win.Maximize()
+                    except Exception:
+                        pass
+                elif win.IsIconic():
                     win.Restore()
                 win.SetActive()
                 win.SetTopmost(True)
@@ -291,7 +298,7 @@ class AntigravityBridge:
 
         return False
 
-    def launch_or_focus(self, workspace_path: Optional[str] = None, click: bool = True) -> bool:
+    def launch_or_focus(self, workspace_path: Optional[str] = None, click: bool = True, maximize: bool = True) -> bool:
         """Membuka Antigravity IDE atau membawa jendelanya ke depan."""
         ws = str(Path(workspace_path).resolve()) if workspace_path else str(Path.cwd().resolve())
 
@@ -307,9 +314,13 @@ class AntigravityBridge:
                 )
             time.sleep(2.5)
 
-        focused = self._focus_window(click=click)
-        agent_logger.log_info("antigravity_bridge", f"launch_or_focus(workspace='{ws}', click={click}) -> {focused}")
+        focused = self._focus_window(click=click, maximize=maximize)
+        agent_logger.log_info("antigravity_bridge", f"launch_or_focus(workspace='{ws}', click={click}, maximize={maximize}) -> {focused}")
         return focused
+
+    def maximize_window(self) -> bool:
+        """Memaksimalkan jendela Antigravity IDE ke ukuran layar penuh (SW_MAXIMIZE)."""
+        return self._focus_window(click=True, maximize=True)
 
     def get_available_models(self) -> list[dict[str, str]]:
         """Membaca daftar model AI yang tersedia dari CLI agy atau daftar resmi Antigravity."""

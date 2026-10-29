@@ -369,8 +369,8 @@ def ambil_daftar_aplikasi_terbuka() -> list[dict[str, Any]]:
     return apps
 
 
-def focus_window_and_capture_fullscreen(hwnd: int, click_titlebar: bool = False) -> tuple[bool, Optional[Path]]:
-    """Membawa jendela hwnd ke foreground paling depan dan mengambil screenshot fullscreen (tanpa klik mouse sembarangan)."""
+def focus_window_and_capture_fullscreen(hwnd: int, click_titlebar: bool = False, maximize: bool = False) -> tuple[bool, Optional[Path]]:
+    """Membawa jendela hwnd ke foreground paling depan dan mengambil screenshot fullscreen (opsional maximize)."""
     try:
         user32 = ctypes.windll.user32
         from ctypes import wintypes
@@ -387,8 +387,10 @@ def focus_window_and_capture_fullscreen(hwnd: int, click_titlebar: bool = False)
         except Exception:
             pass
 
-        # 1. Restore bila minimized, atau show
-        if user32.IsIconic(hwnd):
+        # 1. Maksimalkan bila diminta (SW_MAXIMIZE = 3), atau restore bila minimized, atau show
+        if maximize:
+            user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
+        elif user32.IsIconic(hwnd):
             user32.ShowWindow(hwnd, 9)  # SW_RESTORE
         else:
             user32.ShowWindow(hwnd, 5)  # SW_SHOW
@@ -440,6 +442,11 @@ def focus_window_and_capture_fullscreen(hwnd: int, click_titlebar: bool = False)
     except Exception as exc:
         agent_logger.log_error("focus_and_capture", f"Gagal fokus & ss: {exc}")
         return False, None
+
+
+def maximize_window_and_capture_fullscreen(hwnd: int) -> tuple[bool, Optional[Path]]:
+    """Membawa jendela hwnd ke depan, memaksimalkan ukurannya (SW_MAXIMIZE), dan mengambil screenshot fullscreen."""
+    return focus_window_and_capture_fullscreen(hwnd, click_titlebar=False, maximize=True)
 
 
 def ambil_metrik_realtime() -> dict[str, Any]:
@@ -1051,6 +1058,26 @@ class TelegramAgentGateway:
                 except Exception as ss_exc:
                     agent_logger.log_error("telegram_agy_ss", f"Gagal proses ss: {ss_exc}")
                     await query.message.reply_text(f"❌ Error screenshot Antigravity: {ss_exc}")
+
+        elif data == "btn_agy_maximize":
+            await query.answer("🔲 Memaksimalkan jendela Antigravity IDE...")
+            if query.message:
+                await query.message.reply_text("🔲 Memaksimalkan jendela Antigravity IDE & mengambil tangkapan layar...")
+                try:
+                    shot_path = await asyncio.to_thread(antigravity_bridge.capture_window_screenshot)
+                    if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                        with open(shot_path, "rb") as photo:
+                            await query.message.reply_photo(
+                                photo=photo,
+                                caption="🔲 **Tangkapan Layar Antigravity IDE (Maximized)**",
+                                parse_mode=ParseMode.MARKDOWN,
+                            )
+                        log_chat_outgoing("Remote Antigravity (Maximize)", f"Screenshot fullscreen berhasil dikirim: {shot_path.name}")
+                    else:
+                        await query.message.reply_text("✅ Jendela Antigravity IDE berhasil dimaksimalkan.")
+                except Exception as ss_exc:
+                    agent_logger.log_error("telegram_agy_max", f"Gagal maximize Antigravity: {ss_exc}")
+                    await query.message.reply_text(f"❌ Error maximize Antigravity: {ss_exc}")
         elif data == "btn_volume_panel":
             import perkakas
             fn_vol = getattr(perkakas, "set_volume", None)
@@ -1230,6 +1257,32 @@ class TelegramAgentGateway:
                 else:
                     await query.message.reply_text(f"✅ Jendela `{app_title}` berhasil dibawa ke depan.", parse_mode=ParseMode.MARKDOWN)
 
+        elif data.startswith("app_max:"):
+            hwnd_val = int(data.split(":")[1])
+            await query.answer("🔲 Memaksimalkan jendela aplikasi...")
+
+            app_title = "Aplikasi Desktop"
+            for a in ambil_daftar_aplikasi_terbuka():
+                if a["hwnd"] == hwnd_val:
+                    app_title = f"{a['icon']} {a['title']} ({a['label']})"
+                    break
+
+            ok, shot_path = await asyncio.to_thread(maximize_window_and_capture_fullscreen, hwnd_val)
+            if query.message:
+                if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                    now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
+                    caption = (
+                        f"🔲 **Aplikasi Berhasil Dimaksimalkan (Maximized)!**\n"
+                        f"📱 **Jendela**: `{app_title}`\n"
+                        f"🖥️ **Tampilan Layar Laptop Saat Ini (Fullscreen)**\n"
+                        f"⏱ **Waktu**: `{now_str}`"
+                    )
+                    with open(shot_path, "rb") as pf:
+                        await query.message.reply_photo(photo=pf, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                    log_chat_outgoing("Maximize Aplikasi", f"Jendela '{app_title}' dimaksimalkan + screenshot fullscreen terkirim")
+                else:
+                    await query.message.reply_text(f"✅ Jendela `{app_title}` berhasil dimaksimalkan ke layar penuh.", parse_mode=ParseMode.MARKDOWN)
+
         elif data.startswith("app_close:"):
             hwnd_val = int(data.split(":")[1])
             await query.answer("❌ Mengirim perintah tutup aplikasi...")
@@ -1272,6 +1325,26 @@ class TelegramAgentGateway:
                     log_chat_outgoing("Fokus Tab", f"Tab browser HWND={hwnd_val} difokuskan + screenshot fullscreen terkirim")
                 else:
                     await query.message.reply_text(f"✅ Tab browser `HWND={hwnd_val}` berhasil dibawa ke depan.", parse_mode=ParseMode.MARKDOWN)
+
+        elif data.startswith("tab_max:"):
+            hwnd_val = int(data.split(":")[1])
+            await query.answer("🔲 Memaksimalkan jendela browser...")
+
+            ok, shot_path = await asyncio.to_thread(maximize_window_and_capture_fullscreen, hwnd_val)
+            if query.message:
+                if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                    now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
+                    caption = (
+                        f"🔲 **Jendela Browser Dimaksimalkan (Maximized)!**\n"
+                        f"🌐 **Jendela**: `HWND={hwnd_val}`\n"
+                        f"🖥️ **Tampilan Layar Laptop Saat Ini (Fullscreen)**\n"
+                        f"⏱ **Waktu**: `{now_str}`"
+                    )
+                    with open(shot_path, "rb") as pf:
+                        await query.message.reply_photo(photo=pf, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                    log_chat_outgoing("Maximize Browser", f"Jendela browser HWND={hwnd_val} dimaksimalkan + screenshot fullscreen terkirim")
+                else:
+                    await query.message.reply_text(f"✅ Jendela browser `HWND={hwnd_val}` berhasil dimaksimalkan ke layar penuh.", parse_mode=ParseMode.MARKDOWN)
 
         elif data.startswith("tab_close:"):
             parts = data.split(":")
@@ -1727,7 +1800,7 @@ class TelegramAgentGateway:
         text_lines = [
             f"📱 **MANAJER APLIKASI & TAB LAPTOP**\n",
             f"Ditemukan `{len(apps)}` Aplikasi Desktop & `{len(tabs)}` Tab Browser aktif.\n",
-            "*(Klik '🎯 Fokus' untuk membawa jendela ke depan + otomatis kirim Screenshot Fullscreen)*\n",
+            "*(🎯 Fokus = Bawa ke depan | 🔲 Max = Maksimalkan Layar Penuh | ❌ Tutup)*\n",
         ]
         buttons = []
 
@@ -1741,7 +1814,8 @@ class TelegramAgentGateway:
                 text_lines.append(f"{idx}. {a['icon']} `{clean_title}` ({a['label']})")
 
                 row = [
-                    InlineKeyboardButton(f"🎯 Fokus #{idx} ({a['label']})", callback_data=f"app_focus:{a['hwnd']}"),
+                    InlineKeyboardButton(f"🎯 Fokus #{idx}", callback_data=f"app_focus:{a['hwnd']}"),
+                    InlineKeyboardButton("🔲 Max", callback_data=f"app_max:{a['hwnd']}"),
                     InlineKeyboardButton("❌ Tutup", callback_data=f"app_close:{a['hwnd']}"),
                 ]
                 buttons.append(row)
@@ -1760,7 +1834,8 @@ class TelegramAgentGateway:
 
                 t_idx = t.get("tab_index", -1)
                 row = [
-                    InlineKeyboardButton(f"🎯 Fokus Tab #{idx}", callback_data=f"tab_focus:{t['hwnd']}:{t_idx}"),
+                    InlineKeyboardButton(f"🎯 Fokus #{idx}", callback_data=f"tab_focus:{t['hwnd']}:{t_idx}"),
+                    InlineKeyboardButton("🔲 Max", callback_data=f"tab_max:{t['hwnd']}"),
                 ]
                 if t.get("is_media") or t.get("is_youtube"):
                     row.append(InlineKeyboardButton("⏸️ Play", callback_data=f"tab_media:{t['hwnd']}"))
@@ -1788,6 +1863,7 @@ class TelegramAgentGateway:
             "**Daftar Perintah**:\n"
             "• `/agy prompt <instruksi>` — Suntikkan prompt coding (mendukung teks panjang & multiline)\n"
             "• `/agy accept` — Setujui semua perubahan file (Accept all changes)\n"
+            "• `/agy max` — Maksimalkan jendela Antigravity ke layar penuh (Maximize)\n"
             "• `/agy model [pilihan]` — Pilih model AI aktif (Gemini Medium, High, Claude, dll.)\n"
             "• `/agy proceed` — Setujui dialog izin (Proceed / Allow / Run)\n"
             "• `/agy ss` — Tangkap layar jendela Antigravity fullscreen\n"
@@ -1801,10 +1877,13 @@ class TelegramAgentGateway:
             ],
             [
                 InlineKeyboardButton("✨ Accept All Changes", callback_data="btn_agy_accept_all"),
-                InlineKeyboardButton("✅ Proceed / Allow", callback_data="btn_agy_proceed"),
+                InlineKeyboardButton("🔲 Maximize IDE", callback_data="btn_agy_maximize"),
             ],
             [
+                InlineKeyboardButton("✅ Proceed / Allow", callback_data="btn_agy_proceed"),
                 InlineKeyboardButton("📂 Buka Workspace", callback_data="btn_agy_open"),
+            ],
+            [
                 InlineKeyboardButton("🔄 Segarkan Status", callback_data="btn_remote_agy"),
             ],
         ])
@@ -2731,6 +2810,26 @@ class TelegramAgentGateway:
             except Exception as ss_exc:
                 agent_logger.log_error("telegram_agy_ss", f"Gagal proses ss: {ss_exc}")
                 await update.message.reply_text(f"❌ Error screenshot Antigravity: {ss_exc}")
+
+        elif subcmd in ["max", "maximize", "fullscreen"]:
+            await update.message.reply_text("🔲 Memaksimalkan jendela Antigravity IDE (Maximize) & mengambil tangkapan layar...")
+            try:
+                shot_path = await asyncio.to_thread(antigravity_bridge.capture_window_screenshot)
+                if shot_path and shot_path.exists() and shot_path.stat().st_size > 500:
+                    now_str = datetime.datetime.now().strftime("%H:%M:%S WIB")
+                    caption = (
+                        f"🔲 **Antigravity IDE Dimaksimalkan (Maximized)!**\n"
+                        f"🖥️ **Tampilan Layar Penuh Laptop**\n"
+                        f"⏱ **Waktu**: `{now_str}`"
+                    )
+                    with open(shot_path, "rb") as photo:
+                        await update.message.reply_photo(photo=photo, caption=caption, parse_mode=ParseMode.MARKDOWN)
+                    log_chat_outgoing("Remote Antigravity (/agy max)", f"Screenshot fullscreen berhasil dikirim: {shot_path.name}")
+                else:
+                    await update.message.reply_text("✅ Jendela Antigravity IDE berhasil dimaksimalkan ke layar penuh.")
+            except Exception as exc:
+                agent_logger.log_error("telegram_agy_max", f"Gagal maximize Antigravity: {exc}")
+                await update.message.reply_text(f"❌ Error maximize Antigravity: {exc}")
 
         elif subcmd == "term":
             if not subargs:
