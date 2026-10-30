@@ -1613,12 +1613,34 @@ fungsi lock_laptop() -> str {
     }
 }
 
+fungsi restart_all_engines() -> str {
+    """Merestart seluruh engine TeleAgent (Ollama Server, Telegram Gateway, Chat Agent) dan mengirimkan checklist ke Telegram."""
+    coba {
+        import subprocess
+        restarter = Path("system_restart.py").resolve()
+        jika restarter.exists() {
+            subprocess.Popen(
+                [sys.executable, str(restarter)],
+                creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+                close_fds=benar,
+            )
+            kembalikan "Siklus restart seluruh engine TeleAgent (Ollama, Telegram, Chat Agent) telah dimulai. Sistem akan melakukan verifikasi dan mengirimkan checklist ke Telegram."
+        }
+        kembalikan "Berkas system_restart.py tidak ditemukan."
+    } kecuali Exception sebagai exc {
+        kembalikan f"Gagal merestart engine: {exc}"
+    }
+}
+
 kunci_laptop = lock_laptop
 kunci_layar = lock_laptop
 lock_screen = lock_laptop
+restart_semua_engine = restart_all_engines
 
 
 ALAT_TERSEDIA = {
+    "restart_all_engines": restart_all_engines,
+    "restart_semua_engine": restart_all_engines,
     "buat_folder": buat_folder,
     "create_folder": create_folder,
     "daftar_berkas": daftar_berkas,
@@ -1703,6 +1725,7 @@ DAFTAR_PANGGILAN_ALAT = [
     create_pdf,
     send_file_to_user,
     lock_laptop,
+    restart_all_engines,
 ]
 
 AVAILABLE_TOOLS = ALAT_TERSEDIA

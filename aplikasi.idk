@@ -2133,7 +2133,16 @@ kelas GeminiTerminalAgentApp < App {
 
     fungsi action_restart_app() {
         coba {
-            diri.append_system_message("[i] Memulai ulang aplikasi...")
+            diri.append_system_message("[i] Merestart seluruh engine TeleAgent (Ollama, Telegram, Chat Agent)...")
+            import subprocess
+            restarter = Path("system_restart.py").resolve()
+            jika restarter.exists() {
+                subprocess.Popen(
+                    [sys.executable, str(restarter), "--caller", "cli"],
+                    creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+                    close_fds=benar,
+                )
+            }
         } kecuali exc {
             lewati
         }

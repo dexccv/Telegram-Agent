@@ -379,5 +379,16 @@ class KecerdasanOllama:
                     deskripsi_konfirmasi=f"Menutup aplikasi: {target_close}.",
                 )
 
+        # -------------------------------------------------------------
+        # Kasus 11: RESTART SEMUA ENGINE TELEAGENT (Ollama, Telegram, Chat Agent)
+        # -------------------------------------------------------------
+        if any(w in low for w in ["restart", "reboot", "muat ulang"]) and any(w in low for w in ["engine", "semua", "ollama", "bot", "sistem", "aplikasi", "chat", "project", "proyek", "semuanya"]):
+            return NiatTerdeteksi(
+                kategori="system_restart",
+                tool_name="restart_all_engines",
+                tool_args={},
+                deskripsi_konfirmasi="Merestart seluruh engine TeleAgent (Ollama, Telegram, Chat Agent) dan verifikasi status.",
+            )
+
         # Tidak cocok dengan perintah kontrol laptop -> serahkan ke model Ollama sebagai percakapan/coding biasa
         return None

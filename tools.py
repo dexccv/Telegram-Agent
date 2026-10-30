@@ -464,6 +464,23 @@ def list_memories() -> str:
     return "\n".join(lines)
 
 
+def restart_all_engines() -> str:
+    """Merestart seluruh engine TeleAgent (Ollama Server, Telegram Gateway, Chat Agent) dan mengirimkan checklist verifikasi ke Telegram."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    restarter = Path(__file__).resolve().parent / "system_restart.py"
+    if restarter.exists():
+        subprocess.Popen(
+            [sys.executable, str(restarter)],
+            cwd=str(Path(__file__).resolve().parent),
+            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+            close_fds=True,
+        )
+        return "Siklus restart seluruh engine TeleAgent (Ollama, Telegram, Chat Agent) telah dimulai. Sistem akan melakukan pengecekan dan mengirimkan checklist ke Telegram."
+    return "Berkas system_restart.py tidak ditemukan."
+
+
 # Map fungsi tool untuk eksekusi dinamis
 AVAILABLE_TOOLS: dict[str, Any] = {
     "create_folder": create_folder,
@@ -475,6 +492,7 @@ AVAILABLE_TOOLS: dict[str, Any] = {
     "save_memory": save_memory,
     "recall_memory": recall_memory,
     "list_memories": list_memories,
+    "restart_all_engines": restart_all_engines,
 }
 
 TOOL_CALLABLES = [

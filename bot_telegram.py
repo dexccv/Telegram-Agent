@@ -715,7 +715,8 @@ class TelegramAgentGateway:
             "• `/sessions` — Lihat daftar riwayat sesi tersimpan\n"
             "• `/export` — Unduh catatan percakapan sesi aktif (.md)\n"
             "• `/models` & `/model` — Pindai dan ganti model AI aktif\n"
-            "• `/memory` — Pantau fakta memori jangka panjang agent\n\n"
+            "• `/memory` — Pantau fakta memori jangka panjang agent\n"
+            "• `/restart` — Restart semua engine (Ollama, Telegram, Chat Agent) + Checklist\n\n"
             "📁 **Berkas & Media**\n"
             "• `/cari youtube <judul>` — Cari video YouTube langsung\n"
             "• `/baca <file>` — Baca berkas teks di laptop via Telegram\n"
@@ -726,6 +727,45 @@ class TelegramAgentGateway:
         )
         if update.message:
             await update.message.reply_text(help_text, parse_mode=ParseMode.MARKDOWN)
+
+    async def restart_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Merestart seluruh engine (Ollama, Telegram, Chat Agent) dan mengirimkan checklist ke Telegram."""
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        u_info = get_user_info(update)
+        log_terminal_box("Command", "/restart", [("Pengguna", u_info), ("Aksi", "Merestart seluruh engine TeleAgent")], color="bright_magenta")
+
+        chat_id = update.effective_chat.id if update.effective_chat else int(self.allowed_user_id)
+
+        if update.message:
+            await update.message.reply_text(
+                "🔄 <b>MEMULAI RESTART SELURUH ENGINE TELEAGENT...</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "1️⃣ Otak AI Offline (Ollama Server)\n"
+                "2️⃣ Telegram Mobile Gateway\n"
+                "3️⃣ Chat Agent Terminal & Memory\n\n"
+                "⏳ <i>Mohon tunggu sebentar, sistem sedang merestart dan melakukan pengecekan koneksi tiap engine...</i>",
+                parse_mode=ParseMode.HTML,
+            )
+
+        restarter_script = Path(__file__).resolve().parent / "system_restart.py"
+        cmd = [
+            sys.executable,
+            str(restarter_script),
+            "--chat-id",
+            str(chat_id),
+        ]
+        try:
+            subprocess.Popen(
+                cmd,
+                cwd=str(Path(__file__).resolve().parent),
+                creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+                close_fds=True,
+            )
+        except Exception as exc:
+            agent_logger.log_error("restart_cmd", f"Gagal mengeksekusi restarter: {exc}")
 
     def _build_status_dashboard(self) -> tuple[str, InlineKeyboardMarkup]:
         """Menghasilkan teks dashboard status real-time laptop beserta tombol navigasi inline."""
@@ -3115,6 +3155,11 @@ class TelegramAgentGateway:
         u_info = get_user_info(update)
         u_clean = user_text.lower().strip()
 
+        # Deteksi perintah restart langsung dari pesan teks / natural language
+        if u_clean in ["/restart", "restart", "/reboot", "reboot"] or (("restart" in u_clean or "reboot" in u_clean) and any(w in u_clean for w in ["engine", "semua", "ollama", "bot", "sistem", "laptop", "aplikasi"])):
+            await self.restart_cmd(update, context)
+            return
+
         # Deteksi langsung: Pertanyaan seputar tab browser
         if any(w in u_clean for w in ["berapa tab", "daftar tab", "list tab", "tab browser", "tab chrome", "tab edge", "buka tab"]):
             log_terminal_box("Pesan Masuk", "Cek Tab Browser", [("Pengguna", u_info), ("Pesan", f'"{user_text}"'), ("Aksi", "Mengirim daftar tab browser")], color="bright_blue")
@@ -3373,6 +3418,7 @@ class TelegramAgentGateway:
             BotCommand("models", "Daftar model AI yang tersedia"),
             BotCommand("model", "Ganti model AI aktif"),
             BotCommand("provider", "Ganti provider (gemini/ollama)"),
+            BotCommand("restart", "🔄 Restart semua engine (Ollama, Telegram, Chat Agent)"),
         ]
         try:
             await application.bot.set_my_commands(commands, scope=BotCommandScopeDefault())
@@ -3604,6 +3650,8 @@ class TelegramAgentGateway:
         app.add_handler(CommandHandler("antigravity", self.agy_cmd))
         app.add_handler(CommandHandler("sh", self.sh_cmd))
         app.add_handler(CommandHandler("shell", self.sh_cmd))
+        app.add_handler(CommandHandler("restart", self.restart_cmd))
+        app.add_handler(CommandHandler("reboot", self.restart_cmd))
 
         app.add_handler(CallbackQueryHandler(self.handle_callback_query))
 
