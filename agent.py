@@ -335,7 +335,7 @@ def pindai_model_ollama(base_url: Optional[str] = None) -> list[str]:
     except Exception:
         pass
 
-    return daftar if daftar else ["qwen2.5-coder:7b", "llama3.2"]
+    return daftar if daftar else ["llama3.2:3b", "qwen2.5-coder:7b"]
 
 
 def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: float = 12.0) -> bool:
@@ -393,6 +393,34 @@ def ensure_ollama_running(base_url: str = "http://localhost:11434", timeout: flo
     except Exception as exc:
         agent_logger.log_error("agent.ollama", f"Gagal menjalankan server Ollama otomatis: {exc}")
     return False
+
+
+def warmup_ollama_model_async(model_name: Optional[str] = None, base_url: Optional[str] = None) -> None:
+    """Melakukan pre-warming model Ollama di latar belakang agar model sudah siap di RAM/VRAM dengan keep_alive."""
+    import threading
+
+    def _worker() -> None:
+        try:
+            m = model_name or config_manager.get_ollama_model() or "llama3.2:3b"
+            b = (base_url or config_manager.get_ollama_base_url()).replace("/v1", "").rstrip("/")
+            url = f"{b}/api/generate"
+            payload = {
+                "model": m,
+                "prompt": "",
+                "keep_alive": "60m",
+            }
+            req = urllib.request.Request(
+                url,
+                headers={"Content-Type": "application/json"},
+                data=json.dumps(payload).encode("utf-8"),
+            )
+            with urllib.request.urlopen(req, timeout=30):
+                pass
+            agent_logger.log_info("agent.ollama", f"Pre-warming model '{m}' berhasil (keep_alive: 60m).")
+        except Exception:
+            pass
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 def pangkas_output_tool(output: str, max_chars: int = 1500) -> str:
@@ -697,7 +725,7 @@ class GeminiAgent:
         elif self.provider == "gemini" and ("/" in self.model_name or self.model_name == "auto"):
             self.model_name = config_manager.get_gemini_model() or "gemini-2.5-flash"
         elif self.provider == "ollama" and (self.model_name.startswith("gemini-") or self.model_name == "auto"):
-            self.model_name = config_manager.get_ollama_model() or "qwen2.5-coder:7b"
+            self.model_name = config_manager.get_ollama_model() or "llama3.2:3b"
         session.model_name = self.model_name
         session_manager.set_active_session_id(session.session_id)
         self._init_chat_session()
@@ -871,6 +899,22 @@ class GeminiAgent:
             is_compound = True
         if "pdf" in msg_lower or "dokumen" in msg_lower:
             is_compound = True
+
+        # Kecerdasan NLU Intent Detection (Anti-Misleading untuk Perintah Laptop)
+        try:
+            from kecerdasan_ollama import KecerdasanOllama
+            niat = KecerdasanOllama.analisis_perintah(message)
+            if niat and niat.tool_name in AVAILABLE_TOOLS:
+                agent_logger.log_info("agent.kecerdasan_ollama", f"Niat terdeteksi: {niat.deskripsi_konfirmasi} -> {niat.tool_name}({niat.tool_args})")
+                return self._execute_fast_path_and_sync(
+                    niat.tool_name,
+                    niat.tool_args,
+                    message,
+                    on_tool_call,
+                    on_tool_result,
+                )
+        except Exception as e_nlu:
+            agent_logger.log_warning("agent.kecerdasan_ollama", f"Gagal evaluasi NLU: {e_nlu}")
 
         if not is_compound:
             # 1. Menutup aplikasi
@@ -1125,6 +1169,71 @@ class GeminiAgent:
         if last_error:
             raise last_error
 
+def _filter_tools_for_query(message: str, provider_label: str) -> Optional[list[dict[str, Any]]]:
+    """Menyaring tool secara pintar. Untuk Ollama lokal di CPU, hanya menyertakan tool jika ada intensi perintah sistem."""
+    if str(provider_label).lower() != "ollama":
+        return OPENAI_TOOLS_SCHEMA
+
+    msg_low = str(message).lower()
+    action_keywords = {
+        "volume": ["set_volume", "get_volume"],
+        "suara": ["set_volume", "get_volume"],
+        "mute": ["set_volume", "media_control"],
+        "unmute": ["set_volume", "media_control"],
+        "lagu": ["media_control", "play_youtube_video", "search_youtube_videos"],
+        "musik": ["media_control", "play_youtube_video", "search_youtube_videos"],
+        "youtube": ["play_youtube_video", "search_youtube_videos"],
+        "putar": ["play_youtube_video", "media_control"],
+        "play": ["play_youtube_video", "media_control"],
+        "pause": ["media_control"],
+        "buka": ["open_application", "get_open_browser_tabs"],
+        "tutup": ["close_application"],
+        "kill": ["close_application"],
+        "aplikasi": ["open_application", "close_application", "list_running_applications"],
+        "program": ["open_application", "close_application", "list_running_applications"],
+        "tab": ["get_open_browser_tabs"],
+        "browser": ["get_open_browser_tabs", "open_application"],
+        "screenshot": ["capture_screen"],
+        "layar": ["capture_screen"],
+        "tangkapan": ["capture_screen"],
+        "kamera": ["capture_camera"],
+        "foto": ["capture_camera"],
+        "webcam": ["capture_camera"],
+        "baterai": ["get_system_status"],
+        "battery": ["get_system_status"],
+        "ram": ["get_system_status"],
+        "cpu": ["get_system_status"],
+        "status": ["get_system_status"],
+        "spesifikasi": ["get_system_status"],
+        "file": ["read_file", "write_file", "list_directory", "create_folder"],
+        "berkas": ["read_file", "write_file", "list_directory", "create_folder"],
+        "folder": ["list_directory", "create_folder"],
+        "direktori": ["list_directory", "create_folder"],
+        "baca": ["read_file"],
+        "tulis": ["write_file"],
+        "cmd": ["run_command"],
+        "terminal": ["run_command"],
+        "perintah": ["run_command"],
+        "command": ["run_command"],
+        "kunci": ["lock_laptop"],
+        "lock": ["lock_laptop"],
+        "restart": ["restart_laptop"],
+        "sleep": ["sleep_laptop"],
+        "ingat": ["save_memory", "search_memory"],
+        "memori": ["save_memory", "search_memory"],
+    }
+    needed = set()
+    for kw, tlist in action_keywords.items():
+        if kw in msg_low:
+            needed.update(tlist)
+
+    if not needed:
+        return None
+
+    res = [t for t in OPENAI_TOOLS_SCHEMA if t.get("function", {}).get("name") in needed]
+    return res if res else None
+
+
     def _send_message_openai_compatible(
         self,
         target_url: str,
@@ -1156,15 +1265,25 @@ class GeminiAgent:
         iteration = 0
         final_text = ""
 
+        active_tools = _filter_tools_for_query(message, provider_label)
+
         while iteration < max_iterations:
             iteration += 1
             payload = {
                 "model": model_name,
                 "messages": messages,
-                "tools": OPENAI_TOOLS_SCHEMA,
-                "tool_choice": "auto",
                 "stream": False,
             }
+            if active_tools:
+                payload["tools"] = active_tools
+                payload["tool_choice"] = "auto"
+            if str(provider_label).lower() == "ollama":
+                payload["keep_alive"] = "60m"
+                payload["options"] = {
+                    "num_ctx": 4096,
+                    "num_thread": 4,
+                    "temperature": 0.2,
+                }
             try:
                 req = urllib.request.Request(
                     target_url,
@@ -1267,6 +1386,13 @@ class GeminiAgent:
                             "messages": fb_messages,
                             "stream": False,
                         }
+                        if str(provider_label).lower() == "ollama":
+                            fallback_payload["keep_alive"] = "60m"
+                            fallback_payload["options"] = {
+                                "num_ctx": 4096,
+                                "num_thread": 4,
+                                "temperature": 0.2,
+                            }
                         req_fb = urllib.request.Request(
                             target_url,
                             headers=headers,

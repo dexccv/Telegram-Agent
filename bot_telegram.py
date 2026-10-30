@@ -3416,6 +3416,14 @@ class TelegramAgentGateway:
             except Exception as exc:
                 agent_logger.log_error("telegram_gateway.post_init", f"Gagal mengirim notifikasi koneksi: {exc}")
 
+        # Pre-warm model jika menggunakan Ollama agar langsung cepat respon tanpa delay reload
+        if prov == "ollama":
+            try:
+                from agent import warmup_ollama_model_async
+                warmup_ollama_model_async(self.agent.model_name)
+            except Exception:
+                pass
+
         # Jalankan loop monitoring baterai background
         try:
             asyncio.create_task(self._battery_monitor_loop(application))

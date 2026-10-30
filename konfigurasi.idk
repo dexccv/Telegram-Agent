@@ -220,9 +220,9 @@ kelas PengelolaKonfigurasi {
 
     fungsi ambil_ollama_model() {
         diri.muat_ulang()
-        m = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b").strip()
+        m = os.environ.get("OLLAMA_MODEL", "llama3.2:3b").strip()
         jika tidak m atau m.startswith("gemini-") atau m == "auto" {
-            kembalikan "qwen2.5-coder:7b"
+            kembalikan "llama3.2:3b"
         }
         kembalikan m
     }

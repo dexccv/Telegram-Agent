@@ -72,9 +72,10 @@ def mulai_server_ollama_jika_perlu() -> None:
     try:
         prov = config_manager.get_provider()
         if prov == "ollama":
-            from agent import ensure_ollama_running
+            from agent import ensure_ollama_running, warmup_ollama_model_async
             base_url = config_manager.get_ollama_base_url()
-            ensure_ollama_running(base_url, timeout=3.0)
+            if ensure_ollama_running(base_url, timeout=3.0):
+                warmup_ollama_model_async(base_url=base_url)
     except Exception:
         pass
 

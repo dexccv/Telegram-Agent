@@ -832,8 +832,14 @@ fungsi open_application(app_or_query: str, query: str = "") -> str {
                     search_term = m.group(1).strip()
                 } selain {
                     cleaned = re.sub(r"\b(buka|open|chrome|lalu|didalam|dan|youtube|yt)\b", "", target_clean, flags=re.IGNORECASE).strip()
-                    jika cleaned {
+                    kata_filler_list = ["coba", "cobain", "tolong", "silakan", "silahkan", "mohon", "harap", "bisa", "bisakah", "dong", "deh", "yuk", "cuy", "bang", "bro", "min", "gan", "ya", "nih", "tuh", "lah", "kah", "saja", "aja", "please", "pls"]
+                    untuk fword dalam kata_filler_list {
+                        cleaned = re.sub(r"\b" + fword + r"\b", "", cleaned, flags=re.IGNORECASE).strip()
+                    }
+                    jika cleaned dan len(cleaned) > 1 {
                         search_term = cleaned
+                    } selain {
+                        search_term = ""
                     }
                 }
             }

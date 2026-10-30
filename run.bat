@@ -49,6 +49,11 @@ chcp 65001 >nul
 
 :: 2.5. First-Run Guard: Verifikasi keberadaan file .env
 if not exist ".env" (
+    if exist "%USERPROFILE%\.gemini-agent\.env" (
+        copy /y "%USERPROFILE%\.gemini-agent\.env" ".env" >nul
+    )
+)
+if not exist ".env" (
     echo.
     echo [!] File konfigurasi .env belum ditemukan!
     echo [*] Meluncurkan Setup Wizard untuk konfigurasi awal...
@@ -65,19 +70,37 @@ if /i "%1"=="--bot" goto run_bot_only
 if /i "%1"=="--cli" goto run_cli_only
 
 :: ========================================================
-:: 3. Peluncuran Otomatis Keduanya (Dual-Window)
+:: 3. Peluncuran Otomatis 3 Layanan TeleAgent (Triple-Window)
+::    [1] Otak AI Offline (Ollama Server di D:\.ollama\models)
+::    [2] TeleAgent - Telegram Mobile Gateway (Live Monitoring HP)
+::    [3] TeleAgent - Antarmuka Terminal Utama (app.py)
 :: ========================================================
 echo.
-echo [*] Meluncurkan 2 Jendela Layanan TeleAgent Sekaligus:
-echo     [Window 1] TeleAgent (CLI / TUI)
-echo     [Window 2] TeleAgent - Telegram Mobile Gateway (Live Monitoring)
+echo [*] Meluncurkan 3 Layanan Ekosistem TeleAgent Sekaligus:
+echo     [Window 1] Otak AI Offline: Ollama Server - D:\.ollama\models
+echo     [Window 2] TeleAgent: Telegram Mobile Gateway - Live Monitoring
+echo     [Window 3] TeleAgent: Antarmuka Terminal Utama - CLI / TUI
 echo.
 
-:: Luncurkan Window 2: Telegram Mobile Gateway di jendela CMD terpisah
+:: 3.1. Cek & Aktifkan Window 1: Otak AI Offline (Ollama Server)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference = 'SilentlyContinue'; try { $r = (Invoke-WebRequest -Uri 'http://127.0.0.1:11434/api/tags' -TimeoutSec 1 -UseBasicParsing).StatusCode; if ($r -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
+if errorlevel 1 goto start_ollama_engine
+echo [OK] [1/3] Otak AI Offline - Ollama Server sudah aktif di port 11434.
+goto launch_telegram_gateway
+
+:start_ollama_engine
+echo [*] [1/3] Menyalakan Otak AI Offline - Ollama Server...
+start "TeleAgent - Otak AI Offline" cmd /k call start_ollama.bat
+timeout /t 2 /nobreak >nul
+
+:launch_telegram_gateway
+:: 3.2. Luncurkan Window 2: Telegram Mobile Gateway di jendela CMD terpisah
+echo [*] [2/3] Meluncurkan Telegram Mobile Gateway...
 start "TeleAgent - Telegram Mobile Gateway" cmd /k "title TeleAgent - Telegram Mobile Gateway && chcp 65001 >nul && cd /d "%~dp0" && call .venv\Scripts\activate.bat && python bot_telegram.py"
 
-:: Jalankan Window 1: TeleAgent (TUI) di jendela saat ini
-echo [*] Memulai TeleAgent di jendela ini...
+:: 3.3. Jalankan Window 3: TeleAgent (TUI) di jendela saat ini
+echo [*] [3/3] Memulai Antarmuka Utama TeleAgent di jendela ini...
+echo.
 python app.py
 goto end
 

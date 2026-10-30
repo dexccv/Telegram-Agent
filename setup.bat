@@ -34,7 +34,7 @@ if not exist ".venv\Scripts\python.exe" (
     )
     echo [✓] Virtual environment berhasil dibuat.
 ) else (
-    echo [✓] Virtual environment (.venv) sudah tersedia.
+    echo [✓] Virtual environment .venv sudah tersedia.
 )
 
 :: 3. Mengaktifkan Virtual Environment

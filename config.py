@@ -200,11 +200,11 @@ class ConfigManager:
         os.environ["OLLAMA_MODELS"] = clean
 
     def get_ollama_model(self) -> str:
-        """Mengambil nama model Ollama (default: qwen2.5-coder:7b)."""
+        """Mengambil nama model Ollama (default: llama3.2:3b)."""
         self.reload()
-        m = os.environ.get("OLLAMA_MODEL", "qwen2.5-coder:7b").strip()
+        m = os.environ.get("OLLAMA_MODEL", "llama3.2:3b").strip()
         if not m or m.startswith("gemini-") or m == "auto":
-            return "qwen2.5-coder:7b"
+            return "llama3.2:3b"
         return m
 
     def save_ollama_model(self, model_name: str) -> None:

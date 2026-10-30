@@ -5,7 +5,10 @@
 
 impor datetime
 impor json
+impor os
 impor re
+impor subprocess
+impor time
 impor urllib.request
 dari pathlib impor Path
 dari typing impor Any, Callable, Optional
@@ -325,7 +328,7 @@ fungsi pindai_model_ollama(base_url=kosong) {
         lewati
     }
 
-    kembalikan daftar jika daftar selain ["qwen2.5-coder:7b", "llama3.2"]
+    kembalikan daftar jika daftar selain ["llama3.2:3b", "qwen2.5-coder:7b"]
 }
 
 
@@ -482,7 +485,7 @@ kelas AgenGemini {
         } jika_lain diri.provider == "gemini" dan ("/" dalam diri.model_name atau diri.model_name == "auto") {
             diri.model_name = pengelola_konfigurasi.ambil_gemini_model() atau "gemini-2.5-flash"
         } jika_lain diri.provider == "ollama" dan (diri.model_name.startswith("gemini-") atau diri.model_name == "auto") {
-            diri.model_name = pengelola_konfigurasi.ambil_ollama_model() atau "qwen2.5-coder:7b"
+            diri.model_name = pengelola_konfigurasi.ambil_ollama_model() atau "llama3.2:3b"
         }
         session.model_name = diri.model_name
         pengelola_sesi.atur_sesi_aktif_id(session.session_id)
@@ -565,6 +568,31 @@ kelas AgenGemini {
         }
         jika "pdf" dalam msg_lower atau "dokumen" dalam msg_lower {
             adalah_majemuk = benar
+        }
+
+        # Kecerdasan NLU Intent Detection (Anti-Misleading untuk Perintah Laptop)
+        coba {
+            dari kecerdasan_ollama impor KecerdasanOllama
+            niat = KecerdasanOllama.analisis_perintah(message)
+            jika niat dan niat.tool_name dalam ALAT_TERSEDIA {
+                agent_logger.log_info("agen.kecerdasan_ollama", f"Niat terdeteksi: {niat.deskripsi_konfirmasi} -> {niat.tool_name}({niat.tool_args})")
+                jika on_tool_call {
+                    on_tool_call(niat.tool_name, niat.tool_args)
+                }
+                fn_niat = ALAT_TERSEDIA[niat.tool_name]
+                hasil_niat = str(fn_niat(**niat.tool_args))
+                jika on_tool_result {
+                    on_tool_result(niat.tool_name, hasil_niat)
+                }
+                jika on_chunk {
+                    on_chunk(hasil_niat)
+                }
+                diri.session.ui_messages.append(PesanSesi(msg_type="agent", text=hasil_niat))
+                pengelola_sesi.simpan_sesi(diri.session)
+                kembalikan hasil_niat
+            }
+        } kecuali Exception sebagai exc_nlu {
+            agent_logger.log_warning("agen.kecerdasan_ollama", f"Gagal evaluasi NLU: {exc_nlu}")
         }
 
         jika tidak adalah_majemuk {
@@ -993,6 +1021,71 @@ kelas AgenGemini {
         }
     }
 
+    fungsi _pilih_skema_alat(message, nama_provider) {
+        jika str(nama_provider).lower() != "ollama" {
+            kembalikan SKEMA_ALAT_OPENAI
+        }
+        msg_low = str(message).lower()
+        kata_kunci_alat = {
+            "volume": ["set_volume", "get_volume"],
+            "suara": ["set_volume", "get_volume"],
+            "mute": ["set_volume", "media_control"],
+            "unmute": ["set_volume", "media_control"],
+            "lagu": ["media_control", "play_youtube_video", "search_youtube_videos"],
+            "musik": ["media_control", "play_youtube_video", "search_youtube_videos"],
+            "youtube": ["play_youtube_video", "search_youtube_videos"],
+            "putar": ["play_youtube_video", "media_control"],
+            "play": ["play_youtube_video", "media_control"],
+            "pause": ["media_control"],
+            "buka": ["open_application", "get_open_browser_tabs"],
+            "tutup": ["close_application"],
+            "kill": ["close_application"],
+            "aplikasi": ["open_application", "close_application", "list_running_applications"],
+            "program": ["open_application", "close_application", "list_running_applications"],
+            "tab": ["get_open_browser_tabs"],
+            "browser": ["get_open_browser_tabs", "open_application"],
+            "screenshot": ["capture_screen"],
+            "layar": ["capture_screen"],
+            "tangkapan": ["capture_screen"],
+            "kamera": ["capture_camera"],
+            "foto": ["capture_camera"],
+            "webcam": ["capture_camera"],
+            "baterai": ["get_system_status"],
+            "battery": ["get_system_status"],
+            "ram": ["get_system_status"],
+            "cpu": ["get_system_status"],
+            "status": ["get_system_status"],
+            "spesifikasi": ["get_system_status"],
+            "file": ["read_file", "write_file", "list_directory", "create_folder"],
+            "berkas": ["read_file", "write_file", "list_directory", "create_folder"],
+            "folder": ["list_directory", "create_folder"],
+            "direktori": ["list_directory", "create_folder"],
+            "baca": ["read_file"],
+            "tulis": ["write_file"],
+            "cmd": ["run_command"],
+            "terminal": ["run_command"],
+            "perintah": ["run_command"],
+            "command": ["run_command"],
+            "kunci": ["lock_laptop"],
+            "lock": ["lock_laptop"],
+            "restart": ["restart_laptop"],
+            "sleep": ["sleep_laptop"],
+            "ingat": ["save_memory", "search_memory"],
+            "memori": ["save_memory", "search_memory"],
+        }
+        nama_alat_perlu = set()
+        untuk kw, tlist dalam kata_kunci_alat.items() {
+            jika kw dalam msg_low {
+                nama_alat_perlu.update(tlist)
+            }
+        }
+        jika tidak nama_alat_perlu {
+            kembalikan kosong
+        }
+        terpilih = [t untuk t dalam SKEMA_ALAT_OPENAI jika t.get("function", {}).get("name") dalam nama_alat_perlu]
+        kembalikan terpilih jika terpilih selain kosong
+    }
+
     fungsi _kirim_pesan_openai_kompatibel(url_target, headers_dict, nama_model, message, nama_provider, timeout_sec=45, on_tool_call=kosong, on_tool_result=kosong, on_chunk=kosong) {
         memori_sistem = pengelola_memori.format_instruksi_sistem()
         instruksi_sistem = (
@@ -1034,12 +1127,23 @@ kelas AgenGemini {
             }
             iterasi += 1
 
+            alat_aktif = diri._pilih_skema_alat(message, nama_provider)
             payload = {
                 "model": nama_model,
                 "messages": pesan_list,
-                "tools": SKEMA_ALAT_OPENAI,
-                "tool_choice": "auto",
                 "stream": salah,
+            }
+            jika alat_aktif {
+                payload["tools"] = alat_aktif
+                payload["tool_choice"] = "auto"
+            }
+            jika str(nama_provider).lower() == "ollama" {
+                payload["keep_alive"] = "60m"
+                payload["options"] = {
+                    "num_ctx": 4096,
+                    "num_thread": 4,
+                    "temperature": 0.2,
+                }
             }
 
             coba {
@@ -1154,6 +1258,14 @@ kelas AgenGemini {
                             "model": nama_model,
                             "messages": fb_messages,
                             "stream": salah,
+                        }
+                        jika str(nama_provider).lower() == "ollama" {
+                            fb_payload["keep_alive"] = "60m"
+                            fb_payload["options"] = {
+                                "num_ctx": 4096,
+                                "num_thread": 4,
+                                "temperature": 0.2,
+                            }
                         }
                         req_fb = urllib.request.Request(
                             url_target,
