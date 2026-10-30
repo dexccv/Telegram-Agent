@@ -464,6 +464,235 @@ def list_memories() -> str:
     return "\n".join(lines)
 
 
+def _ambil_koordinat_winrt() -> tuple[Optional[float], Optional[float], Optional[float]]:
+    """Mendapatkan koordinat presisi tinggi via Windows.Devices.Geolocation WinRT API (Wi-Fi Triangulation & GPS)."""
+    import platform
+    import subprocess
+    if platform.system() != "Windows":
+        return None, None, None
+
+    ps_code = """
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | ? { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+Function Await($WinRtTask, $ResultType) {
+    $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
+    $netTask = $asTask.Invoke($null, @($WinRtTask))
+    $netTask.Wait(4500) | Out-Null
+    $netTask.Result
+}
+[Windows.Devices.Geolocation.Geolocator, Windows.Devices.Geolocation, ContentType = WindowsRuntime] | Out-Null
+$geolocator = New-Object Windows.Devices.Geolocation.Geolocator
+$op = $geolocator.GetGeopositionAsync()
+$pos = Await $op ([Windows.Devices.Geolocation.Geoposition])
+if ($pos) {
+    Write-Output ($pos.Coordinate.Point.Position.Latitude.ToString() + '|' + $pos.Coordinate.Point.Position.Longitude.ToString() + '|' + $pos.Coordinate.Accuracy.ToString())
+}
+"""
+    try:
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_code],
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+        out = proc.stdout.strip()
+        for line in out.splitlines():
+            line = line.strip()
+            if "|" in line:
+                parts = line.split("|")
+                lat = float(parts[0].replace(",", "."))
+                lon = float(parts[1].replace(",", "."))
+                acc = float(parts[2].replace(",", ".")) if len(parts) > 2 else 50.0
+                return lat, lon, acc
+    except Exception:
+        pass
+    return None, None, None
+
+
+def _reverse_geocode_osm(lat: float, lon: float) -> dict[str, str]:
+    """Melakukan reverse geocoding via OpenStreetMap Nominatim untuk rincian jalan, desa, dan kota."""
+    import requests
+    try:
+        headers = {"User-Agent": "TeleAgent-EmergencyLocator/1.0"}
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}"
+        resp = requests.get(url, headers=headers, timeout=3.5)
+        if resp.status_code == 200:
+            data = resp.json()
+            addr = data.get("address", {})
+            desa = addr.get("village") or addr.get("suburb") or addr.get("neighbourhood") or ""
+            kota = addr.get("city") or addr.get("county") or addr.get("town") or addr.get("municipality") or ""
+            prov = addr.get("state") or addr.get("region") or ""
+            negara = addr.get("country") or "Indonesia"
+            kodepos = addr.get("postcode") or ""
+            jalan = addr.get("road") or ""
+
+            rincian = []
+            if jalan:
+                rincian.append(jalan)
+            if desa:
+                rincian.append(desa)
+            if kota:
+                rincian.append(kota)
+            if prov:
+                rincian.append(prov)
+            if kodepos:
+                rincian.append(f"({kodepos})")
+
+            alamat_lengkap = ", ".join(rincian) if rincian else data.get("display_name", "")
+            return {
+                "alamat": alamat_lengkap,
+                "kota": kota or desa or "Tidak diketahui",
+                "provinsi": prov or "Tidak diketahui",
+                "negara": negara,
+            }
+    except Exception:
+        pass
+    return {}
+
+
+def ambil_lokasi_laptop() -> dict[str, Any]:
+    """Mendeteksi lokasi geografis laptop dengan metode presisi bertingkat:
+    1. Akurasi Tinggi: Windows Location Services (Wi-Fi Triangulation & hardware sensors)
+    2. Fallback: IP Geolocation (ip-api.com / ipinfo.io)
+    
+    Returns:
+        Dictionary berisi status, latitude, longitude, kota, provinsi, negara, isp, ip, akurasi, dan maps_url.
+    """
+    import requests
+
+    # 1. Prioritas Utama: Windows Location Services (Akurasi level jalan / desa)
+    win_lat, win_lon, win_acc = _ambil_koordinat_winrt()
+    if win_lat is not None and win_lon is not None:
+        geo_info = _reverse_geocode_osm(win_lat, win_lon)
+        isp_name = "-"
+        ip_addr = "-"
+        try:
+            r = requests.get("http://ip-api.com/json/?fields=isp,query", timeout=2.0)
+            if r.status_code == 200:
+                d = r.json()
+                isp_name = d.get("isp", "-")
+                ip_addr = d.get("query", "-")
+        except Exception:
+            pass
+
+        return {
+            "status": "success",
+            "metode": "Windows Location Service (Wi-Fi Triangulation)",
+            "akurasi": f"~{int(win_acc)} meter" if win_acc else "Presisi Tinggi",
+            "lat": win_lat,
+            "lon": win_lon,
+            "alamat": geo_info.get("alamat", ""),
+            "kota": geo_info.get("kota", "Tidak diketahui"),
+            "provinsi": geo_info.get("provinsi", "Tidak diketahui"),
+            "negara": geo_info.get("negara", "Indonesia"),
+            "isp": isp_name,
+            "ip": ip_addr,
+            "maps_url": f"https://www.google.com/maps?q={win_lat},{win_lon}",
+        }
+
+    # 2. Fallback: IP Geolocation (ip-api.com)
+    try:
+        url = "http://ip-api.com/json/?fields=status,message,country,regionName,city,lat,lon,isp,query"
+        resp = requests.get(url, timeout=3.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("status") == "success":
+                lat = data.get("lat")
+                lon = data.get("lon")
+                return {
+                    "status": "success",
+                    "metode": "IP Geolocation (Estimasi Gateway Jaringan)",
+                    "akurasi": "Regional (~5-25 km)",
+                    "lat": lat,
+                    "lon": lon,
+                    "alamat": f"{data.get('city', '')}, {data.get('regionName', '')}, {data.get('country', '')}",
+                    "kota": data.get("city", "Tidak diketahui"),
+                    "provinsi": data.get("regionName", "Tidak diketahui"),
+                    "negara": data.get("country", "Indonesia"),
+                    "isp": data.get("isp", "Tidak diketahui"),
+                    "ip": data.get("query", "-"),
+                    "maps_url": f"https://www.google.com/maps?q={lat},{lon}",
+                }
+    except Exception:
+        pass
+
+    # 3. Fallback kedua: ipinfo.io
+    try:
+        resp = requests.get("https://ipinfo.io/json", timeout=3.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            loc_str = data.get("loc", "")
+            if loc_str and "," in loc_str:
+                parts = loc_str.split(",")
+                lat = float(parts[0].strip())
+                lon = float(parts[1].strip())
+                return {
+                    "status": "success",
+                    "metode": "IP Geolocation (Estimasi Gateway)",
+                    "akurasi": "Regional (~10-30 km)",
+                    "lat": lat,
+                    "lon": lon,
+                    "alamat": f"{data.get('city', '')}, {data.get('region', '')}, {data.get('country', '')}",
+                    "kota": data.get("city", "Tidak diketahui"),
+                    "provinsi": data.get("region", "Tidak diketahui"),
+                    "negara": data.get("country", "ID"),
+                    "isp": data.get("org", "Tidak diketahui"),
+                    "ip": data.get("ip", "-"),
+                    "maps_url": f"https://www.google.com/maps?q={lat},{lon}",
+                }
+    except Exception:
+        pass
+
+    return {
+        "status": "error",
+        "pesan": "Tidak dapat mendeteksi lokasi geografis (koneksi offline atau izin lokasi nonaktif)",
+        "lat": None,
+        "lon": None,
+    }
+
+
+def ambil_multi_foto_kamera(jumlah: int = 3, jeda_detik: float = 0.8) -> list[Path]:
+    """Mengambil n foto beruntun dari kamera webcam laptop untuk identifikasi visual.
+    
+    Args:
+        jumlah: Jumlah frame foto yang diambil secara beruntun (default: 3).
+        jeda_detik: Jeda waktu adaptasi sensor antar jepretan (default: 0.8 detik).
+        
+    Returns:
+        List Path berkas foto yang berhasil diambil dan disimpan ke disk.
+    """
+    foto_paths: list[Path] = []
+    try:
+        import cv2
+        import time
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            return []
+
+        # Pemanasan sensor kamera untuk adaptasi exposure cahaya
+        for _ in range(5):
+            cap.read()
+
+        for i in range(1, jumlah + 1):
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                out_path = Path(f"emergency_cam_{i}.jpg").resolve()
+                cv2.imwrite(str(out_path), frame)
+                if out_path.exists() and out_path.stat().st_size > 500:
+                    foto_paths.append(out_path)
+            if i < jumlah and jeda_detik > 0:
+                time.sleep(jeda_detik)
+
+        cap.release()
+    except Exception as exc:
+        try:
+            from logger import agent_logger
+            agent_logger.log_error("tools.ambil_multi_foto_kamera", f"Error multi-shot webcam: {exc}")
+        except Exception:
+            pass
+    return foto_paths
+
+
 def restart_all_engines() -> str:
     """Merestart seluruh engine TeleAgent (Ollama Server, Telegram Gateway, Chat Agent) dan mengirimkan checklist verifikasi ke Telegram."""
     import subprocess
@@ -493,6 +722,8 @@ AVAILABLE_TOOLS: dict[str, Any] = {
     "recall_memory": recall_memory,
     "list_memories": list_memories,
     "restart_all_engines": restart_all_engines,
+    "ambil_lokasi_laptop": ambil_lokasi_laptop,
+    "ambil_multi_foto_kamera": ambil_multi_foto_kamera,
 }
 
 TOOL_CALLABLES = [
@@ -505,6 +736,9 @@ TOOL_CALLABLES = [
     save_memory,
     recall_memory,
     list_memories,
+    restart_all_engines,
+    ambil_lokasi_laptop,
+    ambil_multi_foto_kamera,
 ]
 
 OPENAI_TOOLS_SCHEMA = [

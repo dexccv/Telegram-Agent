@@ -8,7 +8,13 @@ set "PYTHONUTF8=1"
 
 if exist ".venv\Scripts\python.exe" (
     call .venv\Scripts\activate.bat
+    .venv\Scripts\python.exe app.py
+) else (
+    python app.py
 )
 
-python app.py
-
+if errorlevel 1 (
+    echo.
+    echo [!] Aplikasi Terminal berhenti dengan kode: %errorlevel%
+    pause
+)

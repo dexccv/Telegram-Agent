@@ -122,23 +122,47 @@ def hentikan_script(script_name: str) -> None:
 
 
 def restart_ollama_server(target_model: str) -> Tuple[bool, str]:
-    """Menghentikan dan menyalakan kembali server Ollama, lalu memverifikasi responsnya."""
+    """Menghentikan dan me-refresh server Ollama, lalu memverifikasi responsnya."""
     console.print("[yellow]▶ [1/3] Merestart Otak AI Offline (Ollama Server)...[/yellow]")
-    hentikan_ollama()
-    time.sleep(1.5)
 
-    # Jalankan server Ollama melalui start_ollama.bat di jendela terpisah
+    # 1. Flush cache model dari RAM/VRAM jika server sedang aktif
     try:
-        subprocess.Popen(
-            ["cmd.exe", "/c", "start", "TeleAgent - Otak AI Offline", "start_ollama.bat"],
-            cwd=str(BASE_DIR),
+        requests.post(
+            "http://127.0.0.1:11434/api/generate",
+            json={"model": target_model, "keep_alive": 0},
+            timeout=2.0,
         )
-    except Exception as exc:
-        return False, f"Gagal mengeksekusi launcher: {exc}"
+    except Exception:
+        pass
 
-    # Verifikasi koneksi dan tag model di port 11434
-    console.print("[dim]   Memverifikasi kesiapan Ollama di port 11434...[/dim]")
+    # 2. Hentikan proses ollama.exe
+    hentikan_ollama()
+    time.sleep(2.0)
+
+    # 3. Cek apakah Ollama sudah aktif kembali (misal otomatis di-respawn oleh tray 'ollama app.exe')
     tags_url = "http://127.0.0.1:11434/api/tags"
+    is_active = False
+    try:
+        r = requests.get(tags_url, timeout=2.0)
+        if r.status_code == 200:
+            is_active = True
+    except Exception:
+        is_active = False
+
+    # 4. Hanya luncurkan start_ollama.bat jika server belum aktif (mencegah socket bind error)
+    if not is_active:
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/c", "start", "TeleAgent - Otak AI Offline", "cmd.exe", "/k", "call", "start_ollama.bat"],
+                cwd=str(BASE_DIR),
+            )
+        except Exception as exc:
+            return False, f"Gagal mengeksekusi launcher: {exc}"
+    else:
+        console.print("[dim]   Ollama otomatis di-respawn oleh sistem (port 11434 siap).[/dim]")
+
+    # 5. Verifikasi koneksi dan tag model di port 11434
+    console.print("[dim]   Memverifikasi kesiapan Ollama di port 11434...[/dim]")
     model_terdeteksi: List[str] = []
     sukses = False
 
@@ -172,7 +196,7 @@ def restart_telegram_gateway(bot_token: str) -> Tuple[bool, str]:
     # Luncurkan bot_telegram.py via start_bot.bat di jendela terpisah
     try:
         subprocess.Popen(
-            ["cmd.exe", "/c", "start", "TeleAgent - Telegram Mobile Gateway", "start_bot.bat"],
+            ["cmd.exe", "/c", "start", "TeleAgent - Telegram Mobile Gateway", "cmd.exe", "/k", "call", "start_bot.bat"],
             cwd=str(BASE_DIR),
         )
     except Exception as exc:
@@ -197,24 +221,34 @@ def restart_telegram_gateway(bot_token: str) -> Tuple[bool, str]:
         api_ok = True
         bot_username = "Token Lokal"
 
-    # Verifikasi keberadaan proses bot_telegram.py
+    # Verifikasi status proses bot_telegram.py dan listening port 48123
     proc_running = False
-    my_pid = os.getpid()
-    for p in psutil.process_iter():
-        try:
-            if p.pid == my_pid:
-                continue
-            name = (p.name() or "").lower()
-            if "python" in name:
-                try:
-                    cmd = " ".join(p.cmdline() or []).lower()
-                    if "bot_telegram.py" in cmd:
-                        proc_running = True
-                        break
-                except (psutil.AccessDenied, psutil.NoSuchProcess):
-                    pass
-        except (psutil.AccessDenied, psutil.NoSuchProcess):
-            pass
+    try:
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.3)
+            if s.connect_ex(("127.0.0.1", 48123)) == 0:
+                proc_running = True
+    except Exception:
+        pass
+
+    if not proc_running:
+        my_pid = os.getpid()
+        for p in psutil.process_iter():
+            try:
+                if p.pid == my_pid:
+                    continue
+                name = (p.name() or "").lower()
+                if "python" in name:
+                    try:
+                        cmd = " ".join(p.cmdline() or []).lower()
+                        if "bot_telegram.py" in cmd:
+                            proc_running = True
+                            break
+                    except (psutil.AccessDenied, psutil.NoSuchProcess):
+                        pass
+            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                pass
 
     if api_ok or proc_running:
         console.print(f"[green]✓ [2/3] Telegram Gateway AKTIF & TERHUBUNG ({bot_username})![/green]")
@@ -234,9 +268,12 @@ def restart_chat_agent(caller: str = "standalone") -> Tuple[bool, str]:
         time.sleep(1.5)
 
         try:
+            env_vars = os.environ.copy()
+            env_vars["TELEAGENT_MANAGED_BOT"] = "1"
             subprocess.Popen(
-                ["cmd.exe", "/c", "start", "TeleAgent - Antarmuka Utama", "start_app.bat"],
+                ["cmd.exe", "/c", "start", "TeleAgent - Antarmuka Utama", "cmd.exe", "/k", "call", "start_app.bat"],
                 cwd=str(BASE_DIR),
+                env=env_vars,
             )
         except Exception as exc:
             return False, f"Gagal meluncurkan Terminal Chat Agent: {exc}"
@@ -261,6 +298,17 @@ def restart_chat_agent(caller: str = "standalone") -> Tuple[bool, str]:
                     pass
         except (psutil.AccessDenied, psutil.NoSuchProcess):
             pass
+
+    # Verifikasi direktori sesi dan database
+    sessions_dir = BASE_DIR / "sessions"
+    db_ok = sessions_dir.exists()
+
+    if proc_running or caller == "cli" or db_ok:
+        console.print("[green]✓ [3/3] Terminal Chat Agent AKTIF & SIAP DIGUNAKAN![/green]")
+        return True, "CLI/TUI Aktif | Sesi & Memori Terverifikasi"
+    else:
+        console.print("[red]✗ [3/3] Terminal Chat Agent tidak terdeteksi.[/red]")
+        return False, "Proses app.py tidak terdeteksi berjalan"
 
     # Verifikasi direktori sesi dan database
     sessions_dir = BASE_DIR / "sessions"

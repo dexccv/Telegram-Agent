@@ -42,6 +42,7 @@ from telegram import (
     BotCommandScopeDefault,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputMediaPhoto,
     MenuButtonCommands,
     Update,
 )
@@ -602,8 +603,60 @@ def split_message(text: str, max_length: int = 4000) -> list[str]:
     return chunks
 
 
+GATEWAY_LOCK_PORT = 48123
+_GATEWAY_LOCK_SOCKET: Optional[socket.socket] = None
+_GATEWAY_LOCK_MUTEX: Any = None
+
+
+def periksa_dan_kunci_singleton_gateway(force: bool = False) -> bool:
+    """Mengamankan proses gateway agar hanya satu instance yang aktif (atomic singleton).
+    
+    Menggunakan kombinasi port localhost (48123) dan Windows Named Mutex.
+    Jika sudah ada gateway yang berjalan dan force=False, fungsi ini mengembalikan False
+    sehingga proses pemanggil dapat keluar secara bersih (sys.exit(0)) tanpa crash kode 15.
+    """
+    global _GATEWAY_LOCK_SOCKET, _GATEWAY_LOCK_MUTEX
+
+    # 1. Windows Named Mutex untuk proteksi level OS
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            ERROR_ALREADY_EXISTS = 183
+            kernel32 = ctypes.windll.kernel32
+            mutex = kernel32.CreateMutexW(None, False, "TeleAgent_TelegramGateway_Singleton")
+            if kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
+                if not force:
+                    console.print("[yellow][i] Telegram Mobile Gateway sudah aktif di proses lain (Mutex terdeteksi).[/yellow]")
+                    console.print("[dim]   Instance ganda tidak dijalankan untuk mencegah konflik socket & Telegram 409.[/dim]")
+                    return False
+            _GATEWAY_LOCK_MUTEX = mutex
+        except Exception:
+            pass
+
+    # 2. Coba bind socket localhost pada port khusus gateway secara eksklusif
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE") and platform.system() == "Windows":
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        s.bind(("127.0.0.1", GATEWAY_LOCK_PORT))
+        s.listen(1)
+        _GATEWAY_LOCK_SOCKET = s
+    except OSError:
+        if not force:
+            console.print("[yellow][i] Telegram Mobile Gateway sudah aktif dan berjalan di jendela/proses lain.[/yellow]")
+            console.print("[dim]   Instance ganda tidak dijalankan untuk mencegah socket bind error & konflik 409.[/dim]")
+            return False
+
+    return True
+
+
 class TelegramAgentGateway:
     def __init__(self) -> None:
+        # 0. Verifikasi Singleton SEBELUM inisialisasi modul berat demi mencegah crash & race condition
+        force_flag = "--force" in sys.argv
+        if not periksa_dan_kunci_singleton_gateway(force=force_flag):
+            sys.exit(0)
+
         self.config = konfigurasi.pengelola_konfigurasi
         self.bot_token = self.config.ambil_telegram_token()
         self.allowed_user_id = self.config.ambil_telegram_allowed_user_id()
@@ -696,6 +749,7 @@ class TelegramAgentGateway:
             "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "Kirim instruksi bahasa bebas untuk dieksekusi langsung oleh AI Agent di laptop Anda.\n\n"
             "🎮 **Hardware & Monitoring**\n"
+            "• `/emergency` — 🚨 Mode Darurat: Tangkap screenshot, 3 foto webcam, lokasi & kunci laptop\n"
             "• `/status` — Dashboard performa & metrik laptop real-time\n"
             "• `/tabs` — Kelola jendela aplikasi & tab (+ Fokus SS)\n"
             "• `/capture` — Ambil screenshot tampilan display utama\n"
@@ -825,6 +879,9 @@ class TelegramAgentGateway:
                 [
                     InlineKeyboardButton("🪐 Remote Antigravity", callback_data="btn_remote_agy"),
                     InlineKeyboardButton("🔒 Kunci Layar (Ctrl+L)", callback_data="btn_lock_laptop"),
+                ],
+                [
+                    InlineKeyboardButton("🚨 MODE DARURAT (EMERGENCY)", callback_data="btn_emergency_mode"),
                 ],
             ]
         )
@@ -1025,6 +1082,9 @@ class TelegramAgentGateway:
         elif data == "btn_lock_laptop":
             await query.answer("🔒 Mengunci laptop...")
             await self.lock_cmd(update, context)
+        elif data == "btn_emergency_mode":
+            await query.answer("🚨 Mengaktifkan Protokol Emergency...", show_alert=True)
+            await self.emergency_cmd(update, context)
         elif data == "btn_remote_agy":
             await query.answer("🪐 Remote Antigravity...")
             text, markup = self._build_agy_menu_markup()
@@ -1735,6 +1795,146 @@ class TelegramAgentGateway:
         msg_target = update.message or (update.callback_query.message if update.callback_query else None)
         if msg_target:
             await msg_target.reply_text(pesan, parse_mode=ParseMode.MARKDOWN)
+
+    async def emergency_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Mengaktifkan PROTOKOL EMERGENCY (Mode Darurat).
+        
+        1. Mengambil screenshot tampilan display laptop saat ini
+        2. Mengambil 3 foto beruntun dari kamera webcam (MediaGroup Album)
+        3. Mendeteksi lokasi laptop dan mengirim pin peta Telegram + tautan Google Maps
+        4. Mengunci workstation Windows (LockWorkStation)
+        """
+        if not self.is_authorized(update):
+            await self.unauthorized_handler(update)
+            return
+
+        msg_target = update.message or (update.callback_query.message if update.callback_query else None)
+        if not msg_target:
+            return
+
+        u_info = get_user_info(update)
+        log_terminal_box("EMERGENCY", "/emergency", [("Pengguna", u_info), ("Status", "Mengaktifkan Protokol Darurat & Bukti")], color="bright_red")
+
+        alert_msg = await msg_target.reply_text(
+            "🚨 **PROTOKOL EMERGENCY DIAKTIFKAN!**\n\n"
+            "⏳ _Sedang mengumpulkan bukti visual, mendeteksi lokasi geografis, dan mengamankan laptop..._",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+        chat_id = update.effective_chat.id
+
+        # 1. Screenshot Display Laptop
+        try:
+            import perkakas
+            fn_ss = getattr(perkakas, "capture_screen", None)
+            ss_path = Path("screen_capture.png").resolve()
+            if fn_ss:
+                await asyncio.to_thread(fn_ss, str(ss_path))
+                if ss_path.exists() and ss_path.stat().st_size > 500:
+                    with open(ss_path, "rb") as pf:
+                        await context.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=pf,
+                            caption=f"🖥️ **[BUKTI 1/3] Tangkapan Layar (Screenshot) Display Laptop**\nWaktu: `{datetime.datetime.now().strftime('%H:%M:%S WIB')}`",
+                            parse_mode=ParseMode.MARKDOWN,
+                        )
+        except Exception as e:
+            agent_logger.log_error("emergency.screenshot", f"Gagal tangkap layar: {e}")
+
+        # 2. Multi-Shot Kamera Webcam (3 Foto Beruntun)
+        try:
+            from tools import ambil_multi_foto_kamera
+            cam_paths = await asyncio.to_thread(ambil_multi_foto_kamera, 3, 0.8)
+            if cam_paths:
+                media_group = []
+                file_handles = []
+                for idx, cp in enumerate(cam_paths):
+                    fh = open(cp, "rb")
+                    file_handles.append(fh)
+                    cap_text = f"📸 **[BUKTI 2/3] Foto Webcam Laptop ({len(cam_paths)} Sudut Pengambilan)**\nWaktu: `{datetime.datetime.now().strftime('%H:%M:%S WIB')}`" if idx == 0 else None
+                    media_group.append(InputMediaPhoto(media=fh, caption=cap_text, parse_mode=ParseMode.MARKDOWN))
+
+                try:
+                    await context.bot.send_media_group(chat_id=chat_id, media=media_group)
+                finally:
+                    for fh in file_handles:
+                        try:
+                            fh.close()
+                        except Exception:
+                            pass
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="⚠️ _Kamera webcam tidak menghasilkan gambar (sensor sedang digunakan aplikasi lain atau tidak tersedia)._",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+        except Exception as e:
+            agent_logger.log_error("emergency.camera", f"Gagal multi-foto: {e}")
+
+        # 3. Lokasi Geografis & Pin Peta Telegram
+        try:
+            from tools import ambil_lokasi_laptop
+            loc = await asyncio.to_thread(ambil_lokasi_laptop)
+            if loc.get("status") == "success" and loc.get("lat") and loc.get("lon"):
+                # Kirim pin peta interaktif asli Telegram
+                await context.bot.send_location(
+                    chat_id=chat_id,
+                    latitude=loc["lat"],
+                    longitude=loc["lon"],
+                )
+                loc_text = (
+                    f"📍 **[BUKTI 3/3] Posisi Geografis Laptop Presisi Tinggi**\n"
+                    f"• **Metode Sensor**: `{loc.get('metode', 'Windows GPS / Wi-Fi')}`\n"
+                    f"• **Tingkat Akurasi**: `{loc.get('akurasi', 'Tinggi')}`\n"
+                    f"• **Alamat Terdeteksi**: `{loc.get('alamat', '-')}`\n"
+                    f"• **Kota / Wilayah**: `{loc.get('kota', '-')}, {loc.get('provinsi', '-')}`\n"
+                    f"• **Provider / Jaringan**: `{loc.get('isp', '-')} ({loc.get('ip', '-')})`\n"
+                    f"• **Koordinat GPS**: `{loc['lat']:.6f}, {loc['lon']:.6f}`\n"
+                    f"• 🗺️ [Buka Lokasi di Google Maps]({loc.get('maps_url', '')})"
+                )
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=loc_text,
+                    parse_mode=ParseMode.MARKDOWN,
+                    disable_web_page_preview=False,
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"⚠️ _Gagal mendeteksi koordinat lokasi: {loc.get('pesan', 'Koneksi jaringan tidak merespon')}_",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+        except Exception as e:
+            agent_logger.log_error("emergency.location", f"Gagal deteksi lokasi: {e}")
+
+        # 4. Kunci Layar Laptop (Lock Workstation)
+        lock_ok = False
+        try:
+            import ctypes
+            ctypes.windll.user32.LockWorkStation()
+            lock_ok = True
+        except Exception as e:
+            agent_logger.log_error("emergency.lock", f"Gagal LockWorkStation: {e}")
+
+        try:
+            await alert_msg.delete()
+        except Exception:
+            pass
+
+        final_status = (
+            "🔒 **LAPTOP BERHASIL DIKUNCI & DIAMANKAN!**\n\n"
+            "🛡️ **Status Protokol Keamanan**:\n"
+            "• Layar Display: **Terekam** 🖥️\n"
+            "• Identitas Kamera: **Tercapture** 📸\n"
+            "• Posisi Geografis: **Terpetakan** 📍\n"
+            f"• Layar Windows: {'**TERKUNCI SECARA FISIK (Win+L)** 🔒' if lock_ok else '⚠️ Gagal panggil LockWorkStation'}\n\n"
+            "_Laptop kini berada di mode Lock Screen dan membutuhkan otentikasi fisik untuk dibuka kembali._"
+        )
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=final_status,
+            parse_mode=ParseMode.MARKDOWN,
+        )
 
     async def clip_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Mengambil teks yang sedang ada di clipboard laptop Windows."""
@@ -3174,6 +3374,11 @@ class TelegramAgentGateway:
             await self.cari_cmd(update, context)
             return
 
+        # Deteksi langsung: Mode Darurat (Emergency Mode)
+        if any(k in u_clean for k in ["emergency", "mode darurat", "darurat", "tolong kunci laptop", "amankan laptop", "kunci darurat", "protokol darurat"]):
+            await self.emergency_cmd(update, context)
+            return
+
         # Deteksi langsung: Kunci Layar Laptop (Lock Workstation)
         if any(k in u_clean for k in ["kunci laptop", "lock laptop", "kunci layar", "lock screen", "kunci pc", "lock pc", "ctrl + l", "ctrl+l"]):
             await self.lock_cmd(update, context)
@@ -3386,6 +3591,7 @@ class TelegramAgentGateway:
     async def post_init(self, application: Application) -> None:
         """Mendaftarkan menu tombol command interaktif di aplikasi Telegram."""
         commands = [
+            BotCommand("emergency", "🚨 Mode Darurat: Tangkap bukti, lokasi & kunci laptop"),
             BotCommand("status", "Dashboard monitoring laptop real-time"),
             BotCommand("agy", "🪐 Kendalikan Antigravity IDE (prompt, proceed, ss, open)"),
             BotCommand("sh", "⚡ Jalankan perintah sandboxed shell di laptop"),
@@ -3542,24 +3748,25 @@ class TelegramAgentGateway:
 
     def run(self) -> None:
         """Menjalankan bot Telegram polling daemon."""
-        # Bersihkan instance bot_telegram.py lain jika ada untuk mencegah Conflict 409
-        try:
-            import psutil
-            my_pid = os.getpid()
-            parent_pid = os.getppid() if hasattr(os, "getppid") else None
-            for p in psutil.process_iter(["pid", "name", "cmdline"]):
-                try:
-                    p_pid = p.info["pid"]
-                    if p_pid != my_pid and p_pid != parent_pid:
-                        p_name = (p.info.get("name") or "").lower()
-                        if p_name.startswith("python"):
-                            cmd = " ".join(p.info.get("cmdline") or [])
-                            if "bot_telegram.py" in cmd and "python -c" not in cmd:
-                                p.terminate()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        # Jika --force disetel, bersihkan instance bot_telegram.py lama
+        if "--force" in sys.argv:
+            try:
+                import psutil
+                my_pid = os.getpid()
+                parent_pid = os.getppid() if hasattr(os, "getppid") else None
+                for p in psutil.process_iter(["pid", "name", "cmdline"]):
+                    try:
+                        p_pid = p.info["pid"]
+                        if p_pid != my_pid and p_pid != parent_pid:
+                            p_name = (p.info.get("name") or "").lower()
+                            if p_name.startswith("python"):
+                                cmd = " ".join(p.info.get("cmdline") or [])
+                                if "bot_telegram.py" in cmd and "python -c" not in cmd:
+                                    p.terminate()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
         table = Table.grid(padding=(0, 1))
         table.add_column(style="bold cyan", justify="right")
@@ -3595,6 +3802,8 @@ class TelegramAgentGateway:
 
         app.add_handler(CommandHandler("start", self.start_cmd))
         app.add_handler(CommandHandler("help", self.help_cmd))
+        app.add_handler(CommandHandler("emergency", self.emergency_cmd))
+        app.add_handler(CommandHandler("darurat", self.emergency_cmd))
         app.add_handler(CommandHandler("provider", self.provider_cmd))
         app.add_handler(CommandHandler("models", self.models_cmd))
         app.add_handler(CommandHandler("model", self.model_cmd))

@@ -96,6 +96,7 @@ timeout /t 2 /nobreak >nul
 :launch_telegram_gateway
 :: 3.2. Luncurkan Window 2: Telegram Mobile Gateway di jendela CMD terpisah
 echo [*] [2/3] Meluncurkan Telegram Mobile Gateway...
+set "TELEAGENT_MANAGED_BOT=1"
 start "TeleAgent - Telegram Mobile Gateway" cmd /k call start_bot.bat
 
 :: 3.3. Jalankan Window 3: TeleAgent (TUI) di jendela saat ini

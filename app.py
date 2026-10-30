@@ -21,19 +21,38 @@ _bot_process: subprocess.Popen | None = None
 def mulai_server_bot_telegram() -> None:
     """Memulai bot Telegram di background jika token sudah dikonfigurasi dan belum aktif."""
     global _bot_process
+
+    # 1. Jika gateway Telegram dikelola oleh launcher induk (run.bat / system_restart.py), jangan spawn ganda
+    if os.environ.get("TELEAGENT_MANAGED_BOT") == "1":
+        return
+
     token = config_manager.get_telegram_token() or os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         return
 
-    # Jika bot_telegram.py sudah berjalan di window lain (misal dari run.bat), jangan spawn ganda
+    # 2. Cek apakah Telegram Gateway sudah aktif via lock port 48123
+    try:
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.2)
+            if s.connect_ex(("127.0.0.1", 48123)) == 0:
+                return  # Gateway sudah aktif di jendela / background lain
+    except Exception:
+        pass
+
+    # 3. Robust process scan dengan perlindungan per-proses terhadap AccessDenied
     try:
         import psutil
         my_pid = os.getpid()
-        for p in psutil.process_iter(["pid", "cmdline"]):
-            if p.info["pid"] != my_pid:
-                cmd = " ".join(p.info.get("cmdline") or [])
+        for p in psutil.process_iter():
+            try:
+                if p.pid == my_pid:
+                    continue
+                cmd = " ".join(p.cmdline() or [])
                 if "bot_telegram.py" in cmd:
                     return
+            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                continue
     except Exception:
         pass
 

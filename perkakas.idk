@@ -11,6 +11,7 @@ dari typing impor Any
 
 dari logger impor agent_logger
 dari memori impor pengelola_memori
+dari tools impor ambil_lokasi_laptop, ambil_multi_foto_kamera
 
 
 # Pola perintah berbahaya yang diblokir untuk keamanan sistem
@@ -1696,6 +1697,8 @@ ALAT_TERSEDIA = {
     "kunci_laptop": lock_laptop,
     "lock_screen": lock_laptop,
     "kunci_layar": lock_laptop,
+    "ambil_lokasi_laptop": ambil_lokasi_laptop,
+    "ambil_multi_foto_kamera": ambil_multi_foto_kamera,
 }
 
 DAFTAR_PANGGILAN_ALAT = [
